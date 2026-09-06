@@ -1977,7 +1977,9 @@ function main() {
   // computed offset lives here instead of being clobbered by updateWheelPositions.
   const wheelObjs = {};
   const wheelBaseY = {};
-  if (built.car && CAR_WHEELS) {
+  // CAR_WHEELS is {} when the shared wheel meshes weren't available (no race.res);
+  // the body still renders, just without wheels. updateWheelPositions() no-ops too.
+  if (built.car && CAR_WHEELS && CAR_WHEELS.front_left) {
     for (const key of ["front_left", "front_right", "rear_left", "rear_right"]) {
       const {group, meshesByMaterial} = buildPartGroup(CAR_WHEELS[key]);
       built.car.group.add(group);
@@ -2709,11 +2711,10 @@ def build_shell_html(
     # 68.3MB. Resolving every material name used ANYWHERE up front, once, and
     # having every consumer (tabs, wheels, Parts preview) share that single lookup
     # brought it back down -- see buildPartGroup's use of the global TEXTURES.
-    all_material_names = (
-        {m.name for m in live.chassis.materials}
-        | {m.name for m in live.front_wheel_left.materials}
-        | {m.name for m in live.rear_wheel_left.materials}
-    )
+    all_material_names = {m.name for m in live.chassis.materials}
+    if live.has_wheels:
+        all_material_names |= {m.name for m in live.front_wheel_left.materials}
+        all_material_names |= {m.name for m in live.rear_wheel_left.materials}
     if cockpit_result is not None:
         all_material_names |= {m.name for m in cockpit_result.mesh.materials}
     if ball_mesh is not None:
@@ -2723,12 +2724,14 @@ def build_shell_html(
             all_material_names |= entry[1]
     all_textures = _build_texture_map(car_path, all_material_names, paint_texture=default_paint_texture)
 
+    # No shared wheel meshes (viewed without race.res) -> an empty wheel set; the
+    # client renders the body without wheels rather than failing to build at all.
     car_wheels = {
         "front_left": mod.to_obj(live.front_wheel_left, "car.mtl")[0],
         "front_right": mod.to_obj(live.front_wheel_right, "car.mtl")[0],
         "rear_left": mod.to_obj(live.rear_wheel_left, "car.mtl")[0],
         "rear_right": mod.to_obj(live.rear_wheel_right, "car.mtl")[0],
-    }
+    } if live.has_wheels else {}
 
     mod_parts_obj = {name: (entry[0] if entry is not None else None) for name, entry in mod_parts.items()}
 

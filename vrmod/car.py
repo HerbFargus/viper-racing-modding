@@ -218,13 +218,21 @@ class LiveCarAssembly:
     live-editing UI recomputing position on every keystroke), rather than needing a
     fresh assemble_car() call per edit."""
     chassis: mod.Mesh
-    front_wheel_left: mod.Mesh
-    front_wheel_right: mod.Mesh
-    rear_wheel_left: mod.Mesh
-    rear_wheel_right: mod.Mesh
+    # The 4 wheel corners come from the SHARED meshes in race.res, not the car.
+    # They are None when those shared meshes aren't reachable (e.g. a community
+    # car viewed without a race.res beside it) -- the body still renders, just
+    # without wheels. Callers check `has_wheels` / parts_found before using them.
+    front_wheel_left: mod.Mesh | None
+    front_wheel_right: mod.Mesh | None
+    rear_wheel_left: mod.Mesh | None
+    rear_wheel_right: mod.Mesh | None
     stats: dict[str, float]
     prefix: str
     parts_found: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def has_wheels(self) -> bool:
+        return self.front_wheel_left is not None
 
 
 def assemble_car_live(car_path: str | Path, wheel_radius: float | None = None) -> LiveCarAssembly:
@@ -253,7 +261,14 @@ def assemble_car_live(car_path: str | Path, wheel_radius: float | None = None) -
     front_wheel_raw = find_shared(car_path, entries, "fwheel_1.mod")
     rear_wheel_raw = find_shared(car_path, entries, "wheel_1.mod")
     if front_wheel_raw is None or rear_wheel_raw is None:
-        raise ValueError("couldn't find shared wheel meshes (fwheel_1.mod/wheel_1.mod) -- can't build wheels")
+        # The shared wheel meshes live in race.res, not this car. Without them
+        # (a car viewed with no race.res beside it -- the community-gallery case)
+        # render the body and its own parts wheel-less rather than failing.
+        return LiveCarAssembly(
+            chassis=chassis, front_wheel_left=None, front_wheel_right=None,
+            rear_wheel_left=None, rear_wheel_right=None,
+            stats=stats, prefix=prefix, parts_found=parts_found,
+        )
     front_wheel = mod.parse(front_wheel_raw)
     rear_wheel = mod.parse(rear_wheel_raw)
     parts_found["wheel_front"] = "fwheel_1.mod"
