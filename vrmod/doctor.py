@@ -51,6 +51,13 @@ LEFTOVER_GLOBS = (
     "*_AS_*.btr", "*.trm",
 )
 
+# Retail disc-check components. Viper Racing shipped on CD and checks for the
+# disc at launch; these are the files a retail-derived install carries. We only
+# DETECT them (so a user knows whether to expect the "insert the CD" prompt) --
+# analysing or defeating the protection is out of scope, see disc_check().
+DISC_LAUNCHER = "Viper Racing.exe"   # the launcher, in the game root (Data's parent)
+DISC_HELPER = "findviper.exe"        # the disc-locator helper, ships in Data
+
 
 @dataclass
 class Finding:
@@ -85,6 +92,26 @@ def race_bin_version(data_dir: Path) -> str | None:
     blob = f.read_bytes()
     m = re.search(rb"v\d+\.\d+\.\d+[ -~]{0,12}", blob)
     return m.group(0).decode("ascii", "replace").strip() if m else None
+
+
+def disc_check(data_dir: Path) -> list[Path]:
+    """Retail disc-check components present in this install, if any.
+
+    Viper Racing was released on CD and checks for the disc at launch. This
+    reports which retail disc-check files are present -- purely so a user knows
+    whether to expect the "insert the CD" prompt. It deliberately does NOT read,
+    analyse, or defeat the protection: whether a given install still requires the
+    disc can only be confirmed by launching without it (a no-CD patch, which this
+    toolkit neither makes nor detects, would change that).
+    """
+    data_dir = Path(data_dir)
+    # The launcher sits in the game root for an installed copy, but inside Data on
+    # the CD layout, so check both; the disc helper ships in Data. Dedupe by name.
+    found: dict[str, Path] = {}
+    for p in (data_dir.parent / DISC_LAUNCHER, data_dir / DISC_LAUNCHER, data_dir / DISC_HELPER):
+        if p.is_file():
+            found.setdefault(p.name, p)
+    return list(found.values())
 
 
 def video_mode(data_dir: Path) -> int | None:
@@ -220,6 +247,32 @@ def check(data_dir: str | Path) -> Report:
                     "original running on modern graphics cards, and raise the polygon and "
                     "vertex limits (v1.2.5 allows 95,000-polygon tracks and 20,000 vertices "
                     "per object)."))
+
+    # ---- the retail CD check (informational only) -----------------------
+    # Viper Racing shipped on CD and checks for the disc at launch. We report
+    # whether this looks like a retail-derived install so people know to expect
+    # the "insert the CD" prompt; we do NOT analyse or bypass the protection --
+    # no-CD patching is circumvention and out of scope. The definitive test for
+    # any given install is launching with no disc in the drive.
+    present = [p.name for p in disc_check(data_dir)]
+    if present:
+        add(Finding(INFO, "Retail disc check: the game CD is normally required",
+                    "Viper Racing was released on CD and checks for the disc at launch. This "
+                    "install carries the retail disc-check components (" + ", ".join(present) +
+                    "), so expect an \"insert the CD\" prompt unless you have an official "
+                    "release that doesn't need it. Note the community race.bin (v1.2.5) patches "
+                    "the graphics-card check and the polygon/vertex limits -- NOT the disc "
+                    "check -- so a patched race.bin still needs the CD. The reliable way to "
+                    "know for THIS install: start the game with no disc in the drive; if it "
+                    "runs, you don't need it.",
+                    fix="Keep the Viper Racing CD in the drive to play, or use an official "
+                        "release that doesn't require the disc."))
+    else:
+        add(Finding(INFO, "Retail disc check: components not found beside this folder",
+                    "The retail launcher/disc helper weren't found next to this Data folder, so "
+                    "this may be a repackaged or partial copy. Viper Racing's retail release "
+                    "checks for the CD at launch; the reliable way to know whether this install "
+                    "needs the disc is to start it with no disc in the drive."))
 
     # ---- the vrmod patch set --------------------------------------------
     try:
