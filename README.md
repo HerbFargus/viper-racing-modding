@@ -39,5 +39,7 @@ The `vrmod` package is self-contained (pure standard library apart from
 
 ## Status
 
-Phase 1 (desktop shell) is in place. Still to do: bundle three.js locally so the
-3D viewers work offline, then package to a standalone `.exe` with PyInstaller.
+- Phase 1 (desktop shell) — done.
+- Phase 2 (offline-ready) — done: three.js r128 is bundled at `vrmod/assets/three.min.js`
+  and inlined into the viewers at build time, so the 3D views work with no internet.
+- Phase 3 (packaging) — to do: a PyInstaller `.exe` (must bundle `vrmod/assets/`).

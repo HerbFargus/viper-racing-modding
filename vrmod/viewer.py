@@ -146,10 +146,9 @@ function main() {
   if (typeof THREE === "undefined") {
     const el = document.getElementById("fatal-error");
     el.style.display = "block";
-    el.textContent = "three.js failed to load from the CDN (cdnjs.cloudflare.com) -- "
-      + "this page needs internet access on open. If you have internet, your browser "
-      + "or network may be blocking the script; check the browser console (F12) for "
-      + "the specific network error.";
+    el.textContent = "three.js (bundled with this tool) didn't initialize -- the 3D "
+      + "library failed to load. This shouldn't require internet; check the browser "
+      + "console (F12) for the specific error.";
     return;
   }
   buildStatsPanel();
@@ -1879,10 +1878,9 @@ function main() {
   if (typeof THREE === "undefined") {
     const el = document.getElementById("fatal-error");
     el.style.display = "block";
-    el.textContent = "three.js failed to load from the CDN (cdnjs.cloudflare.com) -- "
-      + "this page needs internet access on open. If you have internet, your browser "
-      + "or network may be blocking the script; check the browser console (F12) for "
-      + "the specific network error.";
+    el.textContent = "three.js (bundled with this tool) didn't initialize -- the 3D "
+      + "library failed to load. This shouldn't require internet; check the browser "
+      + "console (F12) for the specific error.";
     return;
   }
 
@@ -4625,3 +4623,35 @@ def build_gallery(
     index_html = _render_gallery_index(data_dir, result, title or f"{data_dir.name} gallery")
     (out_dir / "index.html").write_text(index_html, encoding="utf-8")
     return result
+
+
+# ---------------------------------------------------------------------------
+# Bundle three.js for offline use.
+#
+# Every 3D template loads three.js r128 from cdnjs. For the standalone app (and
+# any offline use) we inline a bundled copy at import time so the viewers work
+# with no internet. If the bundled file is missing, the original CDN <script src>
+# is left untouched, so an online run still works -- nothing is lost either way.
+# This runs once here, after all templates are defined, and every build_* helper
+# inherits the inlined version because they read these module globals at call time.
+# ---------------------------------------------------------------------------
+_THREE_CDN_TAG = (
+    '<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>'
+)
+
+
+def _threejs_inline_tag() -> str | None:
+    """The bundled three.js wrapped in an inline <script>, or None if absent."""
+    p = Path(__file__).parent / "assets" / "three.min.js"
+    try:
+        return "<script>" + p.read_text(encoding="utf-8") + "</script>"
+    except OSError:
+        return None
+
+
+_three_inline = _threejs_inline_tag()
+if _three_inline is not None:
+    _TEMPLATE = _TEMPLATE.replace(_THREE_CDN_TAG, _three_inline)
+    _PART_TEMPLATE = _PART_TEMPLATE.replace(_THREE_CDN_TAG, _three_inline)
+    _SHELL_TEMPLATE = _SHELL_TEMPLATE.replace(_THREE_CDN_TAG, _three_inline)
+    _TRACK_TEMPLATE = _TRACK_TEMPLATE.replace(_THREE_CDN_TAG, _three_inline)
