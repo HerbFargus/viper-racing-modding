@@ -748,6 +748,11 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   body.mod-mode #mod-toggle{background:#7a5220;border-color:#ffce8a;color:#fff}
   #textures-btn,#parts-btn,#sound-btn,#commit-btn{display:none}
   body.mod-mode #textures-btn,body.mod-mode #parts-btn,body.mod-mode #sound-btn,body.mod-mode #commit-btn{display:inline-block}
+  /* View-only (public gallery): no way into mod mode at all -- the "Mod it!"
+     entry point is gone, and every mod affordance stays behind it. */
+  body.view-only #mod-toggle,body.view-only #commit-btn,
+  body.view-only #stats-btn,body.view-only #cockpit-configs-btn,
+  body.view-only #textures-btn,body.view-only #parts-btn,body.view-only #sound-btn{display:none!important}
   #commit-btn{background:#1a5c2e;border-color:#2e8a4e}
   #commit-btn:hover{background:#206e38}
   #commit-btn:disabled{background:#14161c;border-color:#3a3f4e;color:#5a5f6e;cursor:default}
@@ -924,7 +929,7 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
     });
   });
 </script>
-</head><body>
+</head><body class="__BODY_CLASS__">
 <header id="topbar">
   <div id="car-name">__CAR_TITLE__<span class="file">__CAR_FILE__</span></div>
   <nav id="tabs"></nav>
@@ -2544,6 +2549,7 @@ window.addEventListener("load", main);
 
 def build_shell_html(
     car_path: str | Path, paint_dir: str | Path | None = None, title: str | None = None,
+    view_only: bool = False,
 ) -> str:
     """The integrated mod-tool shell: a Car/Cockpit/Horn Ball tab strip over one 3D
     view, with drawers (Car Configs, Cockpit Configs, Textures, Parts, Sound) as
@@ -2757,6 +2763,7 @@ def build_shell_html(
             car_roles["hornball"] = "ball.mod"
 
     html = _SHELL_TEMPLATE
+    html = html.replace("__BODY_CLASS__", "view-only" if view_only else "")
     html = html.replace("__TITLE__", title or f"{live.prefix} mod tool")
     html = html.replace("__CAR_TITLE__", live.prefix)
     html = html.replace("__CAR_FILE__", html_escape.escape(Path(car_path).name))
@@ -2797,6 +2804,9 @@ _TRACK_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   body.modding #canvas-wrap{right:320px}
   #panel{display:none}
   body.modding #panel{display:block}
+  /* View-only (public gallery): no "Mod it!" (so the Textures panel and its
+     Save are unreachable) and no "Save menu picture" writes. */
+  body.view-only #mod-btn,body.view-only #shot-btn,body.view-only #shot-btn2{display:none!important}
   #corner{position:absolute;top:14px;right:16px;z-index:6;display:flex;gap:8px;
     transition:right .18s ease}
   body.modding #corner{right:336px}
@@ -2903,7 +2913,7 @@ _TRACK_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   });
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-</head><body>
+</head><body class="__BODY_CLASS__">
 <div id="canvas-wrap"></div>
 <div id="corner">
   <!-- Sizing and driving are things you do to the VIEW, so they live on the
@@ -4341,26 +4351,19 @@ def _track_display_name(trk_path: Path) -> str:
     return name or trk_path.stem
 
 
-def build_track_viewer_html(trk_path: str | Path, title: str | None = None) -> str:
-    """Assemble a track's visual mesh (grf.py, read-only -- see that module's
-    docstring for what is and isn't understood yet) into a free-orbit viewer
-    with a Textures drawer, mirroring the car shell's Textures drawer/Save
-    flow but scoped to just textures (no stats/parts/sounds -- there's no
-    write path for the mesh itself yet, only for texture entries).
+def _track_render_mesh(trk_path: str | Path) -> "mod.Mesh":
+    """The track's full drawable mesh: track.grf plus every standalone .mod whose
+    materials all resolve to a texture present in the archive, merged into one.
 
-    track.grf isn't always the whole visible scene: some tracks also carry
-    standalone .mod entries in the same archive (dundas has a ground.mod
-    holding a big terrain/road slab squarely inside the track's own bounds,
-    plus four tracks carry a checkpt1.mod). Those are merged in here, since
-    leaving them out shows up directly as missing road/terrain when
-    comparing against 3DSimED."""
+    Shared by the 3D track viewer and the track thumbnail (carshot.track_to_png)
+    so both draw exactly the same geometry from one definition.
+    """
     trk_path = Path(trk_path)
     entries = archive.read(trk_path)
     grf_entry = next((e for e in entries if e.name.lower() == "track.grf"), None)
     if grf_entry is None:
         raise ValueError(f"no track.grf entry found in {trk_path}")
-    grf_bytes = envelope.build(grf_entry.tag, grf_entry.version, grf_entry.payload)
-    grf_mesh = grf.parse(grf_bytes)
+    grf_mesh = grf.parse(envelope.build(grf_entry.tag, grf_entry.version, grf_entry.payload))
 
     have = {e.name.lower() for e in entries}
     parts = [grf_mesh.mesh]
@@ -4382,13 +4385,33 @@ def build_track_viewer_html(trk_path: str | Path, title: str | None = None) -> s
         if not part.materials or not all(m.name.lower() in have for m in part.materials):
             continue
         parts.append(_drop_out_of_range_faces(part))
-    combined = mod.merge(parts) if len(parts) > 1 else grf_mesh.mesh
+    return mod.merge(parts) if len(parts) > 1 else grf_mesh.mesh
+
+
+def build_track_viewer_html(trk_path: str | Path, title: str | None = None,
+                            view_only: bool = False) -> str:
+    """Assemble a track's visual mesh (grf.py, read-only -- see that module's
+    docstring for what is and isn't understood yet) into a free-orbit viewer
+    with a Textures drawer, mirroring the car shell's Textures drawer/Save
+    flow but scoped to just textures (no stats/parts/sounds -- there's no
+    write path for the mesh itself yet, only for texture entries).
+
+    track.grf isn't always the whole visible scene: some tracks also carry
+    standalone .mod entries in the same archive (dundas has a ground.mod
+    holding a big terrain/road slab squarely inside the track's own bounds,
+    plus four tracks carry a checkpt1.mod). Those are merged in here, since
+    leaving them out shows up directly as missing road/terrain when
+    comparing against 3DSimED."""
+    trk_path = Path(trk_path)
+    entries = archive.read(trk_path)          # kept for the length readout below
+    combined = _track_render_mesh(trk_path)
 
     obj_text, _mtl_text = mod.to_obj(combined, "track.mtl")
     texture_names = {m.name for m in combined.materials if m.name}
     textures, texture_wraps = _build_track_texture_map(trk_path, texture_names)
 
     html = _TRACK_TEMPLATE
+    html = html.replace("__BODY_CLASS__", "view-only" if view_only else "")
     # Label the track the way the switcher does: the in-game display name
     # from english.lng over the actual filename. They diverge as soon as
     # anything is installed into a slot -- a modded track sitting in the

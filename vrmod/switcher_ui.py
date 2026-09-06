@@ -125,6 +125,7 @@ body.resizing #frame{pointer-events:none}   /* keep the drag out of the iframe *
 .item .shot,.item .map{flex:1 1 0;min-width:0;height:62px;border-radius:4px;
       background:#000;border:1px solid #10131a}
 .item .shot{object-fit:cover}
+.item .shot.gen{object-fit:contain;background:#12141a}
 .item .carshot{flex:1 1 0;min-width:0;height:80px;border-radius:4px;background:#191c22;
       border:1px solid #10131a;object-fit:contain}
 .item .map{object-fit:contain}
@@ -480,11 +481,16 @@ function libraryItems(){
 function itemKey(i){ return i.kind + ':' + i.name; }
 
 function trackThumbs(t){
-  const shot = t.preview ? '/preview/'+encodeURIComponent(t.preview)
+  const game = t.preview ? '/preview/'+encodeURIComponent(t.preview)
              : t.stp ? '/stp/'+encodeURIComponent(t.stp)
              : t.slot ? '/icon/'+t.slot+'.png' : '';
+  // No in-game menu picture -> render the track's own 3D mesh (same wireframe
+  // look as the car thumbnails) so it still shows something drawn from its
+  // geometry rather than a blank. "gen" switches the fit to contain, since a
+  // rendered wireframe wants the whole frame, unlike a cropped photo.
+  const shot = game || '/trackshot/'+encodeURIComponent(t.name);
   return `<div class="shots">
-    ${shot?`<img class="shot" src="${shot}" alt="" onerror="this.style.visibility='hidden'">`:''}
+    <img class="shot${game?'':' gen'}" src="${shot}" alt="" onerror="this.style.visibility='hidden'">
     <img class="map" src="/map/${encodeURIComponent(t.name)}" alt="" onerror="this.style.visibility='hidden'">
   </div>`;
 }
@@ -969,6 +975,7 @@ refresh();
 
 _MAP_CACHE: dict = {}
 _SHOT_CACHE: dict = {}
+_TRACKSHOT_CACHE: dict = {}
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):
@@ -1049,6 +1056,27 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                     return self._send(404, "text/plain", b"no body mesh")
                 _SHOT_CACHE.clear()      # keyed by mtime, so stale entries are dead weight
                 _SHOT_CACHE[key] = hit
+            return self._send(200, "image/png", hit)
+        if self.path.startswith("/trackshot/"):
+            # A track with no menu picture (an add-on that ships neither a .jpg
+            # nor a .stp) would otherwise show only its flat outline. Render its
+            # 3D scenery mesh instead -- the same wireframe carshot draws for a
+            # car (see carshot.track_to_png), so every track has a preview drawn
+            # from its own geometry. ~0.15s, cached by mtime like /carshot.
+            from urllib.parse import unquote
+            name = unquote(self.path[len("/trackshot/"):])
+            f = d / name
+            if f.parent.resolve() != d.resolve() or not f.is_file():
+                return self._send(404, "text/plain", b"not found")
+            key = (str(f), f.stat().st_mtime_ns)
+            hit = _TRACKSHOT_CACHE.get(key)
+            if hit is None:
+                try:
+                    hit = carshot.track_to_png(f)
+                except Exception:
+                    return self._send(404, "text/plain", b"no mesh")
+                _TRACKSHOT_CACHE.clear()
+                _TRACKSHOT_CACHE[key] = hit
             return self._send(200, "image/png", hit)
         if self.path.startswith("/icon/"):
             # Stock menu screenshots, pre-converted from each <slot>.stp in

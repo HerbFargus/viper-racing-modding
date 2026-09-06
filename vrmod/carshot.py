@@ -254,3 +254,33 @@ def to_png(car_path: str | Path, style: str = "wire", wheels: bool = True, **kw)
     pixels, w, h = render(mesh, style=style, **kw)
     rows = [bytearray(pixels[y * w * 3:(y + 1) * w * 3]) for y in range(h)]
     return viewer._rgb_png(w, h, rows)
+
+
+# Tracks are wide, near-flat layouts, so a steeper look-down than the car's 18
+# degrees reads far better -- you see the circuit shape, not an edge-on smear.
+# Wireframe (like the cars), not shaded: hidden-line removal keeps a track's
+# few-thousand-face scenery readable rather than a ball of string, and unlike
+# the flat-grey shaded form it shows the circuit winding through the terrain --
+# the track's identifying feature. Same cheap software path as the car shot
+# (~0.15s), since track meshes are only 4-8k faces.
+TRACK_YAW = 30.0
+TRACK_PITCH = 38.0
+TRACK_WIDTH = 260
+TRACK_HEIGHT = 150
+
+
+def track_to_png(trk_path: str | Path, style: str = "wire", **kw) -> bytes:
+    """Render a track's 3D scenery mesh straight to PNG bytes -- the track
+    counterpart to to_png, drawn from the very same geometry the 3D viewer shows
+    (viewer._track_render_mesh) and in the same blueprint-wire style, for one
+    consistent gallery look. Pass style="shaded" for a solid form instead;
+    trackmap.render is the cheaper top-down-outline alternative."""
+    from . import viewer
+    mesh = viewer._track_render_mesh(Path(trk_path))
+    kw.setdefault("yaw", TRACK_YAW)
+    kw.setdefault("pitch", TRACK_PITCH)
+    kw.setdefault("width", TRACK_WIDTH)
+    kw.setdefault("height", TRACK_HEIGHT)
+    pixels, w, h = render(mesh, style=style, **kw)
+    rows = [bytearray(pixels[y * w * 3:(y + 1) * w * 3]) for y in range(h)]
+    return viewer._rgb_png(w, h, rows)

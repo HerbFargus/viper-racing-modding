@@ -32,14 +32,26 @@ from __future__ import annotations
 import struct
 from pathlib import Path
 
-from capstone import CS_ARCH_X86, CS_MODE_32, Cs
-
 RACE_BIN = "race.bin"
 STRIDE = 32                       # bytes per .mod vertex record
 FORMAT_CAP_VERTS = 32768          # int16 face indices address at most 32,767; 32,768 covers it
 _MIN_VERTS, _MAX_VERTS = 1000, 60000   # plausible stock buffer range, in vertices
 
-_MD = Cs(CS_ARCH_X86, CS_MODE_32)
+_MD_CACHE = []
+
+
+def _md():
+    """Lazily build the capstone disassembler.
+
+    capstone is imported here, not at module load, so the rest of vrmod (parsers,
+    viewers, the web UI) imports with no third-party dependency at all -- which is
+    what lets it run under Pyodide/WASM, where capstone isn't available. Only the
+    race.bin vertex-buffer patch actually needs it, and only when it runs.
+    """
+    if not _MD_CACHE:
+        from capstone import CS_ARCH_X86, CS_MODE_32, Cs
+        _MD_CACHE.append(Cs(CS_ARCH_X86, CS_MODE_32))
+    return _MD_CACHE[0]
 
 
 class PatchError(RuntimeError):
@@ -85,7 +97,7 @@ def find_site(blob: bytes) -> dict:
         va = _f2va(secs, j)
         if va is None:
             continue
-        insns = list(_MD.disasm(blob[j:j + 40], va))
+        insns = list(_md().disasm(blob[j:j + 40], va))
         if not insns or insns[0].mnemonic != "push":
             continue
         # the first thing after the push must be the malloc call (nothing may touch esp)
