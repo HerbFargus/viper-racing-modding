@@ -21,6 +21,20 @@ The app opens on a landing screen; choose your Viper Racing **Data** folder (the
 one containing `race.bin` and your `.car` files) and it remembers it next time.
 Use **Change folder** in the header to switch installs.
 
+## Building the standalone .exe
+
+With the venv set up (above), plus PyInstaller (`pip install pyinstaller`):
+
+```bash
+.venv\Scripts\python -m PyInstaller --noconfirm viper-mod-manager.spec
+```
+
+Produces a one-folder build in `dist\ViperModManager\` — ship the whole folder;
+`ViperModManager.exe` is the launcher. The spec bundles `vrmod/assets/`
+(three.js + slot icons), capstone's native lib, and pywebview's backend. To see
+a startup traceback while debugging a build, flip `console=False` to `True` in
+the spec.
+
 ## Command line (power users)
 
 The `vrmod` package is self-contained (pure standard library apart from
@@ -42,4 +56,6 @@ The `vrmod` package is self-contained (pure standard library apart from
 - Phase 1 (desktop shell) — done.
 - Phase 2 (offline-ready) — done: three.js r128 is bundled at `vrmod/assets/three.min.js`
   and inlined into the viewers at build time, so the 3D views work with no internet.
-- Phase 3 (packaging) — to do: a PyInstaller `.exe` (must bundle `vrmod/assets/`).
+- Phase 3 (packaging) — done: `viper-mod-manager.spec` builds a one-folder
+  `dist\ViperModManager\` (three.js, slot icons, capstone.dll, and pywebview's
+  backend all bundled; launches windowed). See "Building the standalone .exe".
