@@ -88,6 +88,32 @@ class ArchiveEntry:
         return envelope.build(self.tag, self.version, self.payload)
 
 
+# Some community cars -- Frank P. Wolf's SCGT/NFS conversions -- carry a trailing
+# run of decoy directory entries after the real members: names "lockd1.tab" ..
+# "lockdN.tab" (up to 975 of them), tag STAB, 12 bytes each, and NO payload data
+# behind them. They pad the directory but the game ignores them (it reads only
+# the real, "core" members), so a straight payload walk hits the first decoy --
+# right where the real content ends -- and finds no chunk marker. Nothing in the
+# preserved toolchain (rescrack/mkres) or Frank's own docs treats this as a
+# protection; the real members are fully intact and already read by the time the
+# walk reaches the padding. So we recognise this exact signature and stop cleanly
+# rather than failing. See read_bytes. (A car re-packed after such a read comes
+# out as a normal archive with the decoys dropped, which is harmless -- the game
+# never used them.)
+_DECOY_TAG = b"BATS"          # "STAB" reversed (see envelope.py)
+_DECOY_SIZE = 12
+
+
+def _is_decoy_tail(remaining: list[tuple]) -> bool:
+    """True iff every remaining directory entry is a lockd*.tab STAB decoy -- the
+    tight signature above, so a genuinely corrupt archive still raises."""
+    return bool(remaining) and all(
+        tag == _DECOY_TAG and payload_size == _DECOY_SIZE
+        and name.lower().startswith("lockd") and name.lower().endswith(".tab")
+        for (name, tag, _version, payload_size) in remaining
+    )
+
+
 def read(path: Path | str) -> list[ArchiveEntry]:
     return read_bytes(Path(path).read_bytes())
 
@@ -112,9 +138,14 @@ def read_bytes(data: bytes) -> list[ArchiveEntry]:
 
     cursor = dir_start + entry_count * ENTRY_SIZE
     entries = []
-    for name, tag, version, payload_size in meta:
+    for idx, (name, tag, version, payload_size) in enumerate(meta):
         marker = data[cursor + 4:cursor + 8]
         if marker != envelope.MARKER:
+            # A trailing run of lockd*.tab decoys (see _is_decoy_tail) is the one
+            # non-marker we tolerate: every real member is already read, and the
+            # rest is padding the game ignores. Anything else is a real problem.
+            if _is_decoy_tail(meta[idx:]):
+                break
             raise ValueError(
                 f"{name!r}: expected chunk marker {envelope.MARKER!r} at offset "
                 f"{cursor + 4}, got {marker!r} -- archive layout assumption broken"
