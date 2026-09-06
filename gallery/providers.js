@@ -16,11 +16,22 @@ const LIBRARIAN_GLUE = `
 import json
 from pathlib import Path
 import vrmod.switcher_ui as sui
-from vrmod import switcher, viewer
+from vrmod import switcher, viewer, car
 DATA = Path('/data')
 
 def gallery_status():
-    return json.dumps(sui._status_payload(DATA))
+    st = sui._status_payload(DATA)
+    # Attach each car's portability verdict (car.texture_provenance) so the grid
+    # can flag a car that leans on files it doesn't ship -- "incomplete".
+    for c in st.get('cars', []):
+        if c.get('error'):
+            continue
+        try:
+            f = switcher.find_car(DATA, c['name'])
+            c['provenance'] = car.texture_provenance(f)['verdict']
+        except Exception:
+            c['provenance'] = None
+    return json.dumps(st)
 
 def gallery_car_html(name):
     f = switcher.find_car(DATA, name)
@@ -68,6 +79,7 @@ class LocalFolderProvider {
     const st = JSON.parse(this.glue.gallery_status());
     const cars = (st.cars || []).map(c => ({
       kind:"car", file:c.name, name:c.stem, active:c.active, error:c.error,
+      verdict: c.provenance,   // self-contained | portable | incomplete | null
       sub: c.error ? c.error
          : `${c.parts} parts${c.cockpit ? " · cockpit" : ""}${c.needs_patch ? " · needs patch" : ""}`,
     }));

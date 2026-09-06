@@ -94,7 +94,13 @@ function addCard(grid, item){
   const shot = document.createElement("div"); shot.className = "shot"; shot.textContent = "…";
   const meta = document.createElement("div"); meta.className = "meta";
   const dot = `<span class="dot ${item.active ? "on" : "off"}"></span>`;
-  meta.innerHTML = `<div class="name">${dot}${item.name}</div>` +
+  // Flag the one verdict that's actionable when browsing: a car that references
+  // textures it doesn't ship (see car.texture_provenance) renders wrong for
+  // anyone who downloads it. Self-contained/portable are both fine, so no chip.
+  const chip = item.verdict === "incomplete"
+    ? ` <span class="vchip incomplete" title="References textures it doesn't ship — renders wrong for anyone who downloads it">⚠ incomplete</span>`
+    : "";
+  meta.innerHTML = `<div class="name">${dot}${item.name}${chip}</div>` +
                    `<div class="sub${item.error ? " tag" : ""}">${item.sub}</div>`;
   card.appendChild(shot); card.appendChild(meta); grid.appendChild(card);
   if (item.error){ shot.textContent = "✕"; return; }

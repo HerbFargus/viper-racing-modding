@@ -830,6 +830,17 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   #hint2{font-size:.72rem;color:#8a90a4;margin-top:8px;display:none}
   body.mod-mode #hint2{display:block}
   #texture-list{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  /* Texture-provenance readout (car.texture_provenance) */
+  .prov-summary{grid-column:1/-1;font-size:12px;padding:8px 10px;border-radius:6px;line-height:1.45}
+  .prov-verdict-self-contained{background:#14301c;color:#9fe0b0;border:1px solid #2e6b40}
+  .prov-verdict-portable{background:#15233a;color:#9cc7f5;border:1px solid #2e4e7a}
+  .prov-verdict-incomplete{background:#3a1516;color:#f0a9a3;border:1px solid #7a2e2e}
+  .prov-badge{margin-left:6px;font-size:9px;text-transform:uppercase;letter-spacing:.04em;
+    padding:1px 5px;border-radius:4px;vertical-align:middle;cursor:help}
+  .prov-own{background:#1c3a26;color:#8fdca6}
+  .prov-shared{background:#1c2a44;color:#8fb8ef}
+  .prov-paint{background:#2e2444;color:#c3a9ef}
+  .prov-missing{background:#442022;color:#ef9a94}
   .swatch{border:2px solid #3a3f4e;border-radius:6px;overflow:hidden;background:#14161c}
   .swatch img{display:block;width:100%;aspect-ratio:1;object-fit:cover}
   .swatch .missing{width:100%;aspect-ratio:1;display:flex;align-items:center;justify-content:center;
@@ -1012,6 +1023,22 @@ const SHARED_PART_NAMES = new Set(__SHARED_PART_NAMES_JSON__);
 // Parts-drawer entry) -- see build_shell_html's docstring for why this is a single
 // shared lookup instead of each part embedding its own resolved copy.
 const TEXTURES = __TEXTURES_JSON__;
+// Texture provenance (car.texture_provenance): where each texture comes from, so
+// the Textures drawer can tell "borrowed from stock/paint (fine)" apart from
+// "missing (broken for anyone who downloads this car)". Lowercase name -> bucket.
+const PROVENANCE = __PROVENANCE_JSON__;
+const PROV_BUCKET = (() => {
+  const m = {};
+  for (const b of ["own", "shared", "paint", "missing"])
+    for (const n of (PROVENANCE[b] || [])) m[n.toLowerCase()] = b;
+  return m;
+})();
+const PROV_META = {
+  own:     {label: "own",     title: "shipped in this car -- renders anywhere"},
+  shared:  {label: "stock",   title: "a stock shared texture (race.res) -- every install has it"},
+  paint:   {label: "paint",   title: "the body-paint slot, set by the in-game Paint Kit"},
+  missing: {label: "missing", title: "NOT shipped, not stock, not paint -- will render wrong for anyone who downloads this car"},
+};
 const TAB_LABELS = {car: "Car", cockpit: "Cockpit", hornball: "Horn Ball"};
 const STATS = __STATS_JSON__;
 const SECTIONS = __SECTIONS_JSON__;
@@ -1354,16 +1381,38 @@ function attachDims(el, img) {
   if (img.complete && img.naturalWidth) write(); else img.addEventListener("load", write);
 }
 
+// Per-car portability verdict (car.texture_provenance), shown atop the drawer
+// regardless of the active tab, so a car that leans on files it doesn't ship
+// reads as clearly as one that's self-contained.
+function addProvenanceSummary(root) {
+  const v = PROVENANCE.verdict;
+  if (!v || v === "unknown") return;
+  const el = document.createElement("div");
+  el.className = "prov-summary prov-verdict-" + v;
+  el.innerHTML = {
+    "self-contained": "<b>Self-contained</b> &mdash; every texture ships in this car, so it renders anywhere.",
+    "portable": "<b>Portable</b> &mdash; leans only on stock shared textures and the Paint Kit, which every install has.",
+    "incomplete": "<b>&#9888; Incomplete</b> &mdash; references texture(s) it doesn't ship: <b>" +
+                  (PROVENANCE.missing || []).join(", ") +
+                  "</b>. These will render wrong for anyone who downloads this car.",
+  }[v] || v;
+  root.appendChild(el);
+}
+
 function buildTextureDrawer(meshesByMaterial) {
   const root = document.getElementById("texture-list");
   root.innerHTML = "";
   const statusEl = document.getElementById("import-tga-status");
   if (statusEl) statusEl.textContent = "";
+  addProvenanceSummary(root);
   // Which materials this tab actually shows -- taken from the meshes already
   // built for it (not a per-tab textures dict, see the TEXTURES const's comment).
   const names = meshesByMaterial ? Object.keys(meshesByMaterial) : [];
   if (names.length === 0) {
-    root.innerHTML = '<div class="empty">no materials found</div>';
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "no materials found";
+    root.appendChild(empty);
     return;
   }
   names.forEach(name => {
@@ -1384,6 +1433,14 @@ function buildTextureDrawer(meshesByMaterial) {
     const label = document.createElement("div");
     label.className = "name";
     label.textContent = name;
+    const bucket = PROV_BUCKET[name.toLowerCase()];
+    if (bucket) {
+      const badge = document.createElement("span");
+      badge.className = "prov-badge prov-" + bucket;
+      badge.textContent = PROV_META[bucket].label;
+      badge.title = PROV_META[bucket].title;
+      label.appendChild(badge);
+    }
     el.appendChild(label);
     if (dataUri) {
       const actions = document.createElement("div");
@@ -2771,6 +2828,11 @@ def build_shell_html(
     html = html.replace("__CAR_PATH_JSON__", json.dumps(str(car_path)))
     html = html.replace("__CAR_WHEELS_JSON__", json.dumps(car_wheels))
     html = html.replace("__TEXTURES_JSON__", json.dumps(all_textures))
+    try:
+        provenance = car.texture_provenance(car_path)
+    except Exception:
+        provenance = {"verdict": "unknown", "own": [], "shared": [], "paint": [], "missing": []}
+    html = html.replace("__PROVENANCE_JSON__", json.dumps(provenance))
     html = html.replace("__STATS_JSON__", json.dumps(live.stats))
     html = html.replace("__SECTIONS_JSON__", json.dumps(_SECTIONS))
     html = html.replace("__STOCK_RANGES_JSON__", json.dumps(STOCK_STAT_RANGES))
