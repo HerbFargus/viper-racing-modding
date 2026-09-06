@@ -322,6 +322,90 @@ def assemble_cockpit(car_path: str | Path) -> CarAssembly:
     )
 
 
+# The complete set of texture NAMES the stock shared archives (race.res etc.)
+# provide -- filenames only, not the textures themselves. This is what lets the
+# provenance diagnostic tell a "borrows a stock shared texture" reference (fine
+# for anyone, since every install has these) apart from a "needs a file the
+# author didn't ship" one, WITHOUT a copy of race.res present -- which is exactly
+# the browser-gallery case. Captured from a stock v1.2.5 install; if a real set
+# of shared archives is on hand, pass its names to texture_provenance() instead.
+STOCK_SHARED_TEX = frozenset({
+    "ucar.tex", "wheels.tex", "effects.tex", "effectsx.tex",
+    "xray.tex", "damage.tex", "skid.tex", "splash.tex", "envmap.tex",
+})
+
+
+def body_prefix(entries: list[archive.ArchiveEntry]) -> str | None:
+    """The car's filename prefix, read from its body mesh (<prefix>0.mod). This is
+    also the name of its body-paint slot: <prefix>.tex (see texture_provenance)."""
+    be = next((e for e in entries if e.name.lower().endswith("0.mod")), None)
+    return be.name[:-5] if be else None
+
+
+def car_material_names(entries: list[archive.ArchiveEntry]) -> set[str]:
+    """Every material name referenced by any of a car's .mod meshes."""
+    names: set[str] = set()
+    for e in entries:
+        if not e.name.lower().endswith(".mod"):
+            continue
+        try:
+            m = mod.parse(envelope.build(e.tag, e.version, e.payload))
+        except Exception:
+            continue
+        names |= {mm.name for mm in m.materials if mm.name}
+    return names
+
+
+def texture_provenance(
+    car_path: str | Path, shared_names: set[str] | frozenset[str] | None = None,
+) -> dict:
+    """Classify where every texture a car references comes from -- a portability
+    diagnostic that needs no shared archives present.
+
+    Each material name a mesh uses falls into one of four buckets:
+      - own    : shipped inside this .car (renders anywhere, fully self-contained)
+      - shared : a stock shared texture (ucar/wheels/effects/... -- fine for
+                 anyone, since every install has these; renders grey without them)
+      - paint  : the body-paint slot <prefix>.tex, not shipped -- remapped at
+                 runtime to the player's Paint Kit (Config/paintN.tex); normal
+      - missing: none of the above -- NOT in the car, NOT a stock shared name,
+                 NOT the paint slot. The red flag: it depends on a file the author
+                 didn't ship (typically their own modified race.res), so it will
+                 render wrong for anyone who downloads it. "works on my machine".
+
+    Returns {own, shared, paint, missing: sorted[str], prefix, verdict} where
+    verdict is "self-contained" | "portable" | "incomplete".
+    """
+    entries = archive.read(Path(car_path))
+    own = {e.name.lower() for e in entries if e.name.lower().endswith(".tex")}
+    shared = {s.lower() for s in (shared_names if shared_names is not None else STOCK_SHARED_TEX)}
+    prefix = body_prefix(entries)
+    paint_name = f"{prefix}.tex".lower() if prefix else None
+
+    buckets: dict[str, set[str]] = {"own": set(), "shared": set(), "paint": set(), "missing": set()}
+    for name in car_material_names(entries):
+        n = name.lower()
+        if n in own:
+            buckets["own"].add(name)
+        elif n in shared:
+            buckets["shared"].add(name)
+        elif paint_name and n == paint_name:
+            buckets["paint"].add(name)
+        else:
+            buckets["missing"].add(name)
+
+    if buckets["missing"]:
+        verdict = "incomplete"                         # needs files the author didn't ship
+    elif not buckets["shared"] and not buckets["paint"]:
+        verdict = "self-contained"                     # renders fully anywhere
+    else:
+        verdict = "portable"                           # only leans on stock/paint, which everyone has
+    return {
+        "prefix": prefix, "verdict": verdict,
+        **{k: sorted(v) for k, v in buckets.items()},
+    }
+
+
 def resolve_textures(
     car_path: str | Path, material_names: set[str], shared_archives: list[str] | None = None,
     paint_texture: str | Path | None = None,
