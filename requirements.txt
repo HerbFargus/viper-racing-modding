@@ -1,0 +1,4 @@
+# Viper Racing Mod Manager -- runtime dependencies.
+# The vrmod package itself is otherwise pure standard library.
+pywebview>=6.2      # native desktop window (Edge WebView2 backend on Windows)
+capstone>=5.0       # x86 disassembly, used only by vrmod.vertexbuffer (--max-verts)
