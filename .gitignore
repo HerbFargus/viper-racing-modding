@@ -18,3 +18,4 @@ config.json
 # OS / editor
 .DS_Store
 Thumbs.db
+icon-preview.png
