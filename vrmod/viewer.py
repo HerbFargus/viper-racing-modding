@@ -777,6 +777,15 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   .cockpit-record{margin-bottom:16px}
   .cockpit-record h3{font-size:.78rem;color:#c4c8d8;margin:0 0 6px}
   .cockpit-record.live h3{color:#8ecfff}
+  .gauge-preview{display:flex;flex-direction:column;gap:8px;margin-bottom:16px;
+    padding:10px;background:#14161c;border:1px solid #2a2e3a;border-radius:6px}
+  .gauge-preview button{align-self:flex-start;background:#1c2050;color:#8ecfff;
+    border:1px solid #2a2e6a;border-radius:5px;padding:4px 12px;font-size:.72rem;cursor:pointer}
+  .gauge-preview button:hover{background:#242a66}
+  .gauge-preview label{display:flex;align-items:center;gap:8px;font-size:.7rem;color:#8a90a4}
+  .gauge-preview input[type=range]{flex:1;min-width:0}
+  .gauge-preview span{min-width:42px;text-align:right;color:#c4c8d8;
+    font-variant-numeric:tabular-nums}
   .cockpit-fields{display:flex;gap:6px}
   .cockpit-field{flex:1;min-width:0}
   .cockpit-field label{display:block;font-size:.65rem;color:#8a90a4;margin-bottom:2px}
@@ -949,7 +958,7 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
 </aside>
 <aside id="cockpit-configs-drawer" class="drawer">
   <h2>Cockpit Configs</h2>
-  <div class="hint">cockpit.tab's real stored positions/calibration. <strong class="highlight-demo">Blue</strong> records (hover for the tooltip) are live: "wheel" moves the steering wheel; "camera" switches to a driver's-eye view from that position (drag to look around; "Back to free orbit" to leave it). The other 4 records are still real and saved, just without a live anchor yet (no needle mesh).</div>
+  <div class="hint">cockpit.tab's real stored positions/calibration. <strong class="highlight-demo">Blue</strong> records (hover for the tooltip) are live: "wheel" moves the steering wheel; "camera" switches to a driver's-eye view from that position (drag to look around; "Back to free orbit" to leave it). "rpm pt"/"mph pt" move the tach/speedo needle pivots, and "rpm dat"/"mph dat" calibrate their sweep — use <strong>Focus gauges</strong> and the RPM/MPH sliders above to sweep each needle and line it up against the painted dial.</div>
   <div id="cockpit-sections"></div>
   <button id="cockpit-reset">Reset to default</button>
 </aside>
@@ -1055,6 +1064,10 @@ const POSITION_RECORDS = new Set(["camera", "wheel", "rpm pt", "mph pt"]);
 const COCKPIT_LIVE_TITLES = {
   wheel: "Moves the steering wheel live in the Cockpit tab",
   camera: "Switches to a driver's-eye view live from this position",
+  "rpm pt": "Moves the tachometer needle's pivot live",
+  "mph pt": "Moves the speedometer needle's pivot live",
+  "rpm dat": "Calibrates the tach needle sweep live (use the RPM slider to test)",
+  "mph dat": "Calibrates the speedo needle sweep live (use the MPH slider to test)",
 };
 
 function parseObj(text) {
@@ -1134,6 +1147,15 @@ function buildTabGroup(key) {
       (meshesByMaterial[matName] = meshesByMaterial[matName] || []).push(...meshes);
     }
   }
+  // Like addPiece but does NOT fold into meshesByMaterial (see the cockpit needle
+  // comment). Orientation is applied later by updateCockpitNeedleLive.
+  function addNeedle(role, objText, position) {
+    if (!objText) return;
+    const piece = buildPartGroup(objText);
+    if (position) piece.group.position.set(position[0], position[1], position[2]);
+    group.add(piece.group);
+    pieces[role] = piece;
+  }
   if (key === "car") {
     const roles = CAR_ROLES.car;
     addPiece("body", MOD_PARTS[roles.body]);
@@ -1143,6 +1165,14 @@ function buildTabGroup(key) {
     const roles = CAR_ROLES.cockpit;
     addPiece("dash", MOD_PARTS[roles.dash]);
     addPiece("wheel", MOD_PARTS[roles.wheel], roles.wheel_pos);
+    // The tach + speedo needles: one mesh (Needle.mod) instanced at each pivot.
+    // Added via addNeedle (not addPiece) so they're tracked in `pieces` for live
+    // orientation but kept OUT of meshesByMaterial -- they're calibration anchors,
+    // not texture-editable surfaces, and shouldn't clutter the Textures drawer.
+    if (roles.needle && MOD_PARTS[roles.needle]) {
+      addNeedle("needle_rpm", MOD_PARTS[roles.needle], roles.rpm_pt);
+      addNeedle("needle_mph", MOD_PARTS[roles.needle], roles.mph_pt);
+    }
   } else if (key === "hornball") {
     addPiece("ball", MOD_PARTS[CAR_ROLES.hornball]);
   }
@@ -2008,13 +2038,102 @@ function main() {
     updateCam();
   }
 
-  const COCKPIT_LIVE_RECORDS = {wheel: updateCockpitWheelLive, camera: updateCockpitCameraLive};
+  // Tach + speedo needle live anchor. Each needle sits at its pivot (rpm pt /
+  // mph pt, Z-negated like the wheel) and rotates in the dial plane by an angle
+  // interpolated from its dat record (angle@0 -> angle@max across 0 -> max value)
+  // at the current preview value (the sweep sliders). The rotation axis is
+  // approximated as pivot->eye (the dial faces the driver); NEEDLE_REF_OFFSET is
+  // the one tuning constant for where the dat's "0 degrees" points in 3D --
+  // calibrate once against viper's known dat (-196/70/7000) so idle and redline
+  // land on the painted marks, then it holds for every car (same convention).
+  let needleRpmValue = 0, needleMphValue = 0;
+  const NEEDLE_REF_OFFSET = 0;   // degrees; tune against viper, then leave it
+  function orientNeedle(piece, pivotNative, dat, value) {
+    if (!piece) return;
+    const px = pivotNative[0], py = pivotNative[1], pz = -pivotNative[2];  // -> scene space
+    piece.group.position.set(px, py, pz);
+    const a0 = dat[0], amax = dat[1], maxv = dat[2] || 1;
+    const t = Math.min(Math.max(value, 0), maxv) / maxv;
+    const angleDeg = a0 + t * (amax - a0) + NEEDLE_REF_OFFSET;
+    const eye = CAR_ROLES.cockpit.camera_pos;
+    // Axis points from the eye INTO the dial (away from the viewer): with the
+    // right-hand rule that makes a positive angle sweep clockwise as the driver
+    // sees it, matching the game (an eye->pivot axis pointing at the viewer swept
+    // counter-clockwise -- confirmed wrong in the viewer).
+    const axis = new THREE.Vector3(px - eye[0], py - eye[1], pz - eye[2]).normalize();
+    piece.group.setRotationFromAxisAngle(axis, THREE.MathUtils.degToRad(angleDeg));
+  }
+  function updateCockpitNeedleLive() {
+    if (!built.cockpit || !built.cockpit.pieces.needle_rpm) return;
+    orientNeedle(built.cockpit.pieces.needle_rpm, getCockpitRecordValues("rpm pt"),
+                 getCockpitRecordValues("rpm dat"), needleRpmValue);
+    orientNeedle(built.cockpit.pieces.needle_mph, getCockpitRecordValues("mph pt"),
+                 getCockpitRecordValues("mph dat"), needleMphValue);
+    if (activeKey === "cockpit") refitAndRefresh("cockpit");
+  }
+
+  // "Focus gauges": drive the driver's-eye view to look straight at the midpoint
+  // of the two gauge pivots (near face-on), so you can align the needle to the
+  // painted dial while dragging the sweep sliders. Reuses eye mode (the same view
+  // the game's own cockpit uses) rather than a bespoke camera.
+  function focusGauges() {
+    if (!CAR_ROLES.cockpit) return;
+    const eye = CAR_ROLES.cockpit.camera_pos;               // already scene-space
+    const rp = getCockpitRecordValues("rpm pt"), mp = getCockpitRecordValues("mph pt");
+    const mid = new THREE.Vector3((rp[0]+mp[0])/2, (rp[1]+mp[1])/2, -((rp[2]+mp[2])/2));  // scene
+    // Stay at the REAL driver's eye and zoom with a narrow FOV (telephoto) instead
+    // of moving the camera close. Moving close viewed each dial off-axis with a
+    // wide lens, so the needle (which sits physically IN FRONT of the dial face)
+    // parallaxed off its face. From the eye the parallax is already negligible
+    // (the default view looks right), so magnifying that same view keeps the
+    // needle on its face. Scroll adjusts FOV from here; leaving eye mode resets it.
+    if (!cockpitEyeMode) enterCockpitEyeMode();
+    eyePos.set(eye[0], eye[1], eye[2]);
+    const a = directionAngles(new THREE.Vector3(eye[0], eye[1], eye[2]), [mid.x, mid.y, mid.z]);
+    if (a) { eyeAz = a.az; eyeEl = a.el; }
+    camera.fov = 34;                                        // ~2x zoom, frames both dials
+    camera.updateProjectionMatrix();
+    updateCam();
+  }
+
+  const COCKPIT_LIVE_RECORDS = {
+    wheel: updateCockpitWheelLive, camera: updateCockpitCameraLive,
+    "rpm pt": updateCockpitNeedleLive, "rpm dat": updateCockpitNeedleLive,
+    "mph pt": updateCockpitNeedleLive, "mph dat": updateCockpitNeedleLive,
+  };
 
   function buildCockpitConfigsPanel() {
     const root = document.getElementById("cockpit-sections");
     if (!COCKPIT_RECORDS) {
       root.innerHTML = '<div class="empty">this car has no cockpit.tab</div>';
       return;
+    }
+    // Gauge-preview controls: Focus button + RPM/MPH sweep sliders. Dragging a
+    // slider sweeps that needle so you can calibrate its dat record against the
+    // painted dial. Shown only if the car actually has needle calibration.
+    if (COCKPIT_RECORDS["rpm dat"] || COCKPIT_RECORDS["mph dat"]) {
+      const rpmMax = (COCKPIT_RECORDS["rpm dat"] || [0, 0, 8000])[2] || 8000;
+      const mphMax = (COCKPIT_RECORDS["mph dat"] || [0, 0, 200])[2] || 200;
+      const ctl = document.createElement("div");
+      ctl.className = "gauge-preview";
+      ctl.innerHTML =
+        '<button id="focus-gauges" type="button">Focus gauges</button>' +
+        '<label>RPM <input id="sweep-rpm" type="range" min="0" max="' + rpmMax + '" value="0" step="10">' +
+        '<span id="sweep-rpm-val">0</span></label>' +
+        '<label>MPH <input id="sweep-mph" type="range" min="0" max="' + mphMax + '" value="0" step="1">' +
+        '<span id="sweep-mph-val">0</span></label>';
+      root.appendChild(ctl);
+      ctl.querySelector("#sweep-rpm").addEventListener("input", e => {
+        needleRpmValue = Number(e.target.value);
+        document.getElementById("sweep-rpm-val").textContent = needleRpmValue;
+        updateCockpitNeedleLive();
+      });
+      ctl.querySelector("#sweep-mph").addEventListener("input", e => {
+        needleMphValue = Number(e.target.value);
+        document.getElementById("sweep-mph-val").textContent = needleMphValue;
+        updateCockpitNeedleLive();
+      });
+      ctl.querySelector("#focus-gauges").addEventListener("click", focusGauges);
     }
     Object.entries(COCKPIT_RECORDS).forEach(([name, values]) => {
       const isLive = name in COCKPIT_LIVE_RECORDS;
@@ -2073,6 +2192,7 @@ function main() {
     // your last edit had it.
     updateCockpitWheelLive();
     updateCockpitCameraLive();
+    updateCockpitNeedleLive();
     updateCommitStatus();
   }
 
@@ -2232,6 +2352,7 @@ function main() {
   }
 
   let activeKey = null;
+  updateCockpitNeedleLive();   // initial needle orientation (pieces positioned at build)
   let modMode = false;
 
   // Mutually exclusive drawers -- opening one closes whichever other is open.
@@ -2599,11 +2720,22 @@ def build_shell_html(
         # own visor/overhang edge-on and occluding the wheel. Also live-linked to
         # the "camera" field in Cockpit Configs -- see updateCockpitCameraLive.
         cx, cy, cz = cockpit_result.cockpit_records["camera"]
+        # The tach/speedo needle pivots (rpm pt / mph pt) get the same Z-negation
+        # as wheel/camera so Needle.mod lands correctly once mod.to_obj converts it.
+        # dat records (rpm dat / mph dat = angle@0, angle@max, max) are angles, not
+        # positions, so the JS reads them straight from COCKPIT_RECORDS unchanged.
+        rpx, rpy, rpz = cockpit_result.cockpit_records.get("rpm pt", [0.0, 0.0, 0.0])
+        mpx, mpy, mpz = cockpit_result.cockpit_records.get("mph pt", [0.0, 0.0, 0.0])
         car_roles["cockpit"] = {
             "dash": _resolve_case(cockpit_result.parts_found.get("dash"), mod_parts_obj),
             "wheel": _resolve_case(cockpit_result.parts_found.get("wheel"), mod_parts_obj),
             "wheel_pos": [wx, wy, -wz],
             "camera_pos": [cx, cy, -cz],
+            # Needle.mod is a fixed shared name (see primarycar.py); one mesh,
+            # instanced at both pivots for the tach and speedo.
+            "needle": _resolve_case("Needle.mod", mod_parts_obj),
+            "rpm_pt": [rpx, rpy, -rpz],
+            "mph_pt": [mpx, mpy, -mpz],
         }
     # Horn Ball is live-reimportable either way now: an owned ball.mod plugs into
     # MOD_PARTS/car_roles like any other part; an unowned one gets its shared
