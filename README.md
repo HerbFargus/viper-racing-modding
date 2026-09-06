@@ -17,6 +17,8 @@ library apart from `capstone`, and even that only for one optional patch). The s
 
 Plus the reverse-engineered format documentation in [`docs/`](docs/).
 
+**Try the Library in your browser:** https://herbfargus.github.io/viper-racing-modding/ — open your own Viper Racing **Data** folder and browse every car and track in 3D, entirely client-side (nothing is uploaded).
+
 > **Repo naming:** the GitHub repo is `viper-racing-modding`; the Python package is
 > `vrmod`; the desktop app's product name is "Viper Racing Mod Manager". The
 > **community gallery** (a separate, future repo — assets hosted alongside a
