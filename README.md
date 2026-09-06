@@ -15,7 +15,10 @@ library apart from `capstone`, and even that only for one optional patch). The s
 | **Viper Racing Mod Manager** | A native desktop app (pywebview) around the web UI | [`desktop/`](desktop/) |
 | **Viper Racing Library** | A 100% client-side gallery — view your own Data folder in the browser, nothing uploaded | [`gallery/`](gallery/) |
 
-Plus the reverse-engineered format documentation in [`docs/`](docs/).
+Plus documentation in [`docs/`](docs/): the reverse-engineered
+[file-format reference](docs/VIPER_RACING_FILE_FORMATS.md), and a
+[history of the modding community](docs/MODDING_HISTORY.md) — the people, the
+tools they built, and how the formats came to be understood.
 
 **Try the Library in your browser:** https://herbfargus.github.io/viper-racing-modding/ — open your own Viper Racing **Data** folder and browse every car and track in 3D, entirely client-side (nothing is uploaded).
 
