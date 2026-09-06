@@ -9,15 +9,27 @@ Bundles the vrmod package plus the three tricky pieces the app needs at runtime:
 
 console=False -- it's a GUI app. (Set to True temporarily if you need to see a
 startup traceback while debugging a build.)
+
+Paths are anchored to the spec's own location (SPECPATH = this desktop/ dir) so
+the build works regardless of where PyInstaller is invoked from. vrmod lives one
+level up at the repo root, which is put on the path so collect_data_files can
+import it. Build with:  python -m PyInstaller --noconfirm desktop/viper-mod-manager.spec
 """
+import os
+import sys
+
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
+
+APP_DIR = SPECPATH                        # desktop/  (provided by PyInstaller)
+ROOT = os.path.dirname(APP_DIR)           # repo root, where vrmod/ lives
+sys.path.insert(0, ROOT)                  # so collect_data_files("vrmod") resolves
 
 datas = collect_data_files("vrmod")
 binaries = collect_dynamic_libs("capstone")
 
 a = Analysis(
-    ["app.py"],
-    pathex=[],
+    [os.path.join(APP_DIR, "app.py")],
+    pathex=[ROOT],
     binaries=binaries,
     datas=datas,
     hiddenimports=["clr"],
@@ -45,5 +57,5 @@ exe = EXE(
     upx=False,
     runtime_tmpdir=None,
     console=False,
-    icon="icon.ico",
+    icon=os.path.join(APP_DIR, "icon.ico"),
 )

@@ -9,7 +9,14 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
+
+# This file lives in desktop/; the vrmod package sits at the repo root one level
+# up. When run from source (python desktop/app.py) that root isn't on the path,
+# so add it. When frozen by PyInstaller, vrmod is bundled and importable already.
+if not getattr(sys, "frozen", False):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import webview
 

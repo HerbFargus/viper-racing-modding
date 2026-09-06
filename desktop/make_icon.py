@@ -1,7 +1,11 @@
 """Generate the app icon (a tach/gauge motif) as icon.ico. Run once; committed
 output is icon.ico. Supersamples then downscales for smooth edges."""
 import math
+from pathlib import Path
+
 from PIL import Image, ImageDraw
+
+HERE = Path(__file__).parent
 
 S = 1024
 img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
@@ -41,6 +45,6 @@ d.ellipse([cx-52, cy-52, cx+52, cy+52], fill=(40, 44, 54))
 
 # downscale + multi-size .ico
 base = img.resize((256, 256), Image.LANCZOS)
-base.save("icon.ico", sizes=[(256,256),(128,128),(64,64),(48,48),(32,32),(16,16)])
-base.save("icon-preview.png")
-print("wrote icon.ico + icon-preview.png")
+base.save(HERE / "icon.ico", sizes=[(256,256),(128,128),(64,64),(48,48),(32,32),(16,16)])
+base.save(HERE / "icon-preview.png")
+print(f"wrote {HERE/'icon.ico'} + icon-preview.png")
