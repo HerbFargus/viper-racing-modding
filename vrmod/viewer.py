@@ -1539,9 +1539,16 @@ async function downloadBytes(blobOrBytes, filename) {
   const blob = blobOrBytes instanceof Blob ? blobOrBytes : new Blob([blobOrBytes], {type: "application/octet-stream"});
   // Desktop app path: the embedded webview (pywebview) silently ignores an
   // <a download>, so when the Python bridge is present hand it the bytes and let
-  // the OS save dialog write them. A plain browser (the CLI-served page, the
+  // the OS save dialog write them. The bridge is injected only into the TOP
+  // window, but this viewer runs inside the switcher's same-origin iframe, so
+  // reach through window.parent too. A plain browser (the CLI-served page, the
   // gallery) has no bridge and falls through to the anchor download below.
-  const api = window.pywebview && window.pywebview.api;
+  let api = null;
+  try {
+    api = (window.pywebview && window.pywebview.api)
+       || (window.parent && window.parent.pywebview && window.parent.pywebview.api)
+       || null;
+  } catch (e) { /* cross-origin parent -- no bridge, use the anchor path */ }
   if (api && api.save_file) {
     const buf = new Uint8Array(await blob.arrayBuffer());
     let bin = "";
@@ -3901,9 +3908,16 @@ async function downloadBytes(blobOrBytes, filename) {
   const blob = blobOrBytes instanceof Blob ? blobOrBytes : new Blob([blobOrBytes], {type: "application/octet-stream"});
   // Desktop app path: the embedded webview (pywebview) silently ignores an
   // <a download>, so when the Python bridge is present hand it the bytes and let
-  // the OS save dialog write them. A plain browser (the CLI-served page, the
+  // the OS save dialog write them. The bridge is injected only into the TOP
+  // window, but this viewer runs inside the switcher's same-origin iframe, so
+  // reach through window.parent too. A plain browser (the CLI-served page, the
   // gallery) has no bridge and falls through to the anchor download below.
-  const api = window.pywebview && window.pywebview.api;
+  let api = null;
+  try {
+    api = (window.pywebview && window.pywebview.api)
+       || (window.parent && window.parent.pywebview && window.parent.pywebview.api)
+       || null;
+  } catch (e) { /* cross-origin parent -- no bridge, use the anchor path */ }
   if (api && api.save_file) {
     const buf = new Uint8Array(await blob.arrayBuffer());
     let bin = "";
