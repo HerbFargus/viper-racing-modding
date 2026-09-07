@@ -999,9 +999,9 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   #exit-eye-mode{background:#14161c;border:1px solid #2a4a66;color:#e8eaf2;padding:5px 10px;
                  border-radius:4px;cursor:pointer;font-size:.72rem}
   #exit-eye-mode:hover{background:#1c2430}
-  #cam-readout{position:absolute;top:60px;left:16px;color:#8a90a4;font-size:.72rem;
+  #cam-readout{position:absolute;top:60px;right:16px;color:#8a90a4;font-size:.72rem;
                font-family:monospace;background:#14161cc0;padding:6px 9px;border-radius:4px;
-               z-index:3;white-space:pre;pointer-events:none}
+               z-index:3;white-space:pre;pointer-events:none;text-align:right}
   #fatal-error{position:absolute;top:52px;left:0;right:0;padding:16px;background:#3a1414;
                color:#ffd9d9;font-family:monospace;font-size:.85rem;white-space:pre-wrap;
                z-index:10;display:none}
