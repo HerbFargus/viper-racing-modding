@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Viper Racing Modding History</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+  :root{
+    --bg:#eef1f6;
+    --surface:#ffffff;
+    --surface-inset:#e6e9f1;
+    --ink:#14171f;
+    --ink-muted:#4d5468;
+    --ink-faint:#767d92;
+    --border:#d6dae3;
+    --border-strong:#b9bfcd;
+    --accent:#1911ab;
+    --accent-ink:#ffffff;
+    --accent-soft:#eceafa;
+    --accent-soft-border:#cfc9f2;
+
+    --conf-confirmed:#0f7a4b;
+    --conf-confirmed-soft:#e2f3ea;
+    --conf-supported:#0d7986;
+    --conf-supported-soft:#e0f1f3;
+    --conf-community:#7a4fb5;
+    --conf-community-soft:#efe7f9;
+    --conf-hypothesis:#a8690a;
+    --conf-hypothesis-soft:#f8ecda;
+    --conf-unknown:#5b6172;
+    --conf-unknown-soft:#e7e9ee;
+
+    --shadow: 0 1px 2px rgba(20,23,31,0.04), 0 8px 24px -12px rgba(20,23,31,0.18);
+    --radius: 3px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0e1017;
+      --surface:#161923;
+      --surface-inset:#0b0d13;
+      --ink:#e8eaf2;
+      --ink-muted:#a6acc2;
+      --ink-faint:#7d84a0;
+      --border:#2b2f3f;
+      --border-strong:#3c4257;
+      --accent:#7b85ff;
+      --accent-ink:#0e1017;
+      --accent-soft:#1c1f3a;
+      --accent-soft-border:#333a63;
+
+      --conf-confirmed:#4fd39a;
+      --conf-confirmed-soft:#123527;
+      --conf-supported:#5fd0e0;
+      --conf-supported-soft:#0f3339;
+      --conf-community:#c6a4f2;
+      --conf-community-soft:#2c2140;
+      --conf-hypothesis:#f0b558;
+      --conf-hypothesis-soft:#3a2a12;
+      --conf-unknown:#a8afc4;
+      --conf-unknown-soft:#242838;
+
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px -12px rgba(0,0,0,0.5);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0e1017;
+    --surface:#161923;
+    --surface-inset:#0b0d13;
+    --ink:#e8eaf2;
+    --ink-muted:#a6acc2;
+    --ink-faint:#7d84a0;
+    --border:#2b2f3f;
+    --border-strong:#3c4257;
+    --accent:#7b85ff;
+    --accent-ink:#0e1017;
+    --accent-soft:#1c1f3a;
+    --accent-soft-border:#333a63;
+
+    --conf-confirmed:#4fd39a;
+    --conf-confirmed-soft:#123527;
+    --conf-supported:#5fd0e0;
+    --conf-supported-soft:#0f3339;
+    --conf-community:#c6a4f2;
+    --conf-community-soft:#2c2140;
+    --conf-hypothesis:#f0b558;
+    --conf-hypothesis-soft:#3a2a12;
+    --conf-unknown:#a8afc4;
+    --conf-unknown-soft:#242838;
+
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px -12px rgba(0,0,0,0.5);
+  }
+
+  *{box-sizing:border-box;}
+  html{-webkit-text-size-adjust:100%;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:"Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size:16px;
+    line-height:1.6;
+  }
+  ::selection{ background:var(--accent-soft-border); }
+
+  a{ color:var(--accent); text-decoration-thickness:1px; text-underline-offset:2px; }
+  a:focus-visible, button:focus-visible, summary:focus-visible{
+    outline:2px solid var(--accent); outline-offset:2px; border-radius:2px;
+  }
+
+  code, .mono{ font-family:"JetBrains Mono", ui-monospace, Consolas, monospace; }
+
+  .skiplink{ position:absolute; left:-999px; top:0; }
+  .skiplink:focus{ left:8px; top:8px; background:var(--accent); color:var(--accent-ink); padding:.5em 1em; z-index:100; }
+
+  /* ---------- shell layout ---------- */
+  .shell{
+    display:grid;
+    grid-template-columns: 272px minmax(0,1fr);
+    max-width:1280px;
+    margin:0 auto;
+  }
+  @media (max-width: 920px){
+    .shell{ grid-template-columns: 1fr; }
+    .sidenav{ position:static; height:auto; border-right:none; border-bottom:1px solid var(--border); }
+  }
+
+  /* ---------- sidebar ---------- */
+  .sidenav{
+    position:sticky; top:0; align-self:start;
+    height:100vh; overflow-y:auto;
+    border-right:1px solid var(--border);
+    padding: 28px 18px 40px;
+  }
+  .brand{
+    display:flex; align-items:baseline; gap:.5em;
+    margin-bottom:4px;
+  }
+  .brand .mark{
+    font-family:"Big Shoulders Display", "Oswald", sans-serif;
+    font-weight:800; font-size:1.05rem; letter-spacing:.03em;
+    color:var(--accent);
+  }
+  .brand .tag{
+    font-family:"JetBrains Mono", monospace; font-size:.68rem; color:var(--ink-faint);
+    text-transform:uppercase; letter-spacing:.08em;
+  }
+  .sidenav .dek{
+    font-size:.82rem; color:var(--ink-muted); margin: 6px 0 22px;
+    padding-bottom:18px; border-bottom:1px solid var(--border);
+  }
+  .toc{ list-style:none; margin:0; padding:0; }
+  .toc > li{ margin-bottom:2px; }
+  .toc a{
+    display:block; color:var(--ink-muted); text-decoration:none;
+    font-size:.86rem; padding:6px 8px; border-radius:var(--radius);
+    border-left:2px solid transparent;
+  }
+  .toc > li > a{ font-weight:600; color:var(--ink); }
+  .toc a:hover{ background:var(--surface-inset); color:var(--accent); }
+  .toc .sub{ list-style:none; margin:0 0 6px 0; padding:0 0 0 10px; }
+  .toc .sub a{ font-size:.78rem; padding:4px 8px; color:var(--ink-faint); }
+  .toc .sub a .mono{ font-size:.72rem; }
+
+  .legend-mini{
+    margin-top:22px; padding-top:18px; border-top:1px solid var(--border);
+    display:flex; flex-direction:column; gap:6px;
+  }
+  .legend-mini .h{ font-size:.68rem; text-transform:uppercase; letter-spacing:.08em; color:var(--ink-faint); margin-bottom:4px; }
+
+  /* ---------- main ---------- */
+  main{ padding: 40px clamp(20px, 4vw, 64px) 120px; min-width:0; }
+
+  .titleblock{
+    border-bottom:3px solid var(--ink);
+    padding-bottom:22px; margin-bottom:36px;
+  }
+  .eyebrow{
+    font-family:"JetBrains Mono", monospace; font-size:.72rem; letter-spacing:.1em;
+    text-transform:uppercase; color:var(--accent); margin:0 0 10px;
+  }
+  h1.doc-title{
+    font-family:"Big Shoulders Display", "Oswald", sans-serif;
+    font-weight:800; letter-spacing:.01em;
+    font-size:clamp(2.1rem, 4.4vw, 3.2rem);
+    line-height:1.02; margin:0 0 14px;
+    text-wrap:balance;
+  }
+  .titleblock .lede{
+    max-width:66ch; color:var(--ink-muted); font-size:1.02rem;
+    margin:0;
+  }
+  .sourceline{
+    margin-top:16px; font-size:.82rem; color:var(--ink-faint);
+    display:flex; flex-wrap:wrap; gap:6px 18px;
+  }
+  .sourceline b{ color:var(--ink-muted); font-weight:600; }
+
+  section{ margin-bottom:52px; }
+  section.sub-section{ margin-bottom:38px; padding-top:6px; }
+
+  h2{
+    font-family:"Big Shoulders Display", "Oswald", sans-serif;
+    font-weight:700; font-size:1.7rem; letter-spacing:.01em;
+    margin: 0 0 16px; padding-bottom:10px; border-bottom:1px solid var(--border);
+    display:flex; align-items:baseline; gap:.5em; text-wrap:balance;
+  }
+  h2 .num{ color:var(--accent); font-family:"JetBrains Mono",monospace; font-size:1.05rem; font-weight:600; }
+
+  h3{
+    font-family:"Big Shoulders Display", "Oswald", sans-serif;
+    font-weight:700; font-size:1.28rem; letter-spacing:.01em;
+    margin: 0 0 4px; display:flex; align-items:center; flex-wrap:wrap; gap:.6em;
+  }
+  h3 .num{ color:var(--ink-faint); font-family:"JetBrains Mono",monospace; font-size:.9rem; font-weight:500; }
+  h4{
+    font-family:"Public Sans",sans-serif; font-weight:700; font-size:.95rem;
+    margin: 20px 0 8px; color:var(--ink);
+  }
+
+  p{ margin: 0 0 14px; max-width:74ch; }
+  ul, ol{ margin:0 0 14px; padding-left:1.3em; max-width:74ch; }
+  li{ margin-bottom:5px; }
+  strong{ color:var(--ink); }
+
+  .lead-note{ font-size:.9rem; color:var(--ink-muted); max-width:74ch; margin-bottom:22px;}
+
+  /* ---------- confidence badges ---------- */
+  .badge{
+    display:inline-flex; align-items:center; gap:.4em;
+    font-family:"JetBrains Mono", monospace; font-size:.7rem; font-weight:700;
+    letter-spacing:.03em; text-transform:uppercase;
+    padding:.28em .6em; border-radius:100px; white-space:nowrap;
+    border:1px solid transparent;
+  }
+  .badge::before{ content:""; width:6px; height:6px; border-radius:50%; background:currentColor; flex:none; }
+  .badge.confirmed{ background:var(--conf-confirmed-soft); color:var(--conf-confirmed); }
+  .badge.supported{ background:var(--conf-supported-soft); color:var(--conf-supported); }
+  .badge.hypothesis{ background:var(--conf-hypothesis-soft); color:var(--conf-hypothesis); }
+  .badge.unknown{ background:var(--conf-unknown-soft); color:var(--conf-unknown); }
+
+  .legend-mini .badge{ align-self:flex-start; }
+
+  .legend-table{ width:100%; border-collapse:collapse; margin-bottom:26px; }
+  .legend-table td{ padding:8px 12px 8px 0; vertical-align:top; border-bottom:1px solid var(--border); font-size:.88rem; color:var(--ink-muted); }
+  .legend-table tr:last-child td{ border-bottom:none; }
+  .legend-table td:first-child{ width:1%; white-space:nowrap; }
+
+  /* ---------- tables ---------- */
+  .tablewrap{ overflow-x:auto; margin: 0 0 20px; border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); }
+  table{ border-collapse:collapse; width:100%; min-width:520px; background:var(--surface); font-size:.88rem; }
+  table.wide{ min-width:760px; }
+  th, td{ text-align:left; padding:10px 14px; border-bottom:1px solid var(--border); vertical-align:top; }
+  thead th{
+    background:var(--surface-inset); color:var(--ink-muted);
+    font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; font-weight:700;
+    position:sticky; top:0;
+  }
+  tbody tr:last-child td{ border-bottom:none; }
+  tbody tr:hover{ background:var(--surface-inset); }
+  td code, th code{ font-size:.85em; }
+  .num-col, td.num{ font-variant-numeric:tabular-nums; font-family:"JetBrains Mono",monospace; }
+
+  /* ---------- code / hex panels ---------- */
+  pre{
+    background:var(--surface-inset);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    padding:16px 18px;
+    overflow-x:auto;
+    font-family:"JetBrains Mono", monospace;
+    font-size:.82rem;
+    line-height:1.65;
+    color:var(--ink);
+    margin: 0 0 20px;
+  }
+  pre .c{ color:var(--ink-faint); } /* comment tone */
+  code.inline{
+    background:var(--surface-inset); border:1px solid var(--border);
+    padding:.12em .4em; border-radius:3px; font-size:.86em;
+  }
+  .panel-label{
+    font-family:"JetBrains Mono",monospace; font-size:.68rem; letter-spacing:.08em;
+    text-transform:uppercase; color:var(--ink-faint); margin-bottom:6px;
+  }
+
+  .diagram{
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+    box-shadow:var(--shadow); padding:20px 22px; margin:0 0 20px;
+    font-family:"JetBrains Mono",monospace; font-size:.82rem; overflow-x:auto; line-height:1.7;
+  }
+
+  /* ---------- entry cards for 4.x formats ---------- */
+  .entry{
+    border:1px solid var(--border); border-radius:var(--radius); background:var(--surface);
+    box-shadow:var(--shadow); padding:22px 24px 6px; margin-bottom:22px;
+  }
+  .entry-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:10px; }
+  .entry-head .ext{
+    font-family:"JetBrains Mono",monospace; font-weight:700; color:var(--accent);
+  }
+
+  blockquote{
+    margin:0 0 20px; padding: 4px 0 4px 16px; border-left:3px solid var(--accent-soft-border);
+    color:var(--ink-muted); max-width:70ch; font-size:.94rem;
+  }
+
+  hr.section-rule{ border:none; border-top:1px solid var(--border); margin:44px 0; }
+
+  footer.colophon{
+    max-width:74ch; margin-top:60px; padding-top:22px; border-top:1px solid var(--border);
+    font-size:.82rem; color:var(--ink-faint); font-style:italic;
+  }
+
+  @media (prefers-reduced-motion: no-preference){
+    .toc a, .badge{ transition: background-color .15s ease, color .15s ease; }
+  }
+</style>
+</head>
+<body>
+<a class="skiplink" href="#main-content">Skip to content</a>
+<div class="shell">
+  <nav class="sidenav" aria-label="Table of contents">
+    <div class="brand"><span class="mark">0SER</span><span class="tag">/// MODDING HISTORY</span></div>
+    <p class="dek">Viper Racing (1998) &mdash; the people who reverse-engineered its formats, the tools they built, and how it all came to be understood.</p>
+    <ol class="toc">
+      <li><a href="#people">01 &mdash; The people</a></li>
+      <li><a href="#tools">02 &mdash; The community toolchain</a></li>
+      <li><a href="#understood">03 &mdash; How the formats were understood</a></li>
+      <li><a href="#preservation">04 &mdash; Preservation &amp; sources</a></li>
+      <li><a href="#vrmod">05 &mdash; Why <span class="mono">vrmod</span></a></li>
+    </ol>
+    <div class="legend-mini"><span class="h">Legend</span><span style="font-size:.8rem;color:var(--ink-muted)"><span class="mono" style="color:var(--conf-confirmed)">&#10003;</span> binary preserved in the archives</span></div>
+  </nav>
+
+  <main id="main-content">
+    <div class="titleblock">
+      <p class="eyebrow">Viper Racing &middot; Companion to the format reference</p>
+      <h1 class="doc-title">Modding History, Tools &amp; Credits</h1>
+      <p class="lede"><em>Viper Racing</em> (Sierra / Monster Games, 1998) grew a small but remarkably dedicated modding community that kept the game alive for over two decades. This records <b>who did that work, the tools they built, and how the file formats came to be understood</b> &mdash; the context that made a toolkit like <span class="mono">vrmod</span> worth writing.</p>
+      <div class="sourceline"><span><b>Companion:</b> <a href="VIPER_RACING_FILE_FORMATS.md">file-format reference</a></span><span><b>Sources:</b> Val's site (archive.org), the community tool archives</span></div>
+    </div>
+
+    <section id="people">
+      <h2><span class="num">01</span> The people</h2>
+      <ul>
+        <li><strong>Val</strong> (Moose Jaw, Saskatchewan, Canada) &mdash; ran the community's central site (originally <em>vnovak</em>, created 9&nbsp;December&nbsp;2003; later mirrored at valsgames.com) and was its most prolific modder (~1,500 car conversions and most of the tracks). He wrote the how-to tutorials the scene learned from.</li>
+        <li><strong>Frank P.&nbsp;Wolf</strong> &mdash; a major car converter (~155 cars) and toolmaker, author of <strong>CarMan</strong> and <strong>WheelMan</strong>. His packages also shipped with an anti-tamper &ldquo;lock&rdquo; (decoy directory entries).</li>
+        <li><strong>Sucahyo</strong> &mdash; produced the <strong>2007 &ldquo;1.2.4 beta&rdquo; <span class="mono">race.bin</span></strong> that raised the polygon and per-object vertex limits &mdash; the lineage behind the community engine patch.</li>
+        <li><strong>Charlie Ward</strong> (Brunswick, Maine) &mdash; modified <span class="mono">race.bin</span> in <strong>2016</strong> to fix the modern-GPU startup error, building on a solution found by <strong>beatcracker</strong>. Lets the game start on any 32/64-bit Windows including 10/11.</li>
+        <li><strong>Max</strong> &mdash; a car modder (&ldquo;Add-on cars by Max&rdquo;).</li>
+        <li>&hellip;and the wider community of racers, converters and testers over the years.</li>
+      </ul>
+    </section>
+
+    <section id="tools">
+      <h2><span class="num">02</span> The community toolchain</h2>
+      <p class="lead-note">A capable but <strong>entirely manual</strong> set of tools. <span class="mono" style="color:var(--conf-confirmed)">&#10003;</span> marks a binary that survives in the preserved archives.</p>
+      <h3>Archive / packaging</h3>
+  <div class="tablewrap"><table><thead><tr><th>Tool</th><th>What it does</th></tr></thead><tbody>
+      <tr><td><b>rescrack.exe</b> <span class="mono" style="color:var(--conf-confirmed)">&#10003;</span></td><td>Unpack a <code>.car</code>/<code>.res</code>/<code>.trk</code> archive into its loose members, plus a <code>reslist.txt</code>.</td></tr>
+      <tr><td><b>mkres.exe</b> <span class="mono" style="color:var(--conf-confirmed)">&#10003;</span></td><td>(Re)pack an archive from a <code>reslist</code>.</td></tr>
+      <tr><td><b>extract.exe</b> <span class="mono" style="color:var(--conf-confirmed)">&#10003;</span></td><td>An alternate unpacker.</td></tr>
+  </tbody></table></div>
+      <h3>Cars</h3>
+  <div class="tablewrap"><table><thead><tr><th>Tool</th><th>What it does</th></tr></thead><tbody>
+      <tr><td><b>CarMan / CarMan2 / AICarMan</b> <span class="mono" style="color:var(--conf-confirmed)">&#10003;</span></td><td>Install, activate and organise cars, and set up the AI field. <em>(Frank Wolf)</em></td></tr>
+      <tr><td><b>WheelMan</b></td><td>Wheel manager. <em>(Frank Wolf)</em></td></tr>
+      <tr><td><b>vrcarrenamer</b> <span class="mono" style="color:var(--conf-confirmed)">&#10003;</span></td><td>Rename a car.</td></tr>
+      <tr><td><b>cf2txt / txt2cf</b> <span class="mono" style="color:var(--conf-confirmed)">&#10003;</span></td><td>Convert the <code>.cf</code> physics file to and from editable text (hp, torque, mass, wheelbase, suspension).</td></tr>
+      <tr><td><b>Viper Racing Tire Editor</b> <span class="mono" style="color:var(--conf-confirmed)">&#10003;</span></td><td>Tyre / handling editor.</td></tr>
+      <tr><td><b>Zmodeler 1.07</b></td><td>The free mesh editor at the heart of every car conversion (NFS4 / Sports Car GT &rarr; Viper), used with the <code>vrzmodtemplate</code>.</td></tr>
+      <tr><td><b>3DS Max 3.1</b></td><td>The professional modelling alternative.</td></tr>
+  </tbody></table></div>
+      <h3>Textures</h3>
+  <div class="tablewrap"><table><thead><tr><th>Tool</th><th>What it does</th></tr></thead><tbody>
+      <tr><td><b>mktex / tex2tga / tga2tex</b> <span class="mono" style="color:var(--conf-confirmed)">&#10003;</span></td><td>Convert between the game's <code>.tex</code> and standard <code>.tga</code>.</td></tr>
+      <tr><td><b>GIMP</b></td><td>The free image editor of choice for skins.</td></tr>
+  </tbody></table></div>
+      <h3>Sound</h3>
+  <div class="tablewrap"><table><thead><tr><th>Tool</th><th>What it does</th></tr></thead><tbody>
+      <tr><td><b>mksfx</b> <span class="mono" style="color:var(--conf-confirmed)">&#10003;</span></td><td>Convert a <code>.wav</code> to the game's <code>.sfx</code>.</td></tr>
+  </tbody></table></div>
+      <h3>Tracks</h3>
+  <div class="tablewrap"><table><thead><tr><th>Tool</th><th>What it does</th></tr></thead><tbody>
+      <tr><td><b>Bob's Track Builder (BTB)</b></td><td>Track authoring (with a BTB&rarr;Viper tutorial).</td></tr>
+      <tr><td><b>vrTrackMaker</b> <span class="mono" style="color:var(--conf-confirmed)">&#10003;</span></td><td>Turn a path / spline into a track block.</td></tr>
+      <tr><td><b>MKWORLD / mkfltoa</b> <span class="mono" style="color:var(--conf-confirmed)">&#10003;</span></td><td>Generate the surface + collision set (<code>.sol/.obt/.bsp/.grf/.bpp</code>) from a text scene description.</td></tr>
+      <tr><td><b>nhmkworld</b> <span class="mono" style="color:var(--conf-confirmed)">&#10003;</span></td><td>The graphic pass that adds objects to <code>.grf</code> / <code>.bpp</code>.</td></tr>
+      <tr><td><b>MKSTAMP / Stp2Tga / tga2stp</b> <span class="mono" style="color:var(--conf-confirmed)">&#10003;</span></td><td>The <code>.stp</code> menu screenshot and the <code>Trackmap</code>.</td></tr>
+      <tr><td><b>MKTABLE / MKILI</b> <span class="mono" style="color:var(--conf-confirmed)">&#10003;</span></td><td>Data tables / the AI racing line (<code>.ili</code>).</td></tr>
+      <tr><td><b>trkaitweaker</b> <span class="mono" style="color:var(--conf-confirmed)">&#10003;</span></td><td>AI tuning.</td></tr>
+      <tr><td><b>jpg2sky / sky-tga2tex</b></td><td>Build the four skybox tiles.</td></tr>
+  </tbody></table></div>
+      <h3>Engine patches (<span class="mono">race.bin</span>)</h3>
+  <div class="tablewrap"><table><thead><tr><th>Tool</th><th>What it does</th></tr></thead><tbody>
+      <tr><td><b>Sucahyo's 1.2.4-beta <code>race.bin</code></b></td><td>2007 &mdash; raised the polygon / vertex limits (why high-detail mods load).</td></tr>
+      <tr><td><b>Charlie Ward's 2016 <code>race.bin</code></b></td><td>The modern-GPU startup fix, from beatcracker's solution.</td></tr>
+      <tr><td><b>race.bin-25kvert-512tex</b> <span class="mono" style="color:var(--conf-confirmed)">&#10003;</span></td><td>A high-limit community build.</td></tr>
+      <tr><td><b>Patch 1.2.3 / 1.2.5, ResolutionChanger.exe</b> <span class="mono" style="color:var(--conf-confirmed)">&#10003;</span></td><td>Later patches and resolution support.</td></tr>
+  </tbody></table></div>
+      <h3>Hex editor</h3>
+  <div class="tablewrap"><table><thead><tr><th>Tool</th><th>What it does</th></tr></thead><tbody>
+      <tr><td><b>XVi32</b></td><td>The community's recommended hex editor &mdash; used for every non-geometry edit: the <code>&lt;car&gt;1.tab</code> spec sheet, texture-name strings inside a <code>.mod</code>, and AI/track names in <code>english.lng</code>.</td></tr>
+  </tbody></table></div>
+    </section>
+
+    <section id="understood">
+      <h2><span class="num">03</span> How the formats were understood</h2>
+      <p>The scene's format knowledge was real and deep, but it lived in <strong>hex-editor tutorials and muscle memory</strong>, not code:</p>
+      <ul>
+        <li><strong><span class="mono">&lt;car&gt;1.tab</span> &mdash; the &ldquo;garage&rdquo; spec sheet.</strong> Val's 2015 hex-editing tutorial shows opening it in XVi32 and reading off <code>Name</code>, <code>0-60</code>, <code>top speed</code>, <code>engine</code>, <code>power max</code>, <code>torque max</code>, <code>redline</code> as plain text &mdash; the exact structure <span class="mono">vrmod</span> now parses to derive a car's name and stats automatically.</li>
+        <li><strong><span class="mono">.mod</span> &mdash; meshes.</strong> Editing was limited to finding and renaming the texture-name string inside the file; real geometry was always done in Zmodeler and re-exported.</li>
+        <li><strong><span class="mono">english.lng</span>.</strong> AI driver names and track slot names were changed with a fixed-width, never-longer-than-the-original hex edit &mdash; the same constraint the modern switcher works within.</li>
+        <li><strong>The engine.</strong> Rather than decompiled, <span class="mono">race.bin</span> was binary-patched: Sucahyo lifted the limits (2007), Charlie Ward &amp; beatcracker fixed the GPU check (2016). Most modern installs still rely on these two.</li>
+      </ul>
+      <blockquote>The community had mapped the <em>what</em> of these formats byte by byte. What it never had was the <em>how at scale</em> &mdash; a way to read and write them programmatically rather than one file at a time in a hex editor.</blockquote>
+    </section>
+
+    <section id="preservation">
+      <h2><span class="num">04</span> Preservation &amp; sources</h2>
+      <p>The mods are, remarkably, preserved several times over &mdash; as downloadable Internet Archive <em>items</em>, not just Wayback pages:</p>
+      <ul>
+        <li><strong>Val's site</strong> &mdash; a full ~3&nbsp;GB capture (&ldquo;Val's Viper Racing Site Backup&rdquo;, mods included) plus a later one; valsgames.com points back to these.</li>
+        <li><strong>Community &ldquo;Complete CarPack / TrackPack&rdquo; volumes</strong> &mdash; 39 car-pack + 6 track-pack volumes on archive.org, sourced from Val's set.</li>
+        <li>The original tutorials, tool binaries and readmes live inside those captures.</li>
+      </ul>
+      <p>One gap worth noting: those public archives are Val-centric. <strong>Frank Wolf's ~155 cars are not in them</strong>, and his original site is long dead &mdash; so aggregated community collections may be their only surviving copy.</p>
+    </section>
+
+    <section id="vrmod">
+      <h2><span class="num">05</span> Why <span class="mono">vrmod</span></h2>
+      <p>This project was built to find the underlying file types and coding structures that made all of the above necessary in the first place &mdash; and, having found them, to do in software what the community did by hand: read a car or track's real geometry, textures, physics, sounds, spec sheet and AI line directly; render them in 3D in the browser; edit and write them back safely; and check an install for the very fixes (the GPU patch, the limit patch, resolution, audio) this community discovered.</p>
+      <p>It stands entirely on the shoulders of the people above. Where their tools were single-purpose and manual, <span class="mono">vrmod</span> aims to be one library that understands the formats &mdash; so the next twenty years of keeping <em>Viper Racing</em> alive don't have to start in a hex editor.</p>
+    </section>
+
+    <footer class="colophon">Compiled from Val's Viper Racing site (archive.org capture), the community tool archives, and Frank Wolf's toolpacks. Corrections welcome.</footer>
+  </main>
+</div>
+</body>
+</html>
