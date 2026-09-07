@@ -155,13 +155,15 @@ def _apply_commit(body: dict) -> tuple[Path, Path]:
     that file's actual mode and re-encodes the new pixels the same way, rather
     than guessing.
     """
+    # Restore: copy the pristine backup back over the car OR track (undoes all
+    # tool edits). Handled before the track/car split so both use it.
+    if body.get("action") == "restore":
+        target = Path(body.get("track_path") or body["car_path"])
+        backup = _restore_original(target)
+        return target, backup, [], []
     if "track_path" in body:
         return _apply_track_commit(body)
     car_path = Path(body["car_path"])
-    # Restore: copy the pristine backup back over the car (undoes all tool edits).
-    if body.get("action") == "restore":
-        backup = _restore_original(car_path)
-        return car_path, backup, [], []
     entries = archive.read(car_path)
 
     stats = body.get("stats") or {}

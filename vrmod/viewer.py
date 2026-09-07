@@ -3982,27 +3982,43 @@ _TRACK_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
      it is what you came for, and this page is often embedded in a pane much
      narrower than a full browser window (see switcher_ui). Opening it is the
      same "Mod it!" gesture the car shell uses, so both views behave alike. */
-  #canvas-wrap{position:absolute;top:0;left:0;right:0;bottom:0;transition:right .18s ease}
+  /* Solid top bar, matching the car shell: library toggle (left) + track name +
+     actions (right). Keeps cars and tracks feeling like one tool. */
+  #topbar{position:absolute;top:0;left:0;right:0;height:52px;background:#20242c;color:#e8eaf2;
+          display:flex;align-items:center;gap:16px;padding:0 16px;box-sizing:border-box;
+          border-bottom:1px solid #333;z-index:6}
+  #topbar-actions{margin-left:auto;display:flex;align-items:center;gap:8px}
+  #label{color:#e8eaf2;font-size:1rem;font-weight:600;line-height:1.2;white-space:nowrap}
+  #label .file{display:block;color:#8a90a4;font-size:.7rem;font-weight:400;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .icon-btn{line-height:0;padding:7px 9px;min-width:36px;display:inline-flex;align-items:center;
+            justify-content:center;background:#14161c;border:1px solid #3a3f4e;color:#e8eaf2;
+            border-radius:4px;cursor:pointer}
+  .icon-btn:hover{background:#1c1f28}
+  #expand-btn{color:#c5cbd8}
+  #expand-btn.active{background:#1911ab;border-color:#1911ab;color:#fff}
+  #mod-btn{background:#2a1f10;border-color:#7a5220;color:#ffce8a}
+  #mod-btn:hover{background:#372811}
+  body.modding #mod-btn{background:#7a5220;border-color:#ffce8a;color:#fff}
+  #file-actions{display:none;gap:6px;align-items:center}
+  body.modding #file-actions{display:inline-flex}
+  #commit-btn{background:#1a5c2e;border-color:#2e8a4e;color:#fff}
+  #commit-btn:hover{background:#206e38}
+  #commit-btn:disabled{background:#14161c;border-color:#3a3f4e;color:#5a5f6e;cursor:default}
+  #restore-btn.danger{background:#3a1414;border-color:#7a2020;color:#ffd9d9;margin-left:6px}
+  #restore-btn.danger:hover{background:#4a1a1a}
+  #commit-status{position:absolute;top:52px;left:0;right:0;padding:10px 16px;font-size:.82rem;
+                 z-index:3;display:none;word-break:break-all}
+  #commit-status.ok{display:block;background:#123a1e;color:#9fe3af;border-bottom:1px solid #2e8a4e}
+  #commit-status.pending{display:block;background:#20242c;color:#a8adc0;border-bottom:1px solid #3a3f4e}
+  #commit-status.error{display:block;background:#3a1414;color:#ffd9d9;border-bottom:1px solid #7a2020}
+  #canvas-wrap{position:absolute;top:52px;left:0;right:0;bottom:0;transition:right .18s ease}
   body.modding #canvas-wrap{right:320px}
   #panel{display:none}
   body.modding #panel{display:block}
-  /* View-only (public gallery): no "Mod it!" (so the Textures panel and its
-     Save are unreachable) and no "Save menu picture" writes. */
-  body.view-only #mod-btn,body.view-only #shot-btn,body.view-only #shot-btn2{display:none!important}
-  #corner{position:absolute;top:14px;right:16px;z-index:6;display:flex;gap:8px;
-    transition:right .18s ease}
-  body.modding #corner{right:336px}
-  #corner button{background:#2a2f3a;color:#e8eaf2;border:1px solid #3a4150;
-    border-radius:6px;padding:6px 12px;font:inherit;font-size:.78rem;cursor:pointer}
-  #corner button:hover{background:#333a47;border-color:#4a5566}
-  #corner button[hidden]{display:none}
-  /* Controls the mod-manager host offers itself. Hidden only when embedded --
-     a standalone page from `vrmod trackview` still needs every one of them. */
+  body.view-only #mod-btn,body.view-only #file-actions,
+  body.view-only #shot-btn,body.view-only #shot-btn2{display:none!important}
   body.embedded .host-dup{display:none}
-  #label{position:absolute;top:16px;left:16px;color:#e8eaf2;font-size:1.1rem;font-weight:600;
-    line-height:1.25;text-shadow:0 1px 3px rgba(0,0,0,.55)}
-  #label .file{display:block;color:#aeb4c6;font-size:.75rem;font-weight:400;
-    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
   /* This sits over whatever the camera happens to be pointing at -- bright sky
      as often as dark terrain -- so it carries its own ground rather than
      relying on a colour that only works against one of them. */
@@ -4053,8 +4069,8 @@ _TRACK_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   #fatal-error{position:absolute;top:0;left:0;right:320px;padding:16px;background:#3a1414;
                color:#ffd9d9;font-family:monospace;font-size:.85rem;white-space:pre-wrap;
                z-index:10;display:none}
-  #panel{position:absolute;top:0;right:0;width:320px;height:100%;background:#20242c;color:#e8eaf2;
-         box-sizing:border-box;padding:16px;overflow-y:auto;border-left:1px solid #333}
+  #panel{position:absolute;top:52px;right:0;width:320px;height:calc(100% - 52px);background:#20242c;color:#e8eaf2;
+         box-sizing:border-box;padding:16px;overflow-y:auto;border-left:1px solid #333;z-index:4}
   #panel h2{margin:0 0 4px;font-size:1.1rem}
   #panel .hint{font-size:.75rem;color:#8a90a4;margin-bottom:14px}
   #texture-list{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -4077,12 +4093,7 @@ _TRACK_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   .swatch-import{background:#1c1f4a;color:#8ecfff}
   .swatch-import:hover{background:#252a5c}
   .swatch-import input{display:none}
-  #commit-bar{position:sticky;bottom:0;background:#20242c;padding-top:12px;margin-top:14px;
-              border-top:1px solid #333}
-  #commit-btn{width:100%;padding:10px;background:#3a6fa0;color:#fff;border:none;border-radius:6px;
-              font-size:.85rem;cursor:pointer}
-  #commit-btn:disabled{background:#3a3f4e;color:#777;cursor:default}
-  #commit-status{font-size:.72rem;margin-top:8px;color:#8a90a4}
+  /* (Save/Restore + the commit banner now live in the top bar -- see above.) */
   #commit-status.ok{color:#7fd67f}
   #commit-status.error{color:#e08a8a}
   #commit-status.pending{color:#e0c87a}
@@ -4096,16 +4107,20 @@ _TRACK_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head><body class="__BODY_CLASS__">
+<header id="topbar">
+  <button id="expand-btn" type="button" class="icon-btn" aria-label="Toggle library" hidden><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="9" y1="4" x2="9" y2="20"/></svg></button>
+  <div id="label">__TITLE__<span class="file">__TRACK_FILE__</span></div>
+  <div id="topbar-actions">
+    <div id="file-actions">
+      <button id="commit-btn" class="icon-btn" disabled aria-label="Save" title="Save — write texture changes into the track (backs up the original first)"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7"/><rect x="8" y="13" width="8" height="6"/></svg></button>
+      <button id="restore-btn" class="icon-btn danger" aria-label="Restore original" title="Restore original — revert the track to its first backup, discarding saved changes (asks first)"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v5h5"/><path d="M4.5 9a8 8 0 1 0 3-4"/><path d="M12 8v4l3 2"/></svg></button>
+    </div>
+    <button id="mod-btn" type="button" class="icon-btn" aria-label="Edit track" title="Edit this track — open the texture tools"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10-10-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg></button>
+  </div>
+</header>
 <div id="canvas-wrap"></div>
-<div id="corner">
-  <!-- Sizing and driving are things you do to the VIEW, so they live on the
-       view. #expand-btn only appears when embedded, since standalone there is
-       nothing to expand into. -->
-  <button id="expand-btn" type="button" hidden></button>
-  <button id="mod-btn" type="button">Mod it! &#9998;</button>
-</div>
+<div id="commit-status"></div>
 <div id="fatal-error"></div>
-<div id="label">__TITLE__<span class="file">__TRACK_FILE__</span></div>
 <div id="hint">Drag to orbit &middot; right-drag (or shift-drag) to pan &middot; scroll to zoom &middot; R to reset
   <span class="host-dup"> &middot; <button id="shot-btn" type="button">Save menu picture</button></span> <span id="lap-info"></span> <span id="shot-status"></span></div>
 <canvas id="minimap" width="190" height="150" hidden></canvas>
@@ -4145,12 +4160,8 @@ _TRACK_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
 </div>
 <div id="panel">
   <h2>Textures</h2>
-  <div class="hint">Export a texture as .tga to edit in an image editor, or import a .tga to preview a swap live on the track, then Save to write it back into the .trk (backs up the original first).</div>
+  <div class="hint">Export a texture as .tga to edit in an image editor, or import a .tga to preview a swap live on the track, then Save (top bar) to write it back into the .trk.</div>
   <div id="texture-list"></div>
-  <div id="commit-bar">
-    <button id="commit-btn" disabled>Save (backs up original)</button>
-    <div id="commit-status"></div>
-  </div>
 </div>
 <script>
 const OBJ_TEXT = __OBJ_JSON__;
@@ -4686,6 +4697,23 @@ function main() {
   buildTextureDrawer(meshesByMaterial, loadTexture);
   document.getElementById("commit-btn").addEventListener("click", commitChanges);
 
+  // Restore original: revert the track ON DISK to its pristine pre-edit backup,
+  // then reload. Discards saved changes too, so it confirms first.
+  document.getElementById("restore-btn").addEventListener("click", async () => {
+    if (!confirm("Restore this track to its ORIGINAL (pre-edit) state?\n\nThis reverts the file on disk to its first backup, discarding changes you've saved, and reloads.")) return;
+    const s = document.getElementById("commit-status");
+    s.className = "pending"; s.style.display = "block"; s.textContent = "Restoring original…";
+    try {
+      const resp = await fetch(COMMIT_ROUTE, {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({track_path: TRACK_PATH, action: "restore"}),
+      });
+      const r = await resp.json();
+      if (r.ok) { s.className = "ok"; s.textContent = "Restored from " + r.backup_path + " — reloading…"; setTimeout(() => location.reload(), 800); }
+      else { s.className = "error"; s.textContent = "Restore failed: " + r.error; }
+    } catch (e) { s.className = "error"; s.textContent = "Restore failed: " + (e && e.message ? e.message : e); }
+  });
+
   const grid = new THREE.GridHelper(maxDim * 2, 20, 0x555555, 0x333333);
   grid.position.set(center.x, box.min.y, center.z);
   scene.add(grid);
@@ -4784,8 +4812,10 @@ function main() {
   const expandBtn = document.getElementById("expand-btn");
   function syncExpandBtn(){
     if(!HOST) return;
-    expandBtn.hidden = false;
-    expandBtn.textContent = HOST.isExpanded() ? "⇲ Show library" : "⇱ Full width";
+    expandBtn.hidden = false;   // sidebar toggle: keep the icon, show state via .active
+    const libShown = !HOST.isExpanded();
+    expandBtn.classList.toggle("active", libShown);
+    expandBtn.title = libShown ? "Hide the library" : "Show the library";
   }
   if(HOST){
     syncExpandBtn();
@@ -4799,7 +4829,8 @@ function main() {
   const modBtn = document.getElementById("mod-btn");
   modBtn.addEventListener("click", () => {
     const on = document.body.classList.toggle("modding");
-    modBtn.innerHTML = on ? "‹ Back to viewing" : "Mod it! ✎";
+    modBtn.classList.toggle("active", on);   // keep the pencil icon
+    modBtn.title = on ? "Done editing — back to viewing" : "Edit this track — open the texture tools";
     // Modding opens the Textures panel down the right side, so claim the full
     // window on the way IN -- same as entering drive mode. One-way: leaving Mod
     // leaves the width as-is. Guarded so a deliberate split isn't stomped.
