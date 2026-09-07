@@ -766,6 +766,10 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   #mod-toggle{background:#2a1f10;border-color:#7a5220;color:#ffce8a}
   #mod-toggle:hover{background:#372811}
   body.mod-mode #mod-toggle{background:#7a5220;border-color:#ffce8a;color:#fff}
+  /* Library sidebar toggle (top-left). Lit when the library panel is showing. */
+  #expand-btn{background:#14161c;border:1px solid #3a3f4e;color:#c5cbd8;border-radius:4px;cursor:pointer}
+  #expand-btn:hover{background:#1c1f28;color:#e8eaf2}
+  #expand-btn.active{background:#1911ab;border-color:#1911ab;color:#fff}
   /* File actions (top-right) + the left tool rail appear only in mod mode. */
   #file-actions{display:none;gap:6px;align-items:center}
   body.mod-mode #file-actions{display:inline-flex}
@@ -1026,8 +1030,12 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   window.addEventListener("DOMContentLoaded", () => {
     const b = document.getElementById("expand-btn");
     if(!HOST || !b) return;
+    // Sidebar toggle: "expanded" = viewer full-width = library hidden. Keep the
+    // SVG icon; show state via .active (lit when the library panel is showing).
     const sync = () => { b.hidden = false;
-      b.textContent = HOST.isExpanded() ? "⇲ Show library" : "⇱ Full width"; };
+      const libShown = !HOST.isExpanded();
+      b.classList.toggle("active", libShown);
+      b.title = libShown ? "Hide the library" : "Show the library"; };
     sync();
     b.addEventListener("click", () => {
       HOST.setExpanded(!HOST.isExpanded());
@@ -1037,11 +1045,12 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
 </script>
 </head><body class="__BODY_CLASS__">
 <header id="topbar">
+  <!-- Sidebar toggle for the host library panel (top-left, like any side-panel
+       toggle). Hidden unless embedded in the library host -- see the HOST block. -->
+  <button id="expand-btn" type="button" class="icon-btn" aria-label="Toggle library" hidden><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="9" y1="4" x2="9" y2="20"/></svg></button>
   <div id="car-name">__CAR_TITLE__<span class="file">__CAR_FILE__</span></div>
   <nav id="tabs"></nav>
   <div id="topbar-actions">
-    <!-- Sizing is a property of the view; hidden unless embedded (see HOST block). -->
-    <button id="expand-btn" type="button" hidden></button>
     <!-- File actions (about the whole car): Save / Discard / Restore, as icons.
          The per-view EDITORS live on the left tool rail (#tool-rail below). -->
     <div id="file-actions">
