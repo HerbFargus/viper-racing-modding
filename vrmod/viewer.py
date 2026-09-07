@@ -875,8 +875,9 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   .part-row label.part-import{background:#1c1f4a;color:#8ecfff}
   .part-row label.part-import:hover{background:#252a5c}
   .part-row label.part-import input{display:none}
-  .part-row button.part-discard{background:#3a1414;border-color:#7a2020;color:#ffd9d9}
-  .part-row button.part-discard:hover{background:#4a1a1a}
+  .part-row button.part-revert{flex:0 0 auto;padding:5px 8px;font-size:.95rem;line-height:1;
+                    background:#3a1414;border-color:#7a2020;color:#ffd9d9}
+  .part-row button.part-revert:hover{background:#4a1a1a}
   .part-row .part-error{color:#a88;font-size:.72rem}
   .sound-row{margin-bottom:16px}
   .sound-row .sound-name{font-size:.82rem;word-break:break-all}
@@ -985,7 +986,7 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
     <div id="part-preview-canvas"></div>
     <div id="part-preview-label">Click a part below to preview it</div>
   </div>
-  <div class="hint">Each part has its own <b>Import</b> and <b>Export</b>. Import takes the <code>.obj</code> alone, or together with its <code>.mtl</code> and texture image(s), or a single <code>.zip</code> of all of them. Export downloads a zip (mesh + <code>.mtl</code> + textures). A staged edit shows a <b>Discard</b> until you Save.</div>
+  <div class="hint">Each part has its own <b>Import</b> and <b>Export</b>. Import takes the <code>.obj</code> alone, or together with its <code>.mtl</code> and texture image(s), or a single <code>.zip</code> of all of them. Export downloads a zip (mesh + <code>.mtl</code> + textures). A staged edit shows a <b>↺ revert</b> icon until you Save.</div>
   <div id="import-obj-status"></div>
   <div id="parts-list"></div>
 </aside>
@@ -2035,8 +2036,8 @@ function setPartPending(row, name, pending, sourceLabel) {
       ? `${name} → ${sourceLabel} (pending)`
       : name + (SHARED_PART_NAMES.has(name) ? " (shared default)" : "");
   }
-  const discard = row.querySelector(".part-discard");
-  if (discard) discard.hidden = !pending;
+  const revert = row.querySelector(".part-revert");
+  if (revert) revert.hidden = !pending;
 }
 
 // After a successful Save, everything staged is now the car's real content:
@@ -2255,14 +2256,6 @@ function buildPartsDrawer(applyLiveReimport) {
       importLabel.appendChild(importInput);
       actions.appendChild(importLabel);
 
-      const discardBtn = document.createElement("button");
-      discardBtn.className = "part-discard";
-      discardBtn.textContent = "Discard";
-      discardBtn.title = "Throw away this part's staged edit and revert to the car's original";
-      discardBtn.hidden = true;
-      discardBtn.addEventListener("click", e => { e.stopPropagation(); discardPart(name, row); });
-      actions.appendChild(discardBtn);
-
       const exportBtn = document.createElement("button");
       exportBtn.textContent = "Export";
       exportBtn.title = "Download a .zip: the mesh (.obj), its .mtl, and a PNG per texture -- re-imports fully skinned";
@@ -2276,6 +2269,18 @@ function buildPartsDrawer(applyLiveReimport) {
         finally { exportBtn.disabled = false; exportBtn.textContent = was; }
       });
       actions.appendChild(exportBtn);
+
+      // Compact revert icon rather than a full "Discard" button -- the side panel
+      // is tight, and this only appears once a row is actually staged. Sits to the
+      // right of Export.
+      const revertBtn = document.createElement("button");
+      revertBtn.className = "part-revert";
+      revertBtn.textContent = "↺";  // anticlockwise open-circle arrow (revert)
+      revertBtn.title = "Revert to the car's original (discard the staged edit)";
+      revertBtn.setAttribute("aria-label", "Revert to original");
+      revertBtn.hidden = true;
+      revertBtn.addEventListener("click", e => { e.stopPropagation(); discardPart(name, row); });
+      actions.appendChild(revertBtn);
 
       row.appendChild(actions);
       // Reflect any edit already staged (e.g. if the drawer is ever rebuilt).
