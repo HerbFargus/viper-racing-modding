@@ -1946,7 +1946,12 @@ function parseMtl(text) {
 // to bytes.
 function solidColorImageData(kd) {
   const b = c => Math.max(0, Math.min(255, Math.round((c || 0) * 255)));
-  const r = b(kd[0]), g = b(kd[1]), bl = b(kd[2]);
+  let r = b(kd[0]), g = b(kd[1]), bl = b(kd[2]);
+  // A colour that quantises to RGB565 0x0000 (r<8 && g<4 && b<8) IS the game's
+  // transparent colourkey -- a near-black material would render invisible in
+  // game (confirmed: Quaternius "Black" Kd 3,3,3). Nudge such colours up to the
+  // smallest still-black-looking non-zero value so black stays black, not a hole.
+  if ((r >> 3) === 0 && (g >> 2) === 0 && (bl >> 3) === 0) { r = 8; g = 8; bl = 8; }
   const S = 8, data = new Uint8ClampedArray(S * S * 4);
   for (let i = 0; i < S * S; i++) { data[i*4] = r; data[i*4+1] = g; data[i*4+2] = bl; data[i*4+3] = 255; }
   return new ImageData(data, S, S);
