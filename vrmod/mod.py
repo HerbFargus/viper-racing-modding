@@ -301,18 +301,21 @@ def _parse_obj_text(text: str):
             if current is None:
                 raise ValueError("face defined before any usemtl -- every face must belong to a material")
             verts = parts[1:]
-            if len(verts) != 3:
-                raise ValueError(
-                    f"only triangulated faces are supported, got a {len(verts)}-gon -- triangulate in your 3D tool first"
-                )
-            tri = []
+            if len(verts) < 3:
+                raise ValueError(f"a face needs at least 3 vertices, got a {len(verts)}-gon")
+            poly = []
             for token in verts:
                 comps = token.split("/")
                 pi = int(comps[0])
                 ui = int(comps[1]) if len(comps) > 1 and comps[1] else None
                 ni = int(comps[2]) if len(comps) > 2 and comps[2] else None
-                tri.append((pi, ui, ni))
-            current["faces"].append(tuple(tri))
+                poly.append((pi, ui, ni))
+            # Fan-triangulate n-gons -- real models (Blender exports especially)
+            # ship quads and larger polys, but Viper .mod is triangles only. A
+            # convex fan (v0,v1,v2),(v0,v2,v3),... is correct for the near-convex
+            # faces these exporters produce.
+            for k in range(1, len(poly) - 1):
+                current["faces"].append((poly[0], poly[k], poly[k + 1]))
 
     return positions, uvs, normals, blocks
 

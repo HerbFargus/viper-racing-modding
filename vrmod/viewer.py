@@ -176,11 +176,21 @@ function main() {
   const root = new THREE.Group();
   parsed.groups.forEach((g, gi) => {
     const posArr = [], uvArr = [];
-    for (const face of g.faces) for (const [pi, ui] of face) {
-      const p = parsed.positions[pi];
-      posArr.push(p[0], p[1], p[2]);
-      const uv = ui != null ? parsed.uvs[ui] : [0, 0];
-      uvArr.push(uv[0], uv[1]);
+    for (const face of g.faces) {
+      // Fan-triangulate n-gons (real models -- Blender especially -- export
+      // quads and larger polys, not just triangles) and tolerate faces with no
+      // vt (f a//n): parseObj yields ui=NaN there, so guard with isFinite and
+      // fall back to (0,0) rather than indexing uvs[NaN] -> undefined -> crash.
+      for (let k = 1; k + 1 < face.length; k++) {
+        const tri = [face[0], face[k], face[k + 1]];
+        if (tri.some(v => !parsed.positions[v[0]])) continue;   // skip a face with a bad index
+        for (const [pi, ui] of tri) {
+          const p = parsed.positions[pi];
+          posArr.push(p[0], p[1], p[2]);
+          const uv = Number.isFinite(ui) ? parsed.uvs[ui] : null;
+          uvArr.push(uv ? uv[0] : 0, uv ? uv[1] : 0);
+        }
+      }
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.Float32BufferAttribute(posArr, 3));
@@ -470,11 +480,21 @@ function main() {
   const root = new THREE.Group();
   parsed.groups.forEach((g, gi) => {
     const posArr = [], uvArr = [];
-    for (const face of g.faces) for (const [pi, ui] of face) {
-      const p = parsed.positions[pi];
-      posArr.push(p[0], p[1], p[2]);
-      const uv = ui != null ? parsed.uvs[ui] : [0, 0];
-      uvArr.push(uv[0], uv[1]);
+    for (const face of g.faces) {
+      // Fan-triangulate n-gons (real models -- Blender especially -- export
+      // quads and larger polys, not just triangles) and tolerate faces with no
+      // vt (f a//n): parseObj yields ui=NaN there, so guard with isFinite and
+      // fall back to (0,0) rather than indexing uvs[NaN] -> undefined -> crash.
+      for (let k = 1; k + 1 < face.length; k++) {
+        const tri = [face[0], face[k], face[k + 1]];
+        if (tri.some(v => !parsed.positions[v[0]])) continue;   // skip a face with a bad index
+        for (const [pi, ui] of tri) {
+          const p = parsed.positions[pi];
+          posArr.push(p[0], p[1], p[2]);
+          const uv = Number.isFinite(ui) ? parsed.uvs[ui] : null;
+          uvArr.push(uv ? uv[0] : 0, uv ? uv[1] : 0);
+        }
+      }
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.Float32BufferAttribute(posArr, 3));
@@ -1188,11 +1208,21 @@ function buildPartGroup(objText) {
   const meshesByMaterial = {};
   parsed.groups.forEach((g, gi) => {
     const posArr = [], uvArr = [];
-    for (const face of g.faces) for (const [pi, ui] of face) {
-      const p = parsed.positions[pi];
-      posArr.push(p[0], p[1], p[2]);
-      const uv = ui != null ? parsed.uvs[ui] : [0, 0];
-      uvArr.push(uv[0], uv[1]);
+    for (const face of g.faces) {
+      // Fan-triangulate n-gons (real models -- Blender especially -- export
+      // quads and larger polys, not just triangles) and tolerate faces with no
+      // vt (f a//n): parseObj yields ui=NaN there, so guard with isFinite and
+      // fall back to (0,0) rather than indexing uvs[NaN] -> undefined -> crash.
+      for (let k = 1; k + 1 < face.length; k++) {
+        const tri = [face[0], face[k], face[k + 1]];
+        if (tri.some(v => !parsed.positions[v[0]])) continue;   // skip a face with a bad index
+        for (const [pi, ui] of tri) {
+          const p = parsed.positions[pi];
+          posArr.push(p[0], p[1], p[2]);
+          const uv = Number.isFinite(ui) ? parsed.uvs[ui] : null;
+          uvArr.push(uv ? uv[0] : 0, uv ? uv[1] : 0);
+        }
+      }
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.Float32BufferAttribute(posArr, 3));
