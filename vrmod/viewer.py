@@ -902,7 +902,7 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   .filter-btn:hover{color:#e8eaf2;border-color:#4a5570}
   .filter-btn.active{color:#8ecfff;border-color:#2b2f63;background:#1c1f4a}
   .part-main{display:flex;flex-direction:column;min-width:0;flex:1;gap:1px}
-  .part-row .part-name{overflow-wrap:anywhere}
+  .part-row .part-name{overflow-wrap:break-word}
   .part-row.empty .part-name{color:#7f8598}
   #parts-list.show-all .part-row.rendered .part-name{font-weight:700;color:#8ecfff}
   .part-sub{font-family:monospace;font-size:.64rem;color:#6f7486;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -910,7 +910,8 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   .part-row.staged{border-left:3px solid #e8a33d;padding-left:3px}
   .part-row.staged .part-name{color:#e8a33d}
   .part-row.removing .part-name{color:#7f8598;text-decoration:line-through}
-  .part-tag{font-size:.62rem;color:#e8a33d}
+  .part-tag{font-size:.62rem;color:#e8a33d;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+  .part-tag:empty{display:none}
   .part-always{display:flex;gap:6px;align-items:center;flex-shrink:0}
   /* Buttons are always shown -- no hover reveal (it reflowed jitterily, and it
      would collide with a future hover-to-highlight-in-3D). Removing/added rows
@@ -918,7 +919,7 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   .part-actions{display:flex;gap:6px;flex-shrink:0}
   .part-row.removing .part-actions,.part-row.added .part-actions{display:none}
   .part-row button,.part-row label.part-import{background:#14161c;border:1px solid #3a3f4e;color:#e8eaf2;
-                    padding:5px 10px;border-radius:3px;cursor:pointer;font-size:.72rem;white-space:nowrap}
+                    padding:4px 7px;border-radius:3px;cursor:pointer;font-size:.7rem;white-space:nowrap}
   .part-row button:hover,.part-row label.part-import:hover{background:#2a2f3a}
   .part-row label.part-import{background:#1c1f4a;color:#8ecfff}
   .part-row label.part-import:hover{background:#252a5c}
@@ -2443,7 +2444,7 @@ function buildPartsDrawer(applyLiveReimport, removeLivePart, highlightPart) {
     const rev = row.querySelector(".part-revert");
     if (rev) rev.hidden = (state === "none");
     const tg = row.querySelector(".part-tag");
-    if (tg) tg.textContent = tag || "";
+    if (tg) { tg.textContent = tag ? ("→ " + tag) : ""; if (tag) tg.title = tag; }
   }
 
   async function importOntoMember(member, fileList, row, addMode) {
@@ -2587,9 +2588,12 @@ function buildPartsDrawer(applyLiveReimport, removeLivePart, highlightPart) {
       row.addEventListener("mouseleave", () => highlightPart(cfg.member, false));
     }
 
-    // always-visible: staged tag + revert, or the Add button for an empty slot
+    // Staged-source tag ("→ boulder.obj") goes INSIDE the stacked name column, not
+    // inline before the buttons -- inline it stole horizontal width and collapsed
+    // the name to one-letter-per-line when a staged row also shows Import/Export/🗑.
+    const tag = document.createElement("span"); tag.className = "part-tag"; main.appendChild(tag);
+    // always-visible: revert, or the Add button for an empty slot
     const always = document.createElement("span"); always.className = "part-always";
-    const tag = document.createElement("span"); tag.className = "part-tag"; always.appendChild(tag);
     const rev = document.createElement("button");
     rev.className = "part-revert"; rev.textContent = "↺"; rev.hidden = true;
     rev.title = "Undo this staged change"; rev.setAttribute("aria-label", "undo");
