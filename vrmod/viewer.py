@@ -766,16 +766,33 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   #mod-toggle{background:#2a1f10;border-color:#7a5220;color:#ffce8a}
   #mod-toggle:hover{background:#372811}
   body.mod-mode #mod-toggle{background:#7a5220;border-color:#ffce8a;color:#fff}
-  #textures-btn,#parts-btn,#sound-btn,#commit-btn,#discard-btn{display:none}
-  body.mod-mode #textures-btn,body.mod-mode #parts-btn,body.mod-mode #sound-btn,body.mod-mode #commit-btn,body.mod-mode #discard-btn{display:inline-block}
-  #discard-btn{background:#3a1414;border-color:#7a2020;color:#ffd9d9}
-  #discard-btn:hover{background:#4a1a1a}
-  #discard-btn:disabled{background:#14161c;border-color:#3a3f4e;color:#5a5f6e;cursor:default}
-  /* View-only (public gallery): no way into mod mode at all -- the "Mod it!"
-     entry point is gone, and every mod affordance stays behind it. */
-  body.view-only #mod-toggle,body.view-only #commit-btn,body.view-only #discard-btn,
-  body.view-only #stats-btn,body.view-only #cockpit-configs-btn,
-  body.view-only #textures-btn,body.view-only #parts-btn,body.view-only #sound-btn{display:none!important}
+  /* Editing panels + file actions appear only in mod mode. */
+  #panel-group,#commit-btn,#more-wrap{display:none}
+  body.mod-mode #panel-group{display:inline-flex}
+  body.mod-mode #commit-btn,body.mod-mode #more-wrap{display:inline-block}
+  /* Segmented panel group: joined toggle buttons with hairline dividers. */
+  #panel-group{border:1px solid #3a3f4e;border-radius:4px;overflow:hidden}
+  #panel-group button{background:#14161c;border:none;border-left:1px solid #3a3f4e;color:#e8eaf2;
+                      padding:8px 14px;cursor:pointer;font-size:.85rem;border-radius:0}
+  #panel-group button:first-child{border-left:none}
+  #panel-group button:hover{background:#1c1f28}
+  #panel-group button.active{background:#1911ab}
+  /* ⋯ overflow menu for the secondary file actions (Discard, Restore). */
+  #more-wrap{position:relative}
+  #more-btn{padding:8px 12px}
+  #more-menu{position:absolute;top:calc(100% + 4px);right:0;min-width:190px;background:#20242c;
+             border:1px solid #3a3f4e;border-radius:6px;padding:4px;z-index:8;flex-direction:column;gap:2px;
+             box-shadow:0 8px 24px rgba(0,0,0,.5)}
+  #more-menu:not([hidden]){display:flex}
+  #more-menu button{display:block;width:100%;text-align:left;background:none;border:none;color:#e8eaf2;
+                    padding:8px 10px;border-radius:4px;cursor:pointer;font-size:.82rem;white-space:nowrap}
+  #more-menu button:hover{background:#2a2f3a}
+  #more-menu button:disabled{color:#5a5f6e;cursor:default;background:none}
+  #restore-btn{color:#ffd9d9}
+  #restore-btn:hover{background:#3a1414}
+  /* View-only (public gallery): no way into mod mode -- hide every mod affordance. */
+  body.view-only #mod-toggle,body.view-only #panel-group,
+  body.view-only #commit-btn,body.view-only #more-wrap{display:none!important}
   #commit-btn{background:#1a5c2e;border-color:#2e8a4e}
   #commit-btn:hover{background:#206e38}
   #commit-btn:disabled{background:#14161c;border-color:#3a3f4e;color:#5a5f6e;cursor:default}
@@ -1028,13 +1045,23 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
     <!-- Sizing is a property of the view, so it lives here rather than in the
          host's footer. Hidden unless embedded -- see the HOST block below. -->
     <button id="expand-btn" type="button" hidden></button>
-    <button id="stats-btn">Car Configs</button>
-    <button id="cockpit-configs-btn">Cockpit Configs</button>
-    <button id="textures-btn">Textures</button>
-    <button id="parts-btn">Parts</button>
-    <button id="sound-btn">Sound</button>
-    <button id="commit-btn">Save (backs up original)</button>
-    <button id="discard-btn" title="Discard every staged change and return to the car as saved on disk">Discard all</button>
+    <!-- Editing panels, grouped as one segmented unit. "Configs" is contextual:
+         it opens Car Configs on the Car tab, Cockpit Configs on the Cockpit tab. -->
+    <div id="panel-group">
+      <button id="configs-btn" title="Edit this view's config (car stats / cockpit calibration)">Configs</button>
+      <button id="textures-btn">Textures</button>
+      <button id="parts-btn">Parts</button>
+      <button id="sound-btn">Sound</button>
+    </div>
+    <!-- File actions: Save is primary; the rest live in the ⋯ menu. -->
+    <button id="commit-btn" title="Save changes to the car (backs up the original first)">Save</button>
+    <div id="more-wrap">
+      <button id="more-btn" title="More actions" aria-haspopup="true" aria-expanded="false">⋯</button>
+      <div id="more-menu" hidden role="menu">
+        <button id="discard-btn" role="menuitem" title="Discard every staged (unsaved) change">Discard all changes</button>
+        <button id="restore-btn" role="menuitem" title="Revert the car on disk to its original pre-edit backup">Restore original…</button>
+      </div>
+    </div>
     <button id="mod-toggle">Mod it! ✎</button>
   </div>
 </header>
@@ -3423,18 +3450,30 @@ function main() {
   let modMode = false;
 
   // Mutually exclusive drawers -- opening one closes whichever other is open.
-  const drawers = [
-    {drawer: document.getElementById("stats-drawer"), btn: document.getElementById("stats-btn")},
-    {drawer: document.getElementById("cockpit-configs-drawer"), btn: document.getElementById("cockpit-configs-btn")},
-    {drawer: document.getElementById("textures-drawer"), btn: document.getElementById("textures-btn")},
-    {drawer: document.getElementById("parts-drawer"), btn: document.getElementById("parts-btn")},
-    {drawer: document.getElementById("sound-drawer"), btn: document.getElementById("sound-btn")},
+  // "Configs" is CONTEXTUAL: it opens Car Configs (.cf stats) on the Car tab and
+  // Cockpit Configs (cockpit.tab) on the Cockpit tab -- one button instead of two.
+  // Textures/Parts/Sound each own their button. All are Mod-mode-only (CSS).
+  const configsBtn = document.getElementById("configs-btn");
+  const allDrawers = ["stats-drawer", "cockpit-configs-drawer", "textures-drawer",
+                      "parts-drawer", "sound-drawer"].map(id => document.getElementById(id));
+  function activeConfigDrawer() {
+    return activeKey === "cockpit" ? document.getElementById("cockpit-configs-drawer")
+         : activeKey === "car"     ? document.getElementById("stats-drawer") : null;
+  }
+  const drawerButtons = [
+    {btn: configsBtn, get: activeConfigDrawer},
+    {btn: document.getElementById("textures-btn"), get: () => document.getElementById("textures-drawer")},
+    {btn: document.getElementById("parts-btn"),    get: () => document.getElementById("parts-drawer")},
+    {btn: document.getElementById("sound-btn"),     get: () => document.getElementById("sound-drawer")},
   ];
   function closeAllDrawers() {
-    drawers.forEach(d => { d.drawer.classList.remove("open"); d.btn.classList.remove("active"); });
+    allDrawers.forEach(d => d.classList.remove("open"));
+    drawerButtons.forEach(({btn}) => btn.classList.remove("active"));
   }
-  drawers.forEach(({drawer, btn}) => {
+  drawerButtons.forEach(({btn, get}) => {
     btn.addEventListener("click", () => {
+      const drawer = get();
+      if (!drawer) return;
       const opening = !drawer.classList.contains("open");
       closeAllDrawers();
       drawer.classList.toggle("open", opening);
@@ -3442,19 +3481,20 @@ function main() {
     });
   });
 
-  // "Car Configs" (.cf stats) only on the Car tab, "Cockpit Configs" (cockpit.tab)
-  // only on the Cockpit tab -- both Mod-mode only. The real spec numbers are
-  // visible in-game already; these are for people actually about to edit them.
-  // Textures/Parts/Save stay tab-agnostic, mod-mode-gated purely by CSS.
-  const statsBtn = document.getElementById("stats-btn");
-  const cockpitConfigsBtn = document.getElementById("cockpit-configs-btn");
+  // Configs shows only in Mod mode on the Car/Cockpit tabs (nothing to configure
+  // on Horn Ball). If it was open, switching Car<->Cockpit keeps it open and
+  // swaps to the right panel; switching to Horn Ball just closes it.
   function updateConfigButtonsVisibility() {
-    const showStats = modMode && activeKey === "car";
-    const showCockpit = modMode && activeKey === "cockpit";
-    statsBtn.style.display = showStats ? "inline-block" : "none";
-    cockpitConfigsBtn.style.display = showCockpit ? "inline-block" : "none";
-    if (!showStats) { document.getElementById("stats-drawer").classList.remove("open"); statsBtn.classList.remove("active"); }
-    if (!showCockpit) { document.getElementById("cockpit-configs-drawer").classList.remove("open"); cockpitConfigsBtn.classList.remove("active"); }
+    const show = modMode && (activeKey === "car" || activeKey === "cockpit");
+    configsBtn.style.display = show ? "" : "none";
+    const wasActive = configsBtn.classList.contains("active");
+    document.getElementById("stats-drawer").classList.remove("open");
+    document.getElementById("cockpit-configs-drawer").classList.remove("open");
+    configsBtn.classList.remove("active");
+    if (show && wasActive) {
+      const d = activeConfigDrawer();
+      if (d) { d.classList.add("open"); configsBtn.classList.add("active"); }
+    }
   }
 
   // Mod mode's Cockpit tab opens straight into driver's-eye view at cockpit.tab's
@@ -3547,7 +3587,47 @@ function main() {
     const s = document.getElementById("commit-status");
     if (s) { s.className = "pending"; s.textContent = "Discarded all staged changes — back to the saved car."; }
   }
-  document.getElementById("discard-btn").addEventListener("click", discardAllChanges);
+  // ⋯ overflow menu (Discard all / Restore original). Toggle on click, close on
+  // an outside click or after choosing an item.
+  const moreBtn = document.getElementById("more-btn");
+  const moreMenu = document.getElementById("more-menu");
+  function closeMoreMenu() { moreMenu.hidden = true; moreBtn.setAttribute("aria-expanded", "false"); }
+  moreBtn.addEventListener("click", e => {
+    e.stopPropagation();
+    const open = moreMenu.hidden;
+    moreMenu.hidden = !open;
+    moreBtn.setAttribute("aria-expanded", String(open));
+  });
+  moreMenu.addEventListener("click", e => e.stopPropagation());
+  document.addEventListener("click", closeMoreMenu);
+
+  document.getElementById("discard-btn").addEventListener("click", () => { closeMoreMenu(); discardAllChanges(); });
+
+  // Restore original: revert the car ON DISK to its pristine pre-edit backup,
+  // then reload so the whole tool rebuilds from the restored car. Discards saved
+  // changes too (not just staged ones), so it confirms first.
+  document.getElementById("restore-btn").addEventListener("click", async () => {
+    closeMoreMenu();
+    if (!confirm("Restore this car to its ORIGINAL (pre-edit) state?\n\nThis reverts the file on disk to its first backup, discarding ALL changes you've saved, and reloads.")) return;
+    const s = document.getElementById("commit-status");
+    s.className = "pending"; s.style.display = "block"; s.textContent = "Restoring original…";
+    try {
+      const resp = await fetch(COMMIT_ROUTE, {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({car_path: CAR_PATH, action: "restore"}),
+      });
+      const r = await resp.json();
+      if (r.ok) {
+        s.className = "ok";
+        s.textContent = "Restored from " + r.backup_path + " — reloading…";
+        setTimeout(() => location.reload(), 800);
+      } else {
+        s.className = "error"; s.textContent = "Restore failed: " + r.error;
+      }
+    } catch (e) {
+      s.className = "error"; s.textContent = "Restore failed: " + (e && e.message ? e.message : e);
+    }
+  });
   updateCommitStatus();
 
   getActiveKey = () => activeKey;  // lets a Save-triggered rebuild re-highlight the in-view slot

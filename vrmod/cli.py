@@ -105,6 +105,35 @@ def _new_tex_mode_wrap(pixels: bytes) -> tuple[str, int]:
     return ("alpha" if has_alpha else "opaque"), 1
 
 
+def find_original_backup(car_path: Path) -> Path | None:
+    """The earliest _apply_commit backup for this car -- its pristine pre-tool
+    state. The first Save writes `<stem>_original<suffix>.bak` (no collision
+    suffix); later Saves get `..._2.bak`, etc. Prefer the un-suffixed one; else
+    the oldest by mtime (copy2 preserves the source car's mtime, so oldest =
+    most original)."""
+    car_path = Path(car_path)
+    primary = car_path.with_name(f"{car_path.stem}_original{car_path.suffix}.bak")
+    if primary.exists():
+        return primary
+    cands = sorted(car_path.parent.glob(f"{car_path.stem}_original*{car_path.suffix}*.bak"),
+                   key=lambda p: p.stat().st_mtime)
+    return cands[0] if cands else None
+
+
+def _restore_original(car_path: Path) -> Path:
+    """Copy the pristine backup back over the car. Returns the backup used;
+    raises FileNotFoundError if there's nothing to restore from. Backups are
+    left in place (restore is repeatable / non-destructive of history)."""
+    car_path = Path(car_path)
+    backup = find_original_backup(car_path)
+    if backup is None:
+        raise FileNotFoundError(
+            "no original backup found for this car (nothing has been saved yet, "
+            "so there's no pre-edit copy to restore)")
+    shutil.copy2(backup, car_path)
+    return backup
+
+
 def _apply_commit(body: dict) -> tuple[Path, Path]:
     """Turn the shell's "Save" payload into a real, edited .car file -- written
     back to the car's OWN original path/filename (backed up first, never
@@ -129,6 +158,10 @@ def _apply_commit(body: dict) -> tuple[Path, Path]:
     if "track_path" in body:
         return _apply_track_commit(body)
     car_path = Path(body["car_path"])
+    # Restore: copy the pristine backup back over the car (undoes all tool edits).
+    if body.get("action") == "restore":
+        backup = _restore_original(car_path)
+        return car_path, backup, [], []
     entries = archive.read(car_path)
 
     stats = body.get("stats") or {}
