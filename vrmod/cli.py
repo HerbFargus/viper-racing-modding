@@ -94,6 +94,17 @@ def _fit_new_texture(pixels: bytes, w: int, h: int, name: str,
     return fitted, target
 
 
+def _new_tex_mode_wrap(pixels: bytes) -> tuple[str, int]:
+    """Mode/wrap for a brand-new material's texture -- one with no original .tex
+    to copy those from. Opaque unless the imported image actually carries
+    transparency (an opaque skin forced to alpha is just wasteful); wrap=1, a
+    valid stock value. The game panics with "tmap: unknown texture format" on
+    wrap=0 -- no stock .tex uses it, every one is wrap=1 (tileable) or 2 (decal).
+    `pixels` is RGBA here (read_tga_bytes always returns 4 channels)."""
+    has_alpha = any(pixels[i] < 255 for i in range(3, len(pixels), 4))
+    return ("alpha" if has_alpha else "opaque"), 1
+
+
 def _apply_commit(body: dict) -> tuple[Path, Path]:
     """Turn the shell's "Save" payload into a real, edited .car file -- written
     back to the car's OWN original path/filename (backed up first, never
@@ -188,10 +199,11 @@ def _apply_commit(body: dict) -> tuple[Path, Path]:
             pixels, w = _fit_to_original(pixels, w, h, orig_info, name, resized)
         else:
             # No original to match (a brand-new material -- e.g. a foreign body's
-            # own skin arriving via the shell's OBJ+.mtl import): default to alpha
+            # own skin arriving via the shell's OBJ+.mtl import): pick mode/wrap
+            # from the image itself (opaque unless it has alpha, a valid wrap),
             # and fit to a valid .tex size ourselves, since encode_to_tex demands
             # a square power of two >= 8 and an imported skin often isn't one.
-            mode, wrap = "alpha", 0
+            mode, wrap = _new_tex_mode_wrap(pixels)
             pixels, w = _fit_new_texture(pixels, w, h, name, resized)
         if mode == "opaque":
             # read_tga_bytes always returns RGBA (our TGAs are always 32-bit --
@@ -263,7 +275,7 @@ def _apply_track_commit(body: dict) -> tuple[Path, Path]:
             # Before the channel conversion below -- see the note in _apply_commit.
             pixels, w = _fit_to_original(pixels, w, h, orig_info, name, resized)
         else:
-            mode, wrap = "alpha", 0
+            mode, wrap = _new_tex_mode_wrap(pixels)
         if mode == "opaque":
             rgb = bytearray(len(pixels) // 4 * 3)
             rgb[0::3], rgb[1::3], rgb[2::3] = pixels[0::4], pixels[1::4], pixels[2::4]
