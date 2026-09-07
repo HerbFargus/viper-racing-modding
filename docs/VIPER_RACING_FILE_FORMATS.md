@@ -606,6 +606,20 @@ transparency marker.
 > (`3ter.tex` alone is used by 191 chunks of one track). **Read the colorkey from 0x18 and treat both it
 > and `0x0000` as transparent.**
 
+> **Modding gotcha — `0x0000` reads as transparent *in game even in an opaque texture* (flags `0x00`).**
+> Confirmed in game (2026-09-07): a material painted a solid color that quantizes to RGB565 `0x0000`
+> renders **invisible** even when the texture is encoded opaque with no colorkey bit set. So the
+> transparent-black behavior is **not** gated on the colorkey flag — any pixel that lands on `0x0000` is
+> see-through. Two consequences for tools and modders:
+> - **Hazard:** a genuinely-black region must not be allowed to collapse to `0x0000` unless you *want*
+>   a hole — nudge it to a neighbor such as `0x0020` or `0x0841` (an imperceptibly-dark, still-visible
+>   black). `vrmod` does this automatically when it synthesizes a flat color from an OBJ material's `Kd`
+>   (a near-black `Kd` would otherwise import as an invisible part).
+> - **Intentional use:** conversely, painting a region pure `0x0000` black is a valid, flag-independent
+>   way to punch a transparent hole through a piece — the same effect shipped content gets via the header
+>   colorkey, but available with no mode/flag change. Importing a texture keeps its real pixels, so this
+>   is unaffected by the `Kd`-swatch nudge above.
+
 Confirmed cleanly: encoded a 16-color test image in colorkey mode covering
 red/green/blue/white/black/gray/magenta/cyan/yellow and several near-zero colors, and diffed it
 pixel-for-pixel against a plain (non-colorkey) encode of the identical image. All 16 pixels matched
