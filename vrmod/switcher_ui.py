@@ -44,7 +44,7 @@ import threading
 import webbrowser
 from pathlib import Path
 
-from . import aifield, archive, carshot, cf, doctor, envelope, grf, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch
+from . import aifield, archive, carshot, cf, doctor, envelope, grf, hornball, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch
 
 _PAGE = r"""<!doctype html>
 <meta charset="utf-8"><title>Viper Racing -- Mod Manager</title>
@@ -769,6 +769,7 @@ async function renderGame(){
   const modded = (STATE.slots || []).filter(s => !s.is_stock).length;
   const kb = b => (b/1024 | 0).toLocaleString();
   const dr = await api('/api/doctor');
+  const hb = await api('/api/hornball');
 
   const opponents = `
    <div class="panel">
@@ -899,6 +900,37 @@ async function renderGame(){
      </div>`;
   }
 
+  let hbPanel = '';
+  if(hb && hb.available){
+    const b = hb.bounds, sm = hb.speed_mult, cd = hb.cooldown;
+    const row = (lab, id, valId, val, unit, min, max, step, ends) => `
+      <div style="display:flex;align-items:center;gap:14px;margin-top:12px">
+        <label class="field-label" style="min-width:150px;margin:0">${lab}
+          <b id="${valId}" style="color:var(--fg)">${val.toFixed(2)}${unit}</b></label>
+        <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}"
+          style="flex:1;accent-color:var(--acc)"
+          oninput="el$('${valId}').textContent=(+this.value).toFixed(2)+'${unit}'">
+        <span style="color:var(--dim);font-size:12px;min-width:96px;text-align:right">${ends}</span>
+      </div>`;
+    hbPanel = `
+     <div class="panel">
+       <div class="panel-head"><h2>Horn-ball</h2>
+         <span class="note">${hb.is_stock ? 'Stock throw'
+           : `${sm.toFixed(2)}× · ${cd.toFixed(2)}s`}</span></div>
+       <p class="lede">The hidden <b>hacks</b> toy: honk and your car fires a ball out the front.
+         Turn <b>Horn ball</b> on in the game's hacks menu to use it; these sliders set how hard it
+         throws and how often. Takes effect next launch.</p>
+       ${row('Throw speed', 'hb-speed', 'hb-sv', sm, '×', b.speed_min, b.speed_max, 0.25,
+             `${b.speed_min}× – ${b.speed_max}× (1× stock)`)}
+       ${row('Cooldown', 'hb-cd', 'hb-cv', cd, 's', b.cd_min, b.cd_max, 0.05,
+             `${b.cd_min}s – ${b.cd_max}s (2s stock)`)}
+       <div class="ai-row" style="margin-top:14px">
+         <button class="mini on" onclick="applyHornball()">Apply</button>
+         ${hb.is_stock ? '' : `<button class="mini" onclick="resetHornball()">Reset to stock</button>`}
+       </div>
+     </div>`;
+  }
+
   const fixBtn = {vram:'Apply', dpi:'Set DPI-aware', patch:'Apply'};
   const fixes = `
    <div class="panel">
@@ -918,7 +950,23 @@ async function renderGame(){
      </div>
    </div>`;
 
-  el$('config').innerHTML = opponents + aiCar + cars + tracks + resPanel + fixes;
+  el$('config').innerHTML = opponents + aiCar + cars + tracks + hbPanel + resPanel + fixes;
+}
+
+async function applyHornball(){
+  const speed_mult = +el$('hb-speed').value, cooldown = +el$('hb-cd').value;
+  const r = await api('/api/hornball', {speed_mult, cooldown});
+  if(!r.ok) return toast(r.error, 'bad');
+  toast(`Horn-ball: ${r.speed_mult.toFixed(2)}× speed, ${r.cooldown.toFixed(2)}s cooldown `
+        + `— takes effect next launch.`);
+  renderGame();
+}
+
+async function resetHornball(){
+  const r = await api('/api/hornball', {reset:true});
+  if(!r.ok) return toast(r.error, 'bad');
+  toast('Horn-ball reset to stock (1× speed, 2s cooldown).');
+  renderGame();
 }
 
 async function aiStep(delta){
@@ -1014,6 +1062,17 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 "findings": [{"level": f.level, "title": f.title, "detail": f.detail,
                               "fix": f.fix, "action": f.action, "link": f.link}
                              for f in rep.findings],
+            })
+        if self.path == "/api/hornball":
+            if not hornball.available(d):
+                return self._json({"available": False})
+            t = hornball.read(d)
+            return self._json({
+                "available": True,
+                "speed_mult": round(t.speed_mult, 3), "cooldown": round(t.cooldown, 3),
+                "is_stock": t.is_stock,
+                "bounds": {"speed_min": hornball.SPEED_MIN, "speed_max": hornball.SPEED_MAX,
+                           "cd_min": hornball.COOLDOWN_MIN, "cd_max": hornball.COOLDOWN_MAX},
             })
         if self.path == "/api/status":
             return self._json(_status_payload(d))
@@ -1228,6 +1287,17 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                                                   "Rebuildable from the snapshot; revert with "
                                                   "vrmod patch --revert."})
                 return self._json({"ok": False, "error": f"unknown fix: {action}"}, 400)
+            if self.path == "/api/hornball":
+                if not hornball.available(d):
+                    return self._json({"ok": False, "error": "this race.bin has no tunable "
+                                       "horn-ball launch code"}, 400)
+                if req.get("reset"):
+                    t = hornball.reset(d)
+                else:
+                    t = hornball.apply(d, speed_mult=req.get("speed_mult"),
+                                       cooldown=req.get("cooldown"))
+                return self._json({"ok": True, "speed_mult": round(t.speed_mult, 3),
+                                   "cooldown": round(t.cooldown, 3), "is_stock": t.is_stock})
             if self.path == "/api/car_active":
                 new = switcher.set_car_active(d, req["name"], bool(req["active"]))
                 return self._json({"ok": True, "name": new})
