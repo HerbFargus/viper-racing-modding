@@ -11,7 +11,7 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from . import aifield, archive, aspectfix, bpp as bppmod, car, carshot, cf, cockpit_tab, doctor, envelope, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch
+from . import aifield, archive, aspectfix, bpp as bppmod, car, carshot, cf, cockpit_tab, doctor, envelope, hornball, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch
 
 COMMIT_PATH = "/__vrmod_commit__"
 
@@ -624,6 +624,20 @@ def main(argv: list[str] | None = None) -> int:
     p_res.add_argument("--set", nargs=2, metavar=("INDEX", "WIDTHxHEIGHT"), default=None,
                        help="replace one mode, e.g. --set 0 1920x1080 (backs race.bin up first)")
 
+    p_hb = sub.add_parser(
+        "hornball",
+        help="Tune the hidden horn-ball hack: throw speed and re-fire cooldown "
+             "(reads current values; --speed/--cooldown to change, --reset for stock)",
+    )
+    p_hb.add_argument("data_dir", type=Path, help="the game's Data folder")
+    p_hb.add_argument("--speed", type=float, default=None, metavar="MULT",
+                      help=f"throw speed as a multiplier of stock ({hornball.SPEED_MIN}"
+                           f"-{hornball.SPEED_MAX}x; 1.0 = stock)")
+    p_hb.add_argument("--cooldown", type=float, default=None, metavar="SECONDS",
+                      help=f"seconds between throws ({hornball.COOLDOWN_MIN}"
+                           f"-{hornball.COOLDOWN_MAX}; stock 2.0)")
+    p_hb.add_argument("--reset", action="store_true", help="restore stock (1.0x, 2.0s)")
+
     p_skyexport = sub.add_parser(
         "skyexport",
         help="Export a track's sky (sky1-4.tex) as one editable panoramic TGA",
@@ -1158,6 +1172,21 @@ def main(argv: list[str] | None = None) -> int:
         m = doctor.video_mode(args.data_dir)
         if m is not None:
             print(f"  (the game is currently set to mode {m})")
+    elif args.command == "hornball":
+        if not hornball.available(args.data_dir):
+            print("This race.bin doesn't carry the horn-ball launch code this can tune.")
+            return 1
+        if args.reset:
+            hornball.reset(args.data_dir)
+        elif args.speed is not None or args.cooldown is not None:
+            hornball.apply(args.data_dir, speed_mult=args.speed, cooldown=args.cooldown)
+        t = hornball.read(args.data_dir)
+        print(f"horn-ball: speed {t.speed_mult:.2f}x (stock 1.0), "
+              f"cooldown {t.cooldown:.2f}s (stock 2.0)"
+              + ("  [stock]" if t.is_stock else ""))
+        if args.speed is None and args.cooldown is None and not args.reset:
+            print("  --speed MULT / --cooldown SECONDS to change, --reset for stock. "
+                  "Enable the hack in-game from the hidden hacks menu.")
     elif args.command == "doctor":
         rep = doctor.check(args.data_dir)
         marks = {doctor.BAD: "!!", doctor.WARN: " !", doctor.OK: " *", doctor.INFO: "  "}
