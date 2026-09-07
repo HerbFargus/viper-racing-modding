@@ -328,6 +328,23 @@ def upsert_entry(entries: list[ArchiveEntry], name: str, standalone_bytes: bytes
         return entries + [ArchiveEntry(name=name, tag=env.tag, version=env.version, payload=env.payload)]
 
 
+def remove_entry(entries: list[ArchiveEntry], name: str) -> list[ArchiveEntry]:
+    """Return a copy of `entries` with the entry named `name` dropped. Used by the
+    shell's commit endpoint to delete an optional member -- an exterior sub-part
+    (<prefix>b/s.mod), an interior piece (<prefix>c/w.mod, Needle.mod), or a
+    per-car override of a shared default (reverting it to race.res). Removal only
+    ever shrinks the archive, so unlike appending it can't create the
+    out-of-order core/bulk layout the retail loader rejects (see write()/the
+    package-layer notes) -- the header is simply recomputed from what remains.
+    Case-insensitive; raises if no such entry exists so a bad name fails loudly
+    rather than silently no-op'ing.
+    """
+    new_entries = [e for e in entries if e.name.lower() != name.lower()]
+    if len(new_entries) == len(entries):
+        raise KeyError(f"no entry named {name!r} in this archive")
+    return new_entries
+
+
 def pack(in_dir: Path | str, archive_path: Path | str, partitioned: bool | None = None) -> None:
     """Pack a directory of standalone 0SER files back into an archive.
 

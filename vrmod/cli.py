@@ -157,6 +157,18 @@ def _apply_commit(body: dict) -> tuple[Path, Path]:
                 f"that {why} allows -- the game may fail to load this car")
         entries = archive.upsert_entry(entries, name, mod.build(mesh))
 
+    # Deletions: optional sub-parts/interior pieces removed in the slot map, or a
+    # per-car override reverted to its shared default. Applied after the part
+    # upserts above so a remove of a name that a part edit also touched (shouldn't
+    # happen -- the UI stages one or the other) resolves as "gone". Silently skip
+    # a name that isn't actually in the archive (already absent = already the
+    # desired state), rather than failing the whole save.
+    for name in (body.get("remove") or []):
+        try:
+            entries = archive.remove_entry(entries, name)
+        except KeyError:
+            pass
+
     resized: list[str] = []
     for name, tga_b64 in (body.get("textures") or {}).items():
         pixels, w, h = tex.read_tga_bytes(base64.b64decode(tga_b64))

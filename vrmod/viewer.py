@@ -859,25 +859,56 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   .swatch-import input{display:none}
   #import-tga-status{font-size:.72rem;color:#8ecfff;margin-bottom:8px;min-height:1em;word-break:break-all}
   .empty{font-size:.8rem;color:#8a90a4;font-style:italic}
-  .part-row{display:flex;align-items:center;justify-content:space-between;gap:8px;
-            padding:8px 6px;border-bottom:1px solid #2a2e38;font-size:.82rem;border-radius:4px}
+  .part-grp{font-size:.68rem;color:#7f8598;letter-spacing:.03em;padding:11px 6px 3px;text-transform:none}
+  .part-row{display:flex;align-items:center;gap:8px;
+            padding:7px 6px;border-bottom:1px solid #23262f;font-size:.82rem;border-radius:4px}
+  .part-row.selectable{cursor:pointer}
   .part-row.selectable:hover{background:#242836}
   .part-row.selected{background:#1c1f4a}
-  .part-row .part-name{word-break:break-all}
-  .part-row.rendered .part-name{font-weight:700;color:#8ecfff}
-  .part-row.pending{border-left:3px solid #e8a33d;padding-left:3px}
-  .part-row.pending .part-name{color:#e8a33d}
-  .highlight-demo{color:#8ecfff}
-  .part-row .part-actions{display:flex;gap:6px;flex-shrink:0}
+  .part-row .dot{width:7px;height:7px;border-radius:50%;flex:0 0 7px;background:#5f6472}
+  .part-row.empty .dot{background:transparent;border:1px dashed #5a5f6e;width:6px;height:6px;flex:0 0 6px}
+  .part-row.shared-default .dot{background:transparent;border:1px solid #4a5570}
+  #parts-list.show-all .part-row.rendered .dot{background:#8ecfff}
+  .part-row.filter-hidden,.part-grp.filter-hidden,.part-detail-box.filter-hidden{display:none!important}
+  #parts-drawer h2{display:flex;align-items:center;gap:6px}
+  .filter-btn{margin-left:auto;background:transparent;border:1px solid #3a3f4e;border-radius:4px;
+              color:#7f8598;cursor:pointer;padding:4px 6px;line-height:0}
+  .filter-btn:hover{color:#e8eaf2;border-color:#4a5570}
+  .filter-btn.active{color:#8ecfff;border-color:#2b2f63;background:#1c1f4a}
+  .part-main{display:flex;flex-direction:column;min-width:0;flex:1;gap:1px}
+  .part-row .part-name{overflow-wrap:anywhere}
+  .part-row.empty .part-name{color:#7f8598}
+  #parts-list.show-all .part-row.rendered .part-name{font-weight:700;color:#8ecfff}
+  .part-sub{font-family:monospace;font-size:.64rem;color:#6f7486;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .part-sub .note{color:#e8a33d}
+  .part-row.staged{border-left:3px solid #e8a33d;padding-left:3px}
+  .part-row.staged .part-name{color:#e8a33d}
+  .part-row.removing .part-name{color:#7f8598;text-decoration:line-through}
+  .part-tag{font-size:.62rem;color:#e8a33d}
+  .part-always{display:flex;gap:6px;align-items:center;flex-shrink:0}
+  /* Buttons are always shown -- no hover reveal (it reflowed jitterily, and it
+     would collide with a future hover-to-highlight-in-3D). Removing/added rows
+     hide the action buttons since only the revert applies. */
+  .part-actions{display:flex;gap:6px;flex-shrink:0}
+  .part-row.removing .part-actions,.part-row.added .part-actions{display:none}
   .part-row button,.part-row label.part-import{background:#14161c;border:1px solid #3a3f4e;color:#e8eaf2;
-                    padding:5px 10px;border-radius:3px;cursor:pointer;font-size:.75rem;white-space:nowrap}
+                    padding:5px 10px;border-radius:3px;cursor:pointer;font-size:.72rem;white-space:nowrap}
   .part-row button:hover,.part-row label.part-import:hover{background:#2a2f3a}
   .part-row label.part-import{background:#1c1f4a;color:#8ecfff}
   .part-row label.part-import:hover{background:#252a5c}
-  .part-row label.part-import input{display:none}
-  .part-row button.part-revert{flex:0 0 auto;padding:5px 8px;font-size:.95rem;line-height:1;
+  .part-row label.part-import input,.part-add input{display:none}
+  .part-add{background:transparent;border:1px dashed #3a4a63;color:#8ecfff;
+            padding:5px 10px;border-radius:3px;cursor:pointer;font-size:.72rem;white-space:nowrap}
+  .part-add:hover{background:#1c1f4a}
+  .part-row button.part-revert{flex:0 0 auto;padding:4px 8px;font-size:.9rem;line-height:1;
                     background:#3a1414;border-color:#7a2020;color:#ffd9d9}
   .part-row button.part-revert:hover{background:#4a1a1a}
+  .part-row button.part-remove{flex:0 0 auto;padding:4px 7px;font-size:.85rem;line-height:1;
+                    background:#3a1414;border-color:#7a2020;color:#ffd9d9}
+  .part-row button.part-remove:hover{background:#4a1a1a}
+  .part-lodtoggle{color:#a8adc0}
+  .part-lodtoggle:hover{background:#242836}
+  .part-lodtoggle .chev{color:#8ecfff;font-size:1.2rem;line-height:1;margin-right:6px;width:1em;display:inline-block;text-align:center}
   .part-row .part-error{color:#a88;font-size:.72rem}
   .sound-row{margin-bottom:16px}
   .sound-row .sound-name{font-size:.82rem;word-break:break-all}
@@ -891,8 +922,16 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   .sound-row .sound-import:hover{background:#343946}
   .sound-row .sound-import input{display:none}
   .sound-row .sound-import-status{font-size:.7rem;color:#8ecfff;margin-top:4px;min-height:1em;word-break:break-all}
-  #part-preview-wrap{margin-bottom:12px;border:1px solid #333;border-radius:6px;overflow:hidden}
-  #part-preview-canvas{width:100%;height:170px;background:#14161c}
+  .info-i{font-size:.8rem;color:#8ecfff;cursor:help;margin-left:6px;vertical-align:middle;font-weight:400}
+  .info-i:hover{color:#bfe4ff}
+  /* The parts drawer is a fixed header (heading + locked preview) over a single
+     scroll region (the slot list). Only #parts-list scrolls, so nothing ever
+     renders behind the preview box. Overrides .drawer's own overflow-y:auto. */
+  #parts-drawer{display:flex;flex-direction:column;overflow:hidden}
+  #parts-sticky{flex:0 0 auto;margin:0 -16px 8px;padding:0 16px 8px;border-bottom:1px solid #2a2e38}
+  #parts-list{flex:1 1 auto;min-height:0;overflow-y:auto;margin:0 -16px;padding:0 16px}
+  #part-preview-wrap{margin-bottom:8px;border:1px solid #333;border-radius:6px;overflow:hidden}
+  #part-preview-canvas{width:100%;height:150px;background:#14161c}
   #part-preview-canvas canvas{display:block}
   #part-preview-label{padding:6px 8px;font-size:.72rem;color:#a8adc0;background:#1c1f28;word-break:break-all}
   #import-obj-status,#import-tga-status{font-size:.72rem;color:#8ecfff;margin-bottom:8px;min-height:1em;word-break:break-all}
@@ -980,14 +1019,14 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   <button id="cockpit-reset">Reset to default</button>
 </aside>
 <aside id="parts-drawer" class="drawer">
-  <h2>Parts</h2>
-  <div class="hint">Every real .mod file in this car's own archive, plus "ball.mod (shared default)" if the car doesn't own its own horn ball -- includes pieces the 3D view merges together for a cleaner look (the chassis tab, for instance, combines the body with the mirror/spoiler if present) or doesn't show at all (LOD1-7, Needle.mod). <strong class="highlight-demo">Bold</strong> names are the ones actually shown in the current tab; switching tabs updates which are highlighted. Click one to preview it below; Export downloads it as OBJ to edit in Blender, then <code>obj2mod</code> + <code>modpatch</code> to commit -- editing a shared entry creates a new per-car override rather than touching the shared file.</div>
-  <div id="part-preview-wrap">
-    <div id="part-preview-canvas"></div>
-    <div id="part-preview-label">Click a part below to preview it</div>
+  <h2>Parts <span class="info-i" tabindex="0" role="note" aria-label="About the Parts panel" title="The car's mod slots, grouped by role.&#10;&#10;The funnel filters the list to just the parts in the current view (Car / Cockpit / Horn Ball) and follows the tab you switch to. Turn it off to see every slot across all views, including empty ones you can Add and overridable shared assets.&#10;&#10;Filled dot = a slot this car has · dashed = an empty slot · a shared race.res asset is marked 'shared default' (Import to override) or 'override'.&#10;&#10;Each slot has Import / Export and 🗑 remove / ↺ revert; changes stage until Save. Click a slot to preview it.">&#9432;</span><button id="parts-filter-btn" class="filter-btn active" aria-pressed="true" aria-label="Filter parts" title="Showing parts in this view — click to show all slots"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2 3H14L9.2 8.7V13L6.8 11.6V8.7Z" fill="currentColor"/></svg></button></h2>
+  <div id="parts-sticky">
+    <div id="part-preview-wrap">
+      <div id="part-preview-canvas"></div>
+      <div id="part-preview-label">Click a slot to preview it</div>
+    </div>
+    <div id="import-obj-status"></div>
   </div>
-  <div class="hint">Each part has its own <b>Import</b> and <b>Export</b>. Import takes the <code>.obj</code> alone, or together with its <code>.mtl</code> and texture image(s), or a single <code>.zip</code> of all of them. Export downloads a zip (mesh + <code>.mtl</code> + textures). A staged edit shows a <b>↺ revert</b> icon until you Save.</div>
-  <div id="import-obj-status"></div>
   <div id="parts-list"></div>
 </aside>
 <aside id="textures-drawer" class="drawer">
@@ -1554,7 +1593,7 @@ async function commitChanges() {
   cockpitDirtyRecords.forEach(name => { cockpit[name] = getCockpitRecordValues(name); });
   const payload = {
     car_path: CAR_PATH, stats, cockpit, parts: pendingPartEdits, textures: pendingTextureEdits,
-    sounds: pendingSfxEdits,
+    sounds: pendingSfxEdits, remove: Array.from(pendingPartRemovals),
   };
 
   statusEl.className = "pending";
@@ -1595,19 +1634,22 @@ async function commitChanges() {
       statusEl.textContent += bullet + warn.join(bullet);
     }
     // Parts/textures/sounds just written ARE now the car's real content, so roll
-    // their baselines forward and clear the "(pending)" state -- the row honestly
+    // their baselines forward and clear the staged state -- the drawer honestly
     // reads as saved, with no snap-back, because we advance the baseline too.
     for (const name of Object.keys(pendingPartEdits)) {
-      MOD_PARTS[name] = pendingPartEdits[name];  // saved geometry becomes the new original
+      MOD_PARTS[name] = pendingPartEdits[name];  // saved geometry (incl. a new Add) becomes the baseline
       delete pendingPartEdits[name];
     }
+    for (const name of pendingPartRemovals) delete MOD_PARTS[name];  // removed members are gone
+    pendingPartRemovals.clear();
     for (const mat of Object.keys(pendingTextureEdits)) {
       delete originalTextures[mat];              // current TEXTURES[mat] is now the baseline
       delete pendingTextureEdits[mat];
     }
     for (const name of Object.keys(importedTexturesByPart)) delete importedTexturesByPart[name];
     for (const name of Object.keys(pendingSfxEdits)) delete pendingSfxEdits[name];
-    clearPendingMarkers();
+    clearPendingMarkers();                       // texture swatches + sound rows
+    if (rebuildPartsDrawer) rebuildPartsDrawer();  // parts: redraw with fresh present/empty states
     updateCommitStatus();
     // Stats/cockpit fields are deliberately left as-is: STATS still holds the
     // ORIGINAL pre-edit values (the page never re-fetches what it wrote), so
@@ -2008,6 +2050,34 @@ const pendingSfxEdits = {};      // {realFilename: raw uploaded WAV bytes, base6
 // Support for discarding a staged part edit and rolling baselines forward on Save.
 const originalTextures = {};        // material -> its pre-import TEXTURES value (undefined if it had none)
 const importedTexturesByPart = {};  // partName -> [materials its OBJ import staged], so Discard drops exactly those
+const pendingPartRemovals = new Set();  // member names staged for deletion (optional slots / reverted overrides)
+let rebuildPartsDrawer = null;      // set by buildPartsDrawer so Save can redraw with fresh present/empty states
+let getActiveKey = null;            // set in main() so a rebuild can re-apply the in-view (.rendered) highlight
+let partsFilterOn = true;           // default: show only what's on the car; the filter toggle reveals add-only slots
+
+// Apply the parts filter. Filtered (default) shows only rows whose `view` is the
+// current 3D tab -- so the list is curated to what you're looking at and adapts
+// when you switch Car/Cockpit/Horn Ball. Off shows the whole catalog. Either way,
+// a group header with no visible rows is hidden. Uses a `filter-hidden` class
+// (not inline display) so it composes with the detail boxes' own collapsed state.
+function applyPartsFilter() {
+  const list = document.getElementById("parts-list");
+  if (!list) return;
+  const key = getActiveKey ? getActiveKey() : null;
+  const showAll = !partsFilterOn;
+  // In Show all, the blue "in view" highlight marks the current tab's parts (what
+  // the filter would keep); in filtered mode it'd be every row, so it's suppressed.
+  list.classList.toggle("show-all", showAll);
+  let header = null, hasVisible = false;
+  const flush = () => { if (header) header.classList.toggle("filter-hidden", !hasVisible); };
+  for (const el of list.children) {
+    if (el.classList.contains("part-grp")) { flush(); header = el; hasVisible = false; continue; }
+    const show = showAll || (el.dataset.view || "") === key;
+    el.classList.toggle("filter-hidden", !show);
+    if (show && el.classList.contains("part-row")) hasVisible = true;
+  }
+  flush();
+}
 
 // Undo the texture side of a part's OBJ import: restore each material this part
 // staged to its pre-import state and drop its pending write. The mesh itself is
@@ -2024,28 +2094,11 @@ function revertPartTextures(partName) {
   delete importedTexturesByPart[partName];
 }
 
-// Toggle a part row's pending state: the amber marker, the "→ file (pending)"
-// label, and whether the Discard button shows. DOM-only, so Save's clear path
-// (clearPendingMarkers) can call it too.
-function setPartPending(row, name, pending, sourceLabel) {
-  if (!row) return;
-  row.classList.toggle("pending", pending);
-  const label = row.querySelector(".part-name");
-  if (label) {
-    label.textContent = pending
-      ? `${name} → ${sourceLabel} (pending)`
-      : name + (SHARED_PART_NAMES.has(name) ? " (shared default)" : "");
-  }
-  const revert = row.querySelector(".part-revert");
-  if (revert) revert.hidden = !pending;
-}
-
-// After a successful Save, everything staged is now the car's real content:
-// clear every pending marker across parts, texture swatches and sound rows.
+// After a successful Save, clear the staged markers on texture swatches and sound
+// rows. Parts are handled separately -- Save rebuilds the whole Parts drawer from
+// the rolled-forward MOD_PARTS (see commitChanges), so their staged state clears
+// with the redraw.
 function clearPendingMarkers() {
-  document.querySelectorAll("#parts-list .part-row.pending").forEach(row => {
-    setPartPending(row, row.dataset.part, false);
-  });
   document.querySelectorAll(".swatch.pending, .sound-row.pending").forEach(el => {
     el.classList.remove("pending");
     const lbl = el.querySelector("[data-base-text]");
@@ -2113,6 +2166,9 @@ function activePartNames(key) {
   } else if (key === "cockpit" && CAR_ROLES.cockpit) {
     if (CAR_ROLES.cockpit.dash) names.add(CAR_ROLES.cockpit.dash);
     if (CAR_ROLES.cockpit.wheel) names.add(CAR_ROLES.cockpit.wheel);
+    // The needle is instanced twice (tach + speedo) via addNeedle, so it's not in
+    // meshesByMaterial, but it IS rendered -- include it so its row highlights too.
+    if (CAR_ROLES.cockpit.needle) names.add(CAR_ROLES.cockpit.needle);
   } else if (key === "hornball" && CAR_ROLES.hornball) {
     names.add(CAR_ROLES.hornball);
   }
@@ -2131,23 +2187,78 @@ function updatePartsHighlight(key) {
 // while this drawer is built top-level. Import/Export/Discard live on each row
 // (mirroring the Textures drawer) so an edit is always bound to the row you acted
 // on -- no separate "selected part" to get wrong.
-function buildPartsDrawer(applyLiveReimport) {
+// The car's fixed slot vocabulary, in display order (see car.py / format-reference
+// §3.5). Each part of a real car maps to one of these; unknown owned members fall
+// into a catch-all "Other parts" group so nothing is ever hidden. suffix builds the
+// member name as <prefix><suffix>.mod; fixedName is a car-agnostic literal.
+// `view` = which of the three 3D tabs actually renders this part, so the filter
+// can curate the list to whatever tab you're looking at.
+const SLOT_DEFS = [
+  {group: "Body",               label: "Body",               suffix: "0", structural: true, view: "car"},
+  {group: "Exterior add-ons",   label: "Mirror",             suffix: "b", removable: true, view: "car"},
+  {group: "Exterior add-ons",   label: "Spoiler",            suffix: "s", removable: true, view: "car"},
+  {group: "Interior · primary car", label: "Dashboard",      suffix: "c", removable: true, view: "cockpit"},
+  {group: "Interior · primary car", label: "Speedometer needle", fixedName: "Needle.mod", removable: true, view: "cockpit"},
+  {group: "Interior · primary car", label: "Steering wheel", suffix: "w", removable: true, view: "cockpit"},
+];
+
+// The shared race.res assets a car can override, in display order. Names/roles
+// confirmed from each mesh's size/shape/material (wheels are wheels.tex; the rest
+// are the XRAY.tex chassis/X-ray-view parts). `members` lists a mesh's detail
+// variants (collapsed like body LODs). `core:true` = wheels + horn ball, the ones
+// the car actually renders, so they show in the default (filtered) view; the rest
+// are add-only (revealed only when the "show all" filter is off).
+const SHARED_SLOTS = [
+  {label: "Horn ball",       members: ["ball.mod"], core: true, view: "hornball"},
+  {label: "Front wheel",     members: ["fwheel_1.mod", "fwheel_2.mod", "fwheel_3.mod"], core: true, view: "car"},
+  {label: "Rear wheel",      members: ["wheel_1.mod", "wheel_2.mod", "wheel_3.mod"], core: true, view: "car"},
+  {label: "Brake lights",    members: ["brakelt.mod"]},
+  {label: "Brake disc glow", members: ["diskglow.mod"]},
+  {label: "X-ray body",      members: ["Xray.mod"]},
+  {label: "Lower control arm (L)", members: ["arm_ll.mod"]},
+  {label: "Lower control arm (R)", members: ["arm_lr.mod"]},
+  {label: "Upper control arm (L)", members: ["arm_ul.mod"]},
+  {label: "Upper control arm (R)", members: ["arm_ur.mod"]},
+  {label: "Strut (L)",       members: ["arm_sl.mod"]},
+  {label: "Strut (R)",       members: ["arm_sr.mod"]},
+  {label: "Wheel spin (L)",  members: ["spin_l.mod"]},
+  {label: "Wheel spin (R)",  members: ["spin_r.mod"]},
+];
+
+function buildPartsDrawer(applyLiveReimport, removeLivePart) {
+  rebuildPartsDrawer = () => { buildPartsDrawer(applyLiveReimport, removeLivePart); if (getActiveKey) updatePartsHighlight(getActiveKey()); };
   const root = document.getElementById("parts-list");
   const status = document.getElementById("import-obj-status");
-  const names = Object.keys(MOD_PARTS);
-  if (names.length === 0) {
-    root.innerHTML = '<div class="empty">no .mod entries found</div>';
-    return;
+  root.innerHTML = "";
+
+  const ownByLower = {};
+  for (const k of Object.keys(MOD_PARTS)) ownByLower[k.toLowerCase()] = k;
+  const owns = n => ownByLower[String(n).toLowerCase()];   // actual owned member name, or undefined
+  const bodyName = (CAR_ROLES.car && CAR_ROLES.car.body) || Object.keys(MOD_PARTS)[0] || "car0.mod";
+  const prefix = bodyName.replace(/0\.mod$/i, "");
+  const claimed = new Set();
+
+  // Set a row's staged appearance without rebuilding it (rebuild only happens on
+  // Save, when ownership actually changes). state: "none" | "edited" | "added" | "removing".
+  function setStaged(row, state, tag) {
+    const base = row.dataset.base;   // "present" | "empty"
+    row.classList.toggle("staged", state !== "none");
+    row.classList.toggle("removing", state === "removing");
+    row.classList.toggle("added", state === "added");
+    // The empty (dashed/dimmed) look applies only to an unstaged empty slot; a
+    // staged add/edit/removal is drawn as a filled row.
+    row.classList.toggle("empty", state === "none" && base === "empty");
+    const rev = row.querySelector(".part-revert");
+    if (rev) rev.hidden = (state === "none");
+    const tg = row.querySelector(".part-tag");
+    if (tg) tg.textContent = tag || "";
   }
 
-  // Import a file selection (loose .obj[/.mtl/images] or one .zip) onto THIS part.
-  async function importOntoPart(name, fileList, row) {
+  async function importOntoMember(member, fileList, row, addMode) {
     const files = Array.from(fileList || []);
     if (!files.length) return;
     status.textContent = "Reading import…";
     try {
-      // Everything -- loose files and any .zip's contents -- into one
-      // {basename: bytes} bag, so a zip and a multi-select take the same path.
       const bag = {};
       for (const f of files) {
         const bytes = new Uint8Array(await f.arrayBuffer());
@@ -2158,17 +2269,9 @@ function buildPartsDrawer(applyLiveReimport) {
       const objKey = Object.keys(bag).find(k => /\.obj$/i.test(k));
       if (!objKey) { status.textContent = "No .obj found in the selection."; return; }
       const objText = dec.decode(bag[objKey]);
-
-      // Re-importing onto an already-staged part: drop the previous import's
-      // textures first so they don't orphan.
-      if (importedTexturesByPart[name]) revertPartTextures(name);
-
-      // Bring textures in first, if a .mtl and its images came along -- staging
-      // TEXTURES before the reimport means the preview + rebuilt Textures drawer
-      // (via applyLiveReimport -> refitAndRefresh) show the skin.
+      if (importedTexturesByPart[member]) revertPartTextures(member);
       const mtlKey = Object.keys(bag).find(k => /\.mtl$/i.test(k));
-      const notes = [];
-      const stagedMats = [];
+      const notes = [], stagedMats = [];
       if (mtlKey) {
         const matToImg = parseMtl(dec.decode(bag[mtlKey]));
         for (const mat of objMaterials(objText)) {
@@ -2176,126 +2279,242 @@ function buildPartsDrawer(applyLiveReimport) {
           if (!imgName) { notes.push(`${mat}: no map_Kd in the .mtl`); continue; }
           const imgBytes = bag[imgName] || bag[baseName(imgName)];
           if (!imgBytes) { notes.push(`${mat}: image "${imgName}" not in the selection`); continue; }
-          let imgData;
-          try { imgData = await decodeImageBytes(imgName, imgBytes); }
+          let imgData; try { imgData = await decodeImageBytes(imgName, imgBytes); }
           catch (err) { notes.push(`${mat}: ${err.message}`); continue; }
           const problem = stageMaterialTexture(mat, imgData);
           if (problem) notes.push(problem); else stagedMats.push(mat);
         }
       }
-      if (stagedMats.length) importedTexturesByPart[name] = stagedMats;
-
-      previewPart(name, objText);
-      const changedTab = applyLiveReimport(name, objText);
-      pendingPartEdits[name] = objText;
-      setPartPending(row, name, true, objKey);
+      if (stagedMats.length) importedTexturesByPart[member] = stagedMats;
+      pendingPartRemovals.delete(member);   // an import supersedes a staged removal
+      previewPart(member, objText);
+      const changedTab = applyLiveReimport(member, objText);
+      pendingPartEdits[member] = objText;
+      setStaged(row, addMode ? "added" : "edited", objKey);
       updateCommitStatus();
-
-      let msg = `Previewing ${objKey} on ${name}`;
+      let msg = `Staged ${objKey} → ${member}`;
       msg += stagedMats.length ? ` with ${stagedMats.length} texture(s)` : (mtlKey ? " (no textures staged)" : " (mesh only)");
-      msg += changedTab
-        ? ` -- also updated the ${TAB_LABELS[changedTab] || changedTab} tab.`
-        : " -- this part isn't shown in any tab, so only the preview above updated.";
+      msg += changedTab ? ` — updated the ${TAB_LABELS[changedTab] || changedTab} view.` : " — shown in the preview; the full car updates on Save.";
       if (notes.length) msg += " " + String.fromCharCode(0x26A0) + " " + notes.join("; ");
       status.textContent = msg;
-    } catch (err) {
-      status.textContent = "Import failed: " + (err && err.message ? err.message : err);
-    }
+    } catch (err) { status.textContent = "Import failed: " + (err && err.message ? err.message : err); }
   }
 
-  // Throw away a staged edit on THIS part and put the car's original back.
-  function discardPart(name, row) {
-    revertPartTextures(name);
-    delete pendingPartEdits[name];
-    const orig = MOD_PARTS[name];
-    previewPart(name, orig);
-    applyLiveReimport(name, orig);   // reverts textures already restored above
-    setPartPending(row, name, false);
-    updateCommitStatus();
-    status.textContent = `Discarded the staged edit on ${name} -- reverted to the car's original.`;
-  }
-
-  let firstOk = null;
-  names.forEach(name => {
-    const objText = MOD_PARTS[name];
-    const row = document.createElement("div");
-    row.className = "part-row";
-    row.dataset.part = name;
-    const label = document.createElement("div");
-    label.className = "part-name";
-    label.textContent = name + (SHARED_PART_NAMES.has(name) ? " (shared default)" : "");
-    row.appendChild(label);
-    if (objText) {
-      if (firstOk === null) firstOk = name;
-      row.classList.add("selectable");
-      // current state = staged edit if any, else the original
-      const current = () => pendingPartEdits[name] || MOD_PARTS[name];
-      row.addEventListener("click", () => {
-        root.querySelectorAll(".part-row").forEach(r => r.classList.remove("selected"));
-        row.classList.add("selected");
-        selectedPartName = name;
-        previewPart(name, current());
-      });
-
-      const actions = document.createElement("div");
-      actions.className = "part-actions";
-
-      const importLabel = document.createElement("label");
-      importLabel.className = "part-import";
-      importLabel.textContent = "Import";
-      importLabel.title = "Import an .obj (alone, with its .mtl + textures, or a .zip) onto this part";
-      const importInput = document.createElement("input");
-      importInput.type = "file";
-      importInput.multiple = true;
-      importInput.accept = ".obj,.mtl,.png,.jpg,.jpeg,.bmp,.webp,.gif,.tga,.zip";
-      importLabel.addEventListener("click", e => e.stopPropagation());
-      importInput.addEventListener("change", async e => {
-        await importOntoPart(name, e.target.files, row);
-        e.target.value = "";  // allow re-importing the same filenames again
-      });
-      importLabel.appendChild(importInput);
-      actions.appendChild(importLabel);
-
-      const exportBtn = document.createElement("button");
-      exportBtn.textContent = "Export";
-      exportBtn.title = "Download a .zip: the mesh (.obj), its .mtl, and a PNG per texture -- re-imports fully skinned";
-      exportBtn.addEventListener("click", async e => {
-        e.stopPropagation();
-        exportBtn.disabled = true;
-        const was = exportBtn.textContent;
-        exportBtn.textContent = "Zipping…";
-        try { await exportPartBundle(name, current()); }
-        catch (err) { alert("Export failed: " + (err && err.message ? err.message : err)); }
-        finally { exportBtn.disabled = false; exportBtn.textContent = was; }
-      });
-      actions.appendChild(exportBtn);
-
-      // Compact revert icon rather than a full "Discard" button -- the side panel
-      // is tight, and this only appears once a row is actually staged. Sits to the
-      // right of Export.
-      const revertBtn = document.createElement("button");
-      revertBtn.className = "part-revert";
-      revertBtn.textContent = "↺";  // anticlockwise open-circle arrow (revert)
-      revertBtn.title = "Revert to the car's original (discard the staged edit)";
-      revertBtn.setAttribute("aria-label", "Revert to original");
-      revertBtn.hidden = true;
-      revertBtn.addEventListener("click", e => { e.stopPropagation(); discardPart(name, row); });
-      actions.appendChild(revertBtn);
-
-      row.appendChild(actions);
-      // Reflect any edit already staged (e.g. if the drawer is ever rebuilt).
-      if (pendingPartEdits[name]) setPartPending(row, name, true, "edited");
+  function revertRow(member, row) {
+    if (pendingPartRemovals.has(member)) {
+      pendingPartRemovals.delete(member);
+      if (owns(member)) applyLiveReimport(member, MOD_PARTS[member]);  // put the piece back live
+      setStaged(row, "none");
+      status.textContent = `Kept ${member}.`;
     } else {
-      const err = document.createElement("div");
-      err.className = "part-error";
-      err.textContent = "couldn't parse";
-      row.appendChild(err);
+      const wasAdd = row.dataset.base === "empty";
+      revertPartTextures(member);
+      delete pendingPartEdits[member];
+      if (wasAdd) { removeLivePart(member); }        // undo a live-added slot
+      else { previewPart(member, MOD_PARTS[member]); applyLiveReimport(member, MOD_PARTS[member]); }
+      setStaged(row, "none");
+      status.textContent = `Reverted ${member} to the car's original.`;
+    }
+    updateCommitStatus();
+  }
+
+  function stageRemoval(member, row) {
+    delete pendingPartEdits[member];   // removal supersedes any staged edit
+    revertPartTextures(member);
+    pendingPartRemovals.add(member);
+    removeLivePart(member);
+    setStaged(row, "removing", "will remove");
+    updateCommitStatus();
+    status.textContent = `${member} will be removed on Save.`;
+  }
+
+  const mkImport = (member, row, addMode, cls, text, title) => {
+    const lbl = document.createElement("label");
+    lbl.className = cls;
+    lbl.textContent = text;
+    lbl.title = title;
+    const inp = document.createElement("input");
+    inp.type = "file"; inp.multiple = true;
+    inp.accept = ".obj,.mtl,.png,.jpg,.jpeg,.bmp,.webp,.gif,.tga,.zip";
+    lbl.addEventListener("click", e => e.stopPropagation());
+    inp.addEventListener("change", async e => { await importOntoMember(member, e.target.files, row, addMode); e.target.value = ""; });
+    lbl.appendChild(inp);
+    return lbl;
+  };
+
+  // Build one row. Three states: present (car owns it), sharedDefault (a shared
+  // race.res asset the car inherits -- Import creates a per-car override), or
+  // empty (a per-car slot the car lacks -- Add creates it). cfg.view is the 3D
+  // tab that renders this part (car/cockpit/hornball) or "" if none; the filter
+  // shows only the current tab's parts, and "" rows appear only when filter is off.
+  function makeRow(cfg) {
+    const stateClass = cfg.present ? "" : cfg.sharedDefault ? " shared-default" : " empty";
+    const row = document.createElement("div");
+    row.className = "part-row selectable" + stateClass;
+    row.dataset.part = cfg.member;
+    row.dataset.base = cfg.present ? "present" : "empty";
+    row.dataset.view = cfg.view || "";
+    const dot = document.createElement("span"); dot.className = "dot"; row.appendChild(dot);
+    // Title (friendly name) over a muted subtitle (the real member name + any
+    // shared-override note). Two lines so the always-visible buttons never crowd
+    // the name or reflow. The subtitle is omitted when it would just repeat the
+    // title (raw-name rows like LODs / Other parts).
+    const main = document.createElement("span"); main.className = "part-main";
+    const nm = document.createElement("span"); nm.className = "part-name"; nm.textContent = cfg.label; main.appendChild(nm);
+    if (cfg.label !== cfg.member || cfg.sharedNote) {
+      const sub = document.createElement("span"); sub.className = "part-sub";
+      sub.textContent = (cfg.label !== cfg.member) ? cfg.member : "";
+      if (cfg.sharedNote) { const n = document.createElement("span"); n.className = "note"; n.textContent = (sub.textContent ? " · " : "") + cfg.sharedNote; sub.appendChild(n); }
+      main.appendChild(sub);
+    }
+    row.appendChild(main);
+    const current = () => pendingPartEdits[cfg.member] || MOD_PARTS[cfg.member];
+    row.addEventListener("click", () => {
+      root.querySelectorAll(".part-row").forEach(r => r.classList.remove("selected"));
+      row.classList.add("selected");
+      selectedPartName = cfg.member;
+      if (current()) previewPart(cfg.member, current());
+    });
+
+    // always-visible: staged tag + revert, or the Add button for an empty slot
+    const always = document.createElement("span"); always.className = "part-always";
+    const tag = document.createElement("span"); tag.className = "part-tag"; always.appendChild(tag);
+    const rev = document.createElement("button");
+    rev.className = "part-revert"; rev.textContent = "↺"; rev.hidden = true;
+    rev.title = "Undo this staged change"; rev.setAttribute("aria-label", "undo");
+    rev.addEventListener("click", e => { e.stopPropagation(); revertRow(cfg.member, row); });
+    always.appendChild(rev);
+    if (cfg.addable) always.appendChild(mkImport(cfg.member, row, true, "part-add", "+ Add", "Add this part: import an .obj (with its .mtl + textures, or a .zip)"));
+    row.appendChild(always);
+
+    // Import / Export / Remove for a present slot or a shared-default override.
+    if (cfg.present || cfg.sharedDefault) {
+      const act = document.createElement("span"); act.className = "part-actions";
+      const importTitle = cfg.sharedDefault
+        ? "Import an .obj to override this shared default with a per-car copy"
+        : "Import an .obj (with its .mtl + textures, or a .zip) onto this part";
+      act.appendChild(mkImport(cfg.member, row, cfg.sharedDefault, "part-import", "Import", importTitle));
+      if (MOD_PARTS[cfg.member]) {   // only exportable if there's a real mesh to export (owned, or ball's added default)
+        const exp = document.createElement("button"); exp.textContent = "Export";
+        exp.title = "Download a .zip: the mesh (.obj), its .mtl, and a PNG per texture";
+        exp.addEventListener("click", async e => {
+          e.stopPropagation(); exp.disabled = true; const was = exp.textContent; exp.textContent = "Zipping…";
+          try { await exportPartBundle(cfg.member, current()); }
+          catch (err) { alert("Export failed: " + (err && err.message ? err.message : err)); }
+          finally { exp.disabled = false; exp.textContent = was; }
+        });
+        act.appendChild(exp);
+      }
+      if (cfg.removable) {
+        const rm = document.createElement("button"); rm.className = "part-remove";
+        rm.textContent = "🗑";
+        rm.title = cfg.sharedNote ? "Remove this override (revert to the shared default)" : "Remove this part from the car";
+        rm.setAttribute("aria-label", "remove");
+        rm.addEventListener("click", e => { e.stopPropagation(); stageRemoval(cfg.member, row); });
+        act.appendChild(rm);
+      }
+      row.appendChild(act);
     }
     root.appendChild(row);
-  });
-  if (firstOk !== null) {
-    root.querySelector(`[data-part="${firstOk}"]`).click();
+    // reflect any state already staged this session (rebuild after Save clears it)
+    if (pendingPartRemovals.has(cfg.member)) setStaged(row, "removing", "will remove");
+    else if (pendingPartEdits[cfg.member]) setStaged(row, cfg.present ? "edited" : "added", "edited");
+    return row;
   }
+
+  let lastGroup = null;
+  function groupHeader(g) {
+    if (g === lastGroup) return;
+    lastGroup = g;
+    const h = document.createElement("div"); h.className = "part-grp"; h.textContent = g;
+    root.appendChild(h);
+  }
+
+  // Collapse extra detail variants (body LODs, or the wheels' _2/_3) under a
+  // "N more detail levels" toggle, so they don't spam the list. Same pattern for
+  // both. opts carries the label/removable/sharedNote for the collapsed rows.
+  function addDetailChain(extras, opts) {
+    opts = opts || {};
+    if (!extras.length) return;
+    const toggle = document.createElement("div"); toggle.className = "part-row part-lodtoggle";
+    toggle.dataset.view = opts.view || "";
+    toggle.innerHTML = `<span class="chev">▸</span><span class="part-name" style="color:#a8adc0">${extras.length} more detail level${extras.length > 1 ? "s" : ""}</span>`;
+    const box = document.createElement("div"); box.className = "part-detail-box"; box.hidden = true;
+    box.dataset.view = opts.view || "";
+    toggle.addEventListener("click", () => {
+      box.hidden = !box.hidden;
+      toggle.querySelector(".chev").textContent = box.hidden ? "▸" : "▾";
+    });
+    root.appendChild(toggle);
+    // makeRow appends to root and returns the row; move each into the collapsible box.
+    extras.forEach(m => box.appendChild(makeRow({
+      member: m, label: opts.label || m, present: true, importable: true, exportable: true,
+      removable: !!opts.removable, sharedNote: opts.sharedNote || null, view: opts.view || "",
+    })));
+    root.appendChild(box);
+  }
+
+  // --- Body (LOD0) + collapsed LOD chain ---
+  groupHeader("Body");
+  claimed.add(bodyName.toLowerCase());
+  makeRow({member: bodyName, label: "Body", present: true, removable: false, importable: true, exportable: true, view: "car"});
+  const lods = [];
+  for (let i = 1; i <= 9; i++) { const a = owns(`${prefix}${i}.mod`); if (a) { lods.push(a); claimed.add(a.toLowerCase()); } }
+  addDetailChain(lods, {view: "car"});   // body LOD1-7: raw names, not removable (structural)
+
+  // --- the remaining fixed slots ---
+  for (const def of SLOT_DEFS) {
+    if (def.suffix === "0") continue;   // body already done
+    const member = def.fixedName ? (owns(def.fixedName) || def.fixedName) : `${prefix}${def.suffix}.mod`;
+    const actual = owns(member) || (def.fixedName && owns(def.fixedName));
+    const present = !!actual;
+    if (actual) claimed.add(actual.toLowerCase());
+    groupHeader(def.group);
+    makeRow({
+      member: actual || member,
+      label: def.label,
+      present,
+      importable: true,
+      exportable: present,
+      addable: !present,
+      removable: !!def.removable && present,
+      view: present ? def.view : "",   // only rendered when actually present
+    });
+  }
+
+  // --- Shared race.res assets (the full catalog). Owned => a per-car override
+  //     (+ collapsed detail variants); otherwise the shared default with Import to
+  //     override. Wheels + horn ball are `core` (the car renders them) so they show
+  //     in the default filtered view; the chassis/X-ray parts are add-only. ---
+  const sharedMembers = new Set();
+  SHARED_SLOTS.forEach(s => s.members.forEach(m => sharedMembers.add(m.toLowerCase())));
+  // A shared member counts as a real override only if the car owns it for real --
+  // NOT if it's the shared default the page injected into MOD_PARTS (e.g. ball.mod,
+  // flagged in SHARED_PART_NAMES). Otherwise the default would read as "override".
+  const ownsReal = m => { const a = owns(m); return (a && !SHARED_PART_NAMES.has(a)) ? a : null; };
+  for (const s of SHARED_SLOTS) {
+    const owned = s.members.map(ownsReal).filter(Boolean);
+    owned.forEach(m => claimed.add(m.toLowerCase()));
+    groupHeader("Shared · from race.res");
+    if (owned.length) {
+      makeRow({member: owned[0], label: s.label, present: true, view: s.view || "",
+               importable: true, exportable: true, removable: true, sharedNote: "override"});
+      addDetailChain(owned.slice(1), {label: s.label, removable: true, sharedNote: "override", view: s.view || ""});
+    } else {
+      makeRow({member: s.members[0], label: s.label, present: false, sharedDefault: true,
+               view: s.view || "", importable: true, removable: false, sharedNote: "shared default"});
+    }
+  }
+
+  // --- anything owned but unrecognised: raw "Other parts" (always in use, never
+  //     hidden) so nothing a car actually carries can disappear ---
+  const others = Object.keys(MOD_PARTS).filter(n => !claimed.has(n.toLowerCase()) && !sharedMembers.has(n.toLowerCase()));
+  for (const m of others) {
+    groupHeader("Other parts");
+    makeRow({member: m, label: m, present: true, view: "", importable: true, exportable: true, removable: true});
+  }
+
+  applyPartsFilter();   // hide add-only rows + empty group headers per the current filter
 }
 
 // Sound drawer -- one row per real .sfx entry in the car's own archive (see
@@ -2501,12 +2720,21 @@ function main() {
   // the active one), or null if this part has no live destination -- most of a
   // real car's 13-21 parts don't (LOD1-7, Needle.mod, unused wheel LODs), and for
   // those the Parts-drawer preview is the only place a reimport can show up.
+  // The exterior sub-part slot names (<prefix>b/s.mod), computed from the body so
+  // ADDING a sub-part the car didn't ship (an empty slot) still lands in the Car
+  // group live -- swapTabPiece already adds when the role is empty; this just lets
+  // applyLiveReimport recognise the new member and claim the role for it.
+  const _pfx = () => (CAR_ROLES.car.body || "").replace(/0\.mod$/i, "");
+  const _isSlot = (partName, roleName, suffix) => {
+    const cr = CAR_ROLES.car;
+    return partName.toLowerCase() === (cr[roleName] || (_pfx() + suffix + ".mod")).toLowerCase();
+  };
   function applyLiveReimport(partName, objText) {
     const cr = CAR_ROLES.car;
     let changedTab = null;
     if (partName === cr.body) changedTab = swapTabPiece("car", "body", objText);
-    else if (partName === cr.sub_b) changedTab = swapTabPiece("car", "sub_b", objText);
-    else if (partName === cr.sub_s) changedTab = swapTabPiece("car", "sub_s", objText);
+    else if (_isSlot(partName, "sub_b", "b")) { changedTab = swapTabPiece("car", "sub_b", objText); cr.sub_b = partName; }
+    else if (_isSlot(partName, "sub_s", "s")) { changedTab = swapTabPiece("car", "sub_s", objText); cr.sub_s = partName; }
     else if (cr.front_wheel && partName === cr.front_wheel) changedTab = swapWheelPair("front", objText);
     else if (cr.rear_wheel && partName === cr.rear_wheel) changedTab = swapWheelPair("rear", objText);
     else if (CAR_ROLES.cockpit && partName === CAR_ROLES.cockpit.dash) changedTab = swapTabPiece("cockpit", "dash", objText);
@@ -2518,6 +2746,30 @@ function main() {
     // Only re-fit/re-render if the changed tab is the one actually on screen --
     // a swap on a hidden tab still updates its scene graph (so switching to it
     // later shows the reimport), just doesn't need a redundant camera refit now.
+    if (changedTab && changedTab === activeKey) refitAndRefresh(changedTab);
+    return changedTab;
+  }
+
+  // Live counterpart to a staged removal: drop the piece from its tab group so the
+  // 3D view reflects it immediately (mirrors applyLiveReimport). Structural pieces
+  // (body/LODs) and shared tires are never removed here. Returns the changed tab.
+  function removeTabPiece(tabKey, role) {
+    const tb = built[tabKey];
+    if (!tb || !tb.pieces[role]) return null;
+    tb.group.remove(tb.pieces[role].group);
+    delete tb.pieces[role];
+    recomputeTabMaterials(tb);
+    return tabKey;
+  }
+  function removeLivePart(partName) {
+    const cr = CAR_ROLES.car;
+    const lc = partName.toLowerCase();
+    let changedTab = null;
+    if (cr.sub_b && lc === cr.sub_b.toLowerCase()) { changedTab = removeTabPiece("car", "sub_b"); cr.sub_b = null; }
+    else if (cr.sub_s && lc === cr.sub_s.toLowerCase()) { changedTab = removeTabPiece("car", "sub_s"); cr.sub_s = null; }
+    else if (CAR_ROLES.cockpit && CAR_ROLES.cockpit.dash && lc === CAR_ROLES.cockpit.dash.toLowerCase()) changedTab = removeTabPiece("cockpit", "dash");
+    else if (CAR_ROLES.cockpit && CAR_ROLES.cockpit.wheel && lc === CAR_ROLES.cockpit.wheel.toLowerCase()) changedTab = removeTabPiece("cockpit", "wheel");
+    else if (CAR_ROLES.hornball && lc === CAR_ROLES.hornball.toLowerCase()) changedTab = removeTabPiece("hornball", "ball");
     if (changedTab && changedTab === activeKey) refitAndRefresh(changedTab);
     return changedTab;
   }
@@ -2928,6 +3180,7 @@ function main() {
     refitAndRefresh(key);
     updateConfigButtonsVisibility();
     updatePartsHighlight(key);
+    applyPartsFilter();   // the filtered list follows the active tab
   }
   tabsNav.addEventListener("click", e => {
     if (e.target.dataset.tab) setActiveTab(e.target.dataset.tab);
@@ -2940,8 +3193,22 @@ function main() {
   document.getElementById("commit-btn").addEventListener("click", commitChanges);
   updateCommitStatus();
 
-  buildPartsDrawer(applyLiveReimport);  // each row's own Import/Discard drives the live mesh
+  getActiveKey = () => activeKey;  // lets a Save-triggered rebuild re-highlight the in-view slot
+  buildPartsDrawer(applyLiveReimport, removeLivePart);  // each row's own Import/Remove drives the live mesh
   updatePartsHighlight(activeKey);  // setActiveTab's own call ran before these rows existed
+
+  // Filter toggle: default shows only what's on the car; click to reveal every
+  // addable slot (empty per-car slots + all overridable shared assets).
+  const filterBtn = document.getElementById("parts-filter-btn");
+  if (filterBtn) filterBtn.addEventListener("click", () => {
+    partsFilterOn = !partsFilterOn;
+    filterBtn.classList.toggle("active", partsFilterOn);
+    filterBtn.setAttribute("aria-pressed", String(partsFilterOn));
+    filterBtn.title = partsFilterOn
+      ? "Showing parts in this view — click to show all slots"
+      : "Showing all slots — click to show only this view's parts";
+    applyPartsFilter();
+  });
   buildSoundDrawer();
 
   // "Mod it!" -- a page-wide mode toggle, not a drawer: reveals the Car Configs/
