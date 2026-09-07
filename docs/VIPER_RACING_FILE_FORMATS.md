@@ -240,6 +240,73 @@ its familiar name needs this table to find the right file.
 
 ---
 
+## 3.5 Runtime asset resolution & shared assets ✅ CONFIRMED
+
+Sections 2–3 describe how a resource sits *inside* an archive. This section covers how the
+**engine finds a resource at load time** — which matters the moment a car or track mod is
+actually raced, because it explains several behaviours that look like mod bugs but aren't.
+
+**The resolution rule.** When the engine needs a member by name it looks in the **car's own
+archive first, then the shared resource archives** (`race.res`, `common.res`, `postrace.res`,
+`paintkit.res`, `ui.res`, in that order). Per-car members are addressed by a
+`<carname>.car/<member>` path — i.e. **keyed by the car's own filename**. Two consequences:
+
+- A car that ships its own copy of a shared asset **overrides** it; one that doesn't **falls
+  back** to the shared default.
+- Because per-car members are keyed by the car, **two cars may contain identically-named
+  members without colliding** — each loads from its own archive. (Proof: every kart add-on
+  names its textures `driver.tex` / `kart.tex` / `plate.tex`, yet each renders as a different
+  character — impossible with a global name cache.)
+
+### Shared default meshes (`race.res`)
+
+| Member | Role |
+|---|---|
+| `ball.mod` | horn ball — **the runtime exception, see below** |
+| `fwheel_1/2/3.mod`, `wheel_1/2/3.mod` | front / rear wheel meshes (style variants) |
+| `arm_ll/lr/sl/sr/ul/ur.mod` | visible suspension control arms |
+| `spin_l/spin_r.mod` | spinning-wheel effect |
+| `brakelt.mod`, `diskglow.mod` | brake light, disc glow |
+| `Xray.mod` | X-ray view mesh |
+
+### Shared default textures
+
+| Member | Archive | Role |
+|---|---|---|
+| `ucar.tex` | `race.res` | generic fallback body skin |
+| `wheels.tex` | `race.res` | wheels |
+| `effects.tex`, `effectsx.tex` | `race.res` | brake lights / FX |
+| `envmap.tex` | `common.res` | reflection / environment map |
+| `damage.tex`, `skid.tex`, `splash.tex`, `Xray.tex` | `race.res` | damage / skids / splash / X-ray |
+
+Shared default **sounds** (`horn.sfx`, `squeal.sfx`, `shift1.sfx`, `crash1-3.sfx`, `road1/2.sfx`, …)
+live in `race.res` under the same override rule.
+
+### When assets overlap — or clash
+
+- **Overlap (by design, safe).** Every shared file above is a *default*: a car's own version
+  wins, otherwise the shared one is used. Clean per-car fallback, no collision.
+- **No collision for per-car assets.** Bodies, cockpits, wheels, driver textures and skins are
+  all keyed by car, so identical names in different cars don't clash.
+- **⚠ The horn ball is the exception.** `ball.mod` is *not* resolved per-car — the engine
+  hardcodes the bare name `ball.mod` in its obstacle system (the `horn_ball` hack tosses it) and
+  loads it **once, globally**. In a multiplayer session there is effectively **one horn ball for
+  everyone**, not each player's own — the single case where two cars both named `ball.mod` truly
+  collide.
+- **⚠ AI-field paint (a limitation, not a clash).** The whole AI field drives the **primary car**
+  (`viper.car`'s identity). Stock viper's body uses a *paint slot* the engine recolours per AI
+  slot (`Viperd<N>.tex`) — a field of varied colours. A mod made the primary car brings its own
+  body texture, so the paint slot is bypassed and **every AI car shows one identical skin**.
+  Re-tagging the body back to the paint slot restores per-AI colours, but those paints are
+  UV-mapped for the viper body and map incorrectly onto a differently-shaped mod mesh.
+
+**Why this is in a format reference.** These are exactly the behaviours a modder meets the first
+time they race their car against a full field or online — identical AI cars, one shared horn
+ball, garbled palette paint — and assumes they broke something. They didn't: it's how the engine
+resolves shared vs. per-car assets.
+
+---
+
 ## 4. Per-resource-type catalog
 
 ### 4.1 `FNIM` — `.mod` 3D mesh — ✅ CONFIRMED
