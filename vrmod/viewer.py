@@ -1511,10 +1511,11 @@ function buildTextureDrawer(meshesByMaterial) {
       actions.appendChild(btn);
       const importLabel = document.createElement("label");
       importLabel.className = "swatch-import";
-      importLabel.textContent = "Import TGA";
+      importLabel.textContent = "Import";
+      importLabel.title = "Import a PNG, TGA, or other image (JPG warns before flattening transparency)";
       const importInput = document.createElement("input");
       importInput.type = "file";
-      importInput.accept = ".tga";
+      importInput.accept = ".png,.tga,.jpg,.jpeg,.bmp,.webp,.gif";
       importInput.addEventListener("click", e => e.stopPropagation());
       importInput.addEventListener("change", e => {
         const file = e.target.files[0];
@@ -1755,45 +1756,48 @@ function decodeTga(arrayBuffer) {
 // build_shell_html's docstring). Also updates the shared TEXTURES lookup itself,
 // so anything built or swapped in AFTER this point (a later OBJ reimport landing
 // on a piece that uses this same material, for instance) picks it up too.
-function importTextureAsTga(name, file, meshesByMaterial, swatchImg, statusEl, swatchEl, swatchLabel) {
-  const reader = new FileReader();
-  reader.onload = () => {
-    let decoded;
-    try {
-      decoded = decodeTga(reader.result);
-    } catch (err) {
-      statusEl.textContent = `${file.name}: ${err.message}`;
+async function importTextureAsTga(name, file, meshesByMaterial, swatchImg, statusEl, swatchEl, swatchLabel) {
+  let imgData;
+  try {
+    imgData = await decodeImageBytes(file.name, new Uint8Array(await file.arrayBuffer()));
+  } catch (err) {
+    statusEl.textContent = `${file.name}: ${err && err.message ? err.message : err}`;
+    return;
+  }
+  // Transparency gate: a flat/lossy format (JPG, most BMP) has no alpha channel,
+  // and the .tex alpha/colorkey modes carry transparency through that channel --
+  // so importing one onto a texture that HAD transparency would silently flatten
+  // it opaque. Warn before doing that; PNG/TGA carry alpha and skip the prompt.
+  if (!imageDataHasAlpha(imgData) && TEXTURES[name] && await dataUriHasAlpha(TEXTURES[name])) {
+    if (!confirm(`"${name}" has transparency that ${file.name} can't carry (no alpha channel -- typical of JPG). Import anyway and make it fully opaque?`)) {
+      statusEl.textContent = `Import cancelled -- ${name} kept. Use a PNG or TGA to preserve transparency.`;
       return;
     }
-    const canvas = document.createElement("canvas");
-    canvas.width = decoded.width;
-    canvas.height = decoded.height;
-    const ctx = canvas.getContext("2d");
-    const imgData = new ImageData(decoded.data, decoded.width, decoded.height);
-    ctx.putImageData(imgData, 0, 0);
-    const dataUri = canvas.toDataURL("image/png");
-    TEXTURES[name] = dataUri;
-    const newTexture = loadTexture(dataUri);
-    const meshes = (meshesByMaterial && meshesByMaterial[name]) || [];
-    meshes.forEach(m => { m.material.map = newTexture; m.material.needsUpdate = true; });
-    if (swatchImg) swatchImg.src = dataUri;
-    // Re-encoded back to TGA bytes (not stored as the PNG dataUri above) for
-    // commitChanges() -- the local endpoint needs real TGA bytes to decode
-    // server-side the same way tex.read_tga_bytes() already does, see cli.py.
-    pendingTextureEdits[name] = bytesToBase64(encodeTga(imgData));
-    updateCommitStatus();
-    // Persistent marker on the swatch itself, not just the status line below --
-    // easy to miss once you've scrolled past it or switched tabs and back.
-    if (swatchEl) swatchEl.classList.add("pending");
-    if (swatchLabel) {
-      swatchLabel.dataset.baseText = name;  // so Save's clearPendingMarkers can restore it
-      swatchLabel.textContent = `${name} → ${file.name} (pending)`;
-    }
-    statusEl.textContent = meshes.length > 0
-      ? `Previewing ${file.name} on ${name} -- updated ${meshes.length} mesh(es) in this tab.`
-      : `Previewing ${file.name} on ${name} -- not used by any mesh in the current tab, so nothing visible changed.`;
-  };
-  reader.readAsArrayBuffer(file);
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = imgData.width;
+  canvas.height = imgData.height;
+  canvas.getContext("2d").putImageData(imgData, 0, 0);
+  const dataUri = canvas.toDataURL("image/png");
+  TEXTURES[name] = dataUri;
+  const newTexture = loadTexture(dataUri);
+  const meshes = (meshesByMaterial && meshesByMaterial[name]) || [];
+  meshes.forEach(m => { m.material.map = newTexture; m.material.needsUpdate = true; });
+  if (swatchImg) swatchImg.src = dataUri;
+  // Re-encoded to TGA bytes (not the PNG dataUri above) for commitChanges() -- the
+  // local endpoint decodes real TGA bytes server-side via tex.read_tga_bytes().
+  pendingTextureEdits[name] = bytesToBase64(encodeTga(imgData));
+  updateCommitStatus();
+  // Persistent marker on the swatch itself, not just the status line below --
+  // easy to miss once you've scrolled past it or switched tabs and back.
+  if (swatchEl) swatchEl.classList.add("pending");
+  if (swatchLabel) {
+    swatchLabel.dataset.baseText = name;  // so Save's clearPendingMarkers can restore it
+    swatchLabel.textContent = `${name} → ${file.name} (pending)`;
+  }
+  statusEl.textContent = meshes.length > 0
+    ? `Previewing ${file.name} on ${name} -- updated ${meshes.length} mesh(es) in this tab.`
+    : `Previewing ${file.name} on ${name} -- not used by any mesh in the current tab, so nothing visible changed.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1873,6 +1877,62 @@ async function decodeImageBytes(name, bytes) {
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+// True if any pixel is not fully opaque.
+function imageDataHasAlpha(imgData) {
+  const d = imgData.data;
+  for (let i = 3; i < d.length; i += 4) if (d[i] < 255) return true;
+  return false;
+}
+// Same check on a data: URI (the stored original texture), decoded via canvas.
+async function dataUriHasAlpha(dataUri) {
+  const img = await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = dataUri; });
+  const c = document.createElement("canvas"); c.width = img.naturalWidth; c.height = img.naturalHeight;
+  const cx = c.getContext("2d"); cx.drawImage(img, 0, 0);
+  return imageDataHasAlpha(cx.getImageData(0, 0, c.width, c.height));
+}
+
+// Decode any browser-supported audio (wav/mp3/ogg/m4a/flac...) to a mono 16-bit
+// PCM WAV at targetRate -- the only shape sfx.from_wav_bytes accepts (it rejects
+// anything not mono/16-bit). decodeAudioData resamples to the context's rate, so
+// creating the context AT the original .sfx's rate matches it; channels are
+// down-mixed to mono. This is the audio analog of _fit_to_original for textures,
+// and it also normalises plain WAVs that would otherwise be rejected (stereo/
+// 24-bit/wrong rate).
+async function decodeAudioToMonoWav(bytes, targetRate) {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) throw new Error("this browser has no Web Audio decoder");
+  const ctx = new AC({sampleRate: targetRate});
+  let buf;
+  try {
+    buf = await ctx.decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+  } finally {
+    if (ctx.close) ctx.close();
+  }
+  const n = buf.length, chs = buf.numberOfChannels;
+  const mono = new Float32Array(n);
+  for (let c = 0; c < chs; c++) { const ch = buf.getChannelData(c); for (let i = 0; i < n; i++) mono[i] += ch[i]; }
+  if (chs > 1) for (let i = 0; i < n; i++) mono[i] /= chs;
+  return encodeWavMono16(mono, buf.sampleRate);
+}
+
+// Minimal mono 16-bit PCM WAV (44-byte header) from float samples in [-1, 1].
+function encodeWavMono16(samples, rate) {
+  const n = samples.length;
+  const out = new DataView(new ArrayBuffer(44 + n * 2));
+  const str = (o, s) => { for (let i = 0; i < s.length; i++) out.setUint8(o + i, s.charCodeAt(i)); };
+  str(0, "RIFF"); out.setUint32(4, 36 + n * 2, true); str(8, "WAVE");
+  str(12, "fmt "); out.setUint32(16, 16, true); out.setUint16(20, 1, true);   // PCM
+  out.setUint16(22, 1, true);            // mono
+  out.setUint32(24, rate, true);
+  out.setUint32(28, rate * 2, true);     // byte rate = rate * 1ch * 2bytes
+  out.setUint16(32, 2, true);            // block align
+  out.setUint16(34, 16, true);           // bits
+  str(36, "data"); out.setUint32(40, n * 2, true);
+  let o = 44;
+  for (let i = 0; i < n; i++) { const s = Math.max(-1, Math.min(1, samples[i])); out.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7FFF, true); o += 2; }
+  return new Uint8Array(out.buffer);
 }
 
 // Stage one decoded skin under its material name: update the live TEXTURES
@@ -2565,36 +2625,41 @@ function buildSoundDrawer() {
     // pattern already proven for ball.mod and unowned textures.
     const importLabel = document.createElement("label");
     importLabel.className = "sound-import";
-    importLabel.textContent = "Import WAV";
+    importLabel.textContent = "Import";
+    importLabel.title = "Import a sound (WAV, MP3, OGG, …) -- converted to the mono 16-bit .sfx the game needs";
     const importInput = document.createElement("input");
     importInput.type = "file";
-    importInput.accept = ".wav";
+    importInput.accept = ".wav,.mp3,.ogg,.m4a,.aac,.flac,.opus";
     const statusEl = document.createElement("div");
     statusEl.className = "sound-import-status";
-    importInput.addEventListener("change", e => {
+    importInput.addEventListener("change", async e => {
       const file = e.target.files[0];
+      e.target.value = "";
       if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        pendingSfxEdits[name] = bytesToBase64(new Uint8Array(reader.result));
+      statusEl.textContent = "Decoding…";
+      try {
+        // .sfx must be mono 16-bit (sfx.from_wav_bytes rejects otherwise), so decode
+        // and re-encode to that shape at the original entry's sample rate. Handles
+        // MP3/OGG/etc AND normalises a stereo/24-bit WAV that would otherwise fail.
+        const rate = (info && info.sample_rate) || 22050;
+        const wav = await decodeAudioToMonoWav(new Uint8Array(await file.arrayBuffer()), rate);
+        pendingSfxEdits[name] = bytesToBase64(wav);
         updateCommitStatus();
-        // Preview the just-imported file directly via a blob URL of the real
-        // uploaded File -- immediate and exact, no need to wait for the server
-        // round-trip that only happens on commit to hear what was just picked.
+        // Preview the CONVERTED wav (what actually gets committed), not the raw file.
         row.querySelectorAll("audio, .sound-meta, .sound-unplayable").forEach(el => el.remove());
         const audio = document.createElement("audio");
         audio.controls = true;
-        audio.src = URL.createObjectURL(file);
+        audio.src = URL.createObjectURL(new Blob([wav], {type: "audio/wav"}));
         row.insertBefore(audio, importLabel);
         // Persistent marker on the row itself, not just the status line below --
         // easy to miss once you've scrolled past it or reopened the drawer.
         row.classList.add("pending");
         label.dataset.baseText = name;  // so Save's clearPendingMarkers can restore it
         label.textContent = `${name} → ${file.name} (pending)`;
-        statusEl.textContent = `Previewing ${file.name} -- will replace ${name} on commit.`;
-      };
-      reader.readAsArrayBuffer(file);
-      e.target.value = "";
+        statusEl.textContent = `Previewing ${file.name} → mono 16-bit @ ${rate} Hz. Replaces ${name} on Save.`;
+      } catch (err) {
+        statusEl.textContent = `${file.name}: couldn't decode audio (${err && err.message ? err.message : err}).`;
+      }
     });
     importLabel.appendChild(importInput);
     row.appendChild(importLabel);
@@ -3826,6 +3891,33 @@ function decodeTga(arrayBuffer) {
   return {data: out, width, height};
 }
 
+// Decode any browser-supported image (png/jpg/bmp/webp/gif) to canvas ImageData;
+// TGA goes through decodeTga above. (Track-viewer copy of the shell's helper.)
+async function decodeImageBytes(name, bytes) {
+  if (/\.tga$/i.test(name)) {
+    const d = decodeTga(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+    return new ImageData(d.data, d.width, d.height);
+  }
+  const url = URL.createObjectURL(new Blob([bytes]));
+  try {
+    const img = await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error("couldn't decode image " + name)); im.src = url; });
+    const c = document.createElement("canvas"); c.width = img.naturalWidth; c.height = img.naturalHeight;
+    c.getContext("2d").drawImage(img, 0, 0);
+    return c.getContext("2d").getImageData(0, 0, c.width, c.height);
+  } finally { URL.revokeObjectURL(url); }
+}
+function imageDataHasAlpha(imgData) {
+  const d = imgData.data;
+  for (let i = 3; i < d.length; i += 4) if (d[i] < 255) return true;
+  return false;
+}
+async function dataUriHasAlpha(dataUri) {
+  const img = await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = dataUri; });
+  const c = document.createElement("canvas"); c.width = img.naturalWidth; c.height = img.naturalHeight;
+  c.getContext("2d").drawImage(img, 0, 0);
+  return imageDataHasAlpha(c.getContext("2d").getImageData(0, 0, c.width, c.height));
+}
+
 function exportTextureAsTga(name, dataUri) {
   const img = new Image();
   img.onload = () => {
@@ -3847,42 +3939,44 @@ function updateCommitStatus() {
   btn.disabled = Object.keys(pendingTextureEdits).length === 0 && !pendingSkyEdit;
 }
 
-function importTextureAsTga(name, file, meshesByMaterial, loadTexture) {
-  const reader = new FileReader();
-  reader.onload = () => {
-    const statusEl = document.getElementById("commit-status");
-    let decoded;
-    try {
-      decoded = decodeTga(reader.result);
-    } catch (err) {
-      statusEl.textContent = `${file.name}: ${err.message}`;
+async function importTextureAsTga(name, file, meshesByMaterial, loadTexture) {
+  const statusEl = document.getElementById("commit-status");
+  let imgData;
+  try {
+    imgData = await decodeImageBytes(file.name, new Uint8Array(await file.arrayBuffer()));
+  } catch (err) {
+    statusEl.textContent = `${file.name}: ${err && err.message ? err.message : err}`;
+    return;
+  }
+  // Same transparency gate as the car textures: a no-alpha format (JPG) onto a
+  // texture that had transparency would silently flatten it.
+  if (!imageDataHasAlpha(imgData) && TEXTURES[name] && await dataUriHasAlpha(TEXTURES[name])) {
+    if (!confirm(`"${name}" has transparency that ${file.name} can't carry (no alpha channel -- typical of JPG). Import anyway and make it fully opaque?`)) {
+      statusEl.textContent = `Import cancelled -- ${name} kept. Use a PNG or TGA to preserve transparency.`;
       return;
     }
-    const canvas = document.createElement("canvas");
-    canvas.width = decoded.width;
-    canvas.height = decoded.height;
-    const ctx = canvas.getContext("2d");
-    const imgData = new ImageData(decoded.data, decoded.width, decoded.height);
-    ctx.putImageData(imgData, 0, 0);
-    const dataUri = canvas.toDataURL("image/png");
-    TEXTURES[name] = dataUri;
-    const newTexture = loadTexture(dataUri, TEXTURE_WRAPS[name]);
-    const meshes = meshesByMaterial[name] || [];
-    meshes.forEach(m => { m.material.map = newTexture; m.material.needsUpdate = true; });
-    pendingTextureEdits[name] = bytesToBase64(encodeTga(imgData));
-    updateCommitStatus();
-    const swatch = document.querySelector(`.swatch[data-name="${CSS.escape(name)}"]`);
-    if (swatch) {
-      swatch.classList.add("pending");
-      const img = swatch.querySelector("img");
-      if (img) img.src = dataUri;
-      const label = swatch.querySelector(".name");
-      if (label) label.textContent = `${name} → ${file.name} (pending)`;
-      const sub = swatch.querySelector(".sub");
-      if (sub) sub.textContent = `${decoded.width}×${decoded.height}`;
-    }
-  };
-  reader.readAsArrayBuffer(file);
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = imgData.width;
+  canvas.height = imgData.height;
+  canvas.getContext("2d").putImageData(imgData, 0, 0);
+  const dataUri = canvas.toDataURL("image/png");
+  TEXTURES[name] = dataUri;
+  const newTexture = loadTexture(dataUri, TEXTURE_WRAPS[name]);
+  const meshes = meshesByMaterial[name] || [];
+  meshes.forEach(m => { m.material.map = newTexture; m.material.needsUpdate = true; });
+  pendingTextureEdits[name] = bytesToBase64(encodeTga(imgData));
+  updateCommitStatus();
+  const swatch = document.querySelector(`.swatch[data-name="${CSS.escape(name)}"]`);
+  if (swatch) {
+    swatch.classList.add("pending");
+    const img = swatch.querySelector("img");
+    if (img) img.src = dataUri;
+    const label = swatch.querySelector(".name");
+    if (label) label.textContent = `${name} → ${file.name} (pending)`;
+    const sub = swatch.querySelector(".sub");
+    if (sub) sub.textContent = `${imgData.width}×${imgData.height}`;
+  }
 }
 
 // The sky is four .tex tiles, but they are four slices of ONE image, so the
@@ -3931,10 +4025,11 @@ function buildSkySwatch(root) {
   actions.appendChild(exportBtn);
   const importLabel = document.createElement("label");
   importLabel.className = "swatch-import";
-  importLabel.textContent = "Import TGA";
+  importLabel.textContent = "Import";
+  importLabel.title = "Import a PNG, TGA, or other image for the sky strip";
   const input = document.createElement("input");
   input.type = "file";
-  input.accept = ".tga";
+  input.accept = ".png,.tga,.jpg,.jpeg,.bmp,.webp,.gif";
   input.addEventListener("change", e => {
     const file = e.target.files[0];
     if (file) importSkyAsTga(file);
@@ -3947,38 +4042,33 @@ function buildSkySwatch(root) {
   root.appendChild(el);
 }
 
-function importSkyAsTga(file) {
-  const reader = new FileReader();
-  reader.onload = () => {
-    const statusEl = document.getElementById("commit-status");
-    let decoded;
-    try {
-      decoded = decodeTga(reader.result);
-    } catch (err) {
-      statusEl.textContent = `${file.name}: ${err.message}`;
-      return;
-    }
-    const canvas = document.createElement("canvas");
-    canvas.width = decoded.width;
-    canvas.height = decoded.height;
-    const imgData = new ImageData(decoded.data, decoded.width, decoded.height);
-    canvas.getContext("2d").putImageData(imgData, 0, 0);
-    const dataUri = canvas.toDataURL("image/png");
-    skySetStrip(dataUri);                      // live preview on the cylinder
-    pendingSkyEdit = bytesToBase64(encodeTga(imgData));
-    updateCommitStatus();
-    const el = document.querySelector('.swatch[data-name="__sky__"]');
-    if (el) {
-      el.classList.add("pending");
-      el.querySelector("img").src = dataUri;
-      el.querySelector(".name").textContent = `Sky → ${file.name} (pending)`;
-      const off = Math.abs(decoded.width / decoded.height - 4) > 0.01;
-      el.querySelector(".sub").textContent = `${decoded.width}×${decoded.height} · ` +
-        (off ? "not 4:1 — it will be resampled"
-             : "a quarter of the horizon, repeated 4×");
-    }
-  };
-  reader.readAsArrayBuffer(file);
+async function importSkyAsTga(file) {
+  const statusEl = document.getElementById("commit-status");
+  let imgData;
+  try {
+    imgData = await decodeImageBytes(file.name, new Uint8Array(await file.arrayBuffer()));
+  } catch (err) {
+    statusEl.textContent = `${file.name}: ${err && err.message ? err.message : err}`;
+    return;
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = imgData.width;
+  canvas.height = imgData.height;
+  canvas.getContext("2d").putImageData(imgData, 0, 0);
+  const dataUri = canvas.toDataURL("image/png");
+  skySetStrip(dataUri);                      // live preview on the cylinder
+  pendingSkyEdit = bytesToBase64(encodeTga(imgData));
+  updateCommitStatus();
+  const el = document.querySelector('.swatch[data-name="__sky__"]');
+  if (el) {
+    el.classList.add("pending");
+    el.querySelector("img").src = dataUri;
+    el.querySelector(".name").textContent = `Sky → ${file.name} (pending)`;
+    const off = Math.abs(imgData.width / imgData.height - 4) > 0.01;
+    el.querySelector(".sub").textContent = `${imgData.width}×${imgData.height} · ` +
+      (off ? "not 4:1 — it will be resampled"
+           : "a quarter of the horizon, repeated 4×");
+  }
 }
 
 function buildTextureDrawer(meshesByMaterial, loadTexture) {
@@ -4020,10 +4110,11 @@ function buildTextureDrawer(meshesByMaterial, loadTexture) {
       actions.appendChild(exportBtn);
       const importLabel = document.createElement("label");
       importLabel.className = "swatch-import";
-      importLabel.textContent = "Import TGA";
+      importLabel.textContent = "Import";
+      importLabel.title = "Import a PNG, TGA, or other image (JPG warns before flattening transparency)";
       const importInput = document.createElement("input");
       importInput.type = "file";
-      importInput.accept = ".tga";
+      importInput.accept = ".png,.tga,.jpg,.jpeg,.bmp,.webp,.gif";
       importInput.addEventListener("change", e => {
         const file = e.target.files[0];
         if (file) importTextureAsTga(name, file, meshesByMaterial, loadTexture);
