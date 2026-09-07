@@ -984,7 +984,8 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
     <div id="part-preview-canvas"></div>
     <div id="part-preview-label">Click a part below to preview it</div>
   </div>
-  <label id="import-obj-btn">Preview imported OBJ<input type="file" id="import-obj-input" accept=".obj"></label>
+  <label id="import-obj-btn">Import OBJ (+ .mtl &amp; textures)<input type="file" id="import-obj-input" multiple accept=".obj,.mtl,.png,.jpg,.jpeg,.bmp,.webp,.gif,.tga,.zip"></label>
+  <div class="hint">Pick just the <code>.obj</code>, or select it together with its <code>.mtl</code> and texture image(s) &mdash; or a single <code>.zip</code> of all of them &mdash; to bring the skin in with the mesh.</div>
   <div id="import-obj-status"></div>
   <div id="parts-list"></div>
 </aside>
@@ -1718,6 +1719,242 @@ function importTextureAsTga(name, file, meshesByMaterial, swatchImg, statusEl, s
   reader.readAsArrayBuffer(file);
 }
 
+// ---------------------------------------------------------------------------
+// OBJ + .mtl + texture import/export helpers.
+//
+// The Parts drawer's OBJ import and export are a matched pair: a .mod carries
+// only a *material name*, never the image, so a bare .obj (in or out) travels
+// unskinned and a swapped body shows "no texture found" until a .tex is wired
+// up by hand. These close that gap -- import reads the .obj's companion .mtl
+// (map_Kd) and its image files (loose multi-select OR a single .zip) and stages
+// each skin under its material name into the same pendingTextureEdits the
+// Textures drawer already commits; export emits a zip of the .obj + a generated
+// .mtl + a PNG per material. Zip read/write is dependency-free via the
+// platform's own Compression/DecompressionStream (deflate-raw).
+// ---------------------------------------------------------------------------
+
+function baseName(p) { return String(p).replace(/\\/g, "/").split("/").pop(); }
+function sanitizeFilename(s) { return String(s).replace(/[^A-Za-z0-9._-]+/g, "_"); }
+
+// Parse a Wavefront .mtl into {materialName: imageBasename}. Only map_Kd (the
+// diffuse map) has a Viper equivalent -- one .tex per material -- so other maps
+// are ignored. The filename is the last token, so option flags (-o/-s/-mm/...)
+// before it are skipped; any path is reduced to its basename to match how the
+// image files themselves are keyed.
+function parseMtl(text) {
+  const map = {};
+  let current = null;
+  for (let line of text.split(/\r?\n/)) {
+    line = line.trim();
+    if (!line || line[0] === "#") continue;
+    const parts = line.split(/\s+/);
+    const tag = parts[0].toLowerCase();
+    if (tag === "newmtl") current = parts.slice(1).join(" ");
+    else if (tag === "map_kd" && current) map[current] = baseName(parts[parts.length - 1]);
+  }
+  return map;
+}
+
+// Ordered, de-duplicated usemtl names as they appear in an OBJ.
+function objMaterials(objText) {
+  const seen = new Set(), out = [];
+  for (const line of objText.split(/\r?\n/)) {
+    const m = line.match(/^\s*usemtl\s+(.+?)\s*$/);
+    if (m && !seen.has(m[1])) { seen.add(m[1]); out.push(m[1]); }
+  }
+  return out;
+}
+
+// data: URI -> raw bytes, for turning a TEXTURES[...] PNG back into file bytes.
+async function dataUriToBytes(dataUri) {
+  return new Uint8Array(await (await fetch(dataUri)).arrayBuffer());
+}
+
+// Decode an image file's bytes to canvas ImageData (RGBA, top-to-bottom). The
+// browser decodes PNG/JPG/BMP/WebP/GIF; TGA has no native decoder so it goes
+// through our own decodeTga (the same one Import TGA uses).
+async function decodeImageBytes(name, bytes) {
+  if (/\.tga$/i.test(name)) {
+    const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    const d = decodeTga(buf);
+    return new ImageData(d.data, d.width, d.height);
+  }
+  const url = URL.createObjectURL(new Blob([bytes]));
+  try {
+    const img = await new Promise((res, rej) => {
+      const im = new Image();
+      im.onload = () => res(im);
+      im.onerror = () => rej(new Error("couldn't decode image " + name));
+      im.src = url;
+    });
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0);
+    return ctx.getImageData(0, 0, canvas.width, canvas.height);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+// Stage one decoded skin under its material name: update the live TEXTURES
+// lookup (so a following reimport/preview shows it) and queue the real TGA bytes
+// for commit. Returns null on success, or a reason string to report. The 16-char
+// guard is the archive's own directory-entry name field (see build_shell_html /
+// the format reference's package layer).
+function stageMaterialTexture(material, imgData) {
+  if (new TextEncoder().encode(material).length > 16) {
+    return `${material}: name too long for the archive's 16-char name field -- rename the material in your 3D tool`;
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = imgData.width;
+  canvas.height = imgData.height;
+  canvas.getContext("2d").putImageData(imgData, 0, 0);
+  TEXTURES[material] = canvas.toDataURL("image/png");
+  pendingTextureEdits[material] = bytesToBase64(encodeTga(imgData));
+  return null;
+}
+
+// --- minimal, dependency-free zip read/write (deflate via the platform) ------
+
+async function inflateRaw(bytes) {
+  const s = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return new Uint8Array(await new Response(s).arrayBuffer());
+}
+async function deflateRaw(bytes) {
+  const s = new Blob([bytes]).stream().pipeThrough(new CompressionStream("deflate-raw"));
+  return new Uint8Array(await new Response(s).arrayBuffer());
+}
+
+const CRC32_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(bytes) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) c = CRC32_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+
+// Read a .zip into {basename: Uint8Array}. Paths flatten to basenames -- a model
+// bundle is flat and the .mtl references images by basename anyway. Handles
+// stored (method 0) and deflated (method 8) entries.
+async function unzipFlat(bytes) {
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let eocd = -1;
+  for (let i = bytes.length - 22; i >= 0; i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error("not a valid .zip (no end-of-central-directory record)");
+  const count = dv.getUint16(eocd + 10, true);
+  let off = dv.getUint32(eocd + 16, true);
+  const out = {}, dec = new TextDecoder();
+  for (let n = 0; n < count; n++) {
+    if (dv.getUint32(off, true) !== 0x02014b50) throw new Error("corrupt .zip central directory");
+    const method = dv.getUint16(off + 10, true);
+    const compSize = dv.getUint32(off + 20, true);
+    const nameLen = dv.getUint16(off + 28, true);
+    const extraLen = dv.getUint16(off + 30, true);
+    const commentLen = dv.getUint16(off + 32, true);
+    const lho = dv.getUint32(off + 42, true);
+    const name = dec.decode(bytes.subarray(off + 46, off + 46 + nameLen));
+    const lNameLen = dv.getUint16(lho + 26, true);
+    const lExtraLen = dv.getUint16(lho + 28, true);
+    const dataStart = lho + 30 + lNameLen + lExtraLen;
+    const comp = bytes.subarray(dataStart, dataStart + compSize);
+    if (!name.endsWith("/")) {
+      let data;
+      if (method === 0) data = comp;
+      else if (method === 8) data = await inflateRaw(comp);
+      else throw new Error(`unsupported .zip compression (method ${method}) for ${name}`);
+      out[baseName(name)] = data;
+    }
+    off += 46 + nameLen + extraLen + commentLen;
+  }
+  return out;
+}
+
+// Build a deflated .zip Blob from [{name, bytes}].
+async function makeZipBlob(files) {
+  const enc = new TextEncoder();
+  const chunks = [], central = [];
+  let offset = 0;
+  for (const f of files) {
+    const nameBytes = enc.encode(f.name);
+    const crc = crc32(f.bytes);
+    const comp = await deflateRaw(f.bytes);
+    const lh = new Uint8Array(30 + nameBytes.length);
+    const ldv = new DataView(lh.buffer);
+    ldv.setUint32(0, 0x04034b50, true);
+    ldv.setUint16(4, 20, true);
+    ldv.setUint16(8, 8, true);
+    ldv.setUint32(14, crc, true);
+    ldv.setUint32(18, comp.length, true);
+    ldv.setUint32(22, f.bytes.length, true);
+    ldv.setUint16(26, nameBytes.length, true);
+    lh.set(nameBytes, 30);
+    chunks.push(lh, comp);
+    const cd = new Uint8Array(46 + nameBytes.length);
+    const cdv = new DataView(cd.buffer);
+    cdv.setUint32(0, 0x02014b50, true);
+    cdv.setUint16(4, 20, true);
+    cdv.setUint16(6, 20, true);
+    cdv.setUint16(10, 8, true);
+    cdv.setUint32(16, crc, true);
+    cdv.setUint32(20, comp.length, true);
+    cdv.setUint32(24, f.bytes.length, true);
+    cdv.setUint16(28, nameBytes.length, true);
+    cdv.setUint32(42, offset, true);
+    cd.set(nameBytes, 46);
+    central.push(cd);
+    offset += lh.length + comp.length;
+  }
+  const cdStart = offset;
+  let cdSize = 0;
+  for (const cd of central) { chunks.push(cd); cdSize += cd.length; }
+  const eocd = new Uint8Array(22);
+  const edv = new DataView(eocd.buffer);
+  edv.setUint32(0, 0x06054b50, true);
+  edv.setUint16(8, central.length, true);
+  edv.setUint16(10, central.length, true);
+  edv.setUint32(12, cdSize, true);
+  edv.setUint32(16, cdStart, true);
+  chunks.push(eocd);
+  return new Blob(chunks, {type: "application/zip"});
+}
+
+// Export a part as a zip: the .obj (its mtllib pointed at our .mtl), a generated
+// .mtl, and a PNG per material that currently has a resolved texture. Materials
+// with no texture are still declared (colour only), so the bundle stays a
+// faithful description even where a skin was never found.
+async function exportPartBundle(partName, objText) {
+  const base = partName.replace(/\.mod$/i, "");
+  const mtlName = `${base}.mtl`;
+  const objOut = `mtllib ${mtlName}\n` + objText.replace(/^\s*mtllib.*\r?\n?/im, "");
+  const files = [];
+  const mtl = ["# generated by vrmod"];
+  for (const mat of objMaterials(objText)) {
+    mtl.push(`newmtl ${mat}`, "Ka 1.000 1.000 1.000", "Kd 1.000 1.000 1.000", "d 1.000", "illum 1");
+    const dataUri = TEXTURES[mat];
+    if (dataUri) {
+      const png = `${sanitizeFilename(base)}_${sanitizeFilename(mat)}.png`;
+      files.push({name: png, bytes: await dataUriToBytes(dataUri)});
+      mtl.push(`map_Kd ${png}`);
+    }
+    mtl.push("");
+  }
+  const enc = new TextEncoder();
+  files.unshift({name: `${base}.obj`, bytes: enc.encode(objOut)},
+                {name: mtlName, bytes: enc.encode(mtl.join("\n") + "\n")});
+  downloadBytes(await makeZipBlob(files), `${base}.zip`);
+}
+
 // Lazily-created mini scene for the Parts drawer's live preview -- a WebGL context
 // is real overhead, so it's only ever created the first time a part is actually
 // clicked, not up front on page load.
@@ -1833,9 +2070,15 @@ function buildPartsDrawer() {
       });
       const btn = document.createElement("button");
       btn.textContent = "Export OBJ";
-      btn.addEventListener("click", e => {
+      btn.title = "Download a .zip: the mesh (.obj), its .mtl, and a PNG per texture -- re-imports fully skinned";
+      btn.addEventListener("click", async e => {
         e.stopPropagation();
-        downloadText(objText, name.replace(/\.mod$/i, ".obj"));
+        btn.disabled = true;
+        const was = btn.textContent;
+        btn.textContent = "Zipping…";
+        try { await exportPartBundle(name, objText); }
+        catch (err) { alert("Export failed: " + (err && err.message ? err.message : err)); }
+        finally { btn.disabled = false; btn.textContent = was; }
       });
       row.appendChild(btn);
     } else {
@@ -2496,13 +2739,47 @@ function main() {
   updatePartsHighlight(activeKey);  // setActiveTab's own call ran before these rows existed
   buildSoundDrawer();
 
-  document.getElementById("import-obj-input").addEventListener("change", e => {
-    const file = e.target.files[0];
+  document.getElementById("import-obj-input").addEventListener("change", async e => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";  // allow re-importing the same filenames again
     const status = document.getElementById("import-obj-status");
-    if (!file || !selectedPartName) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const objText = String(reader.result);
+    if (!files.length || !selectedPartName) return;
+    status.textContent = "Reading import…";
+    try {
+      // Everything -- loose files and any .zip's contents -- into one
+      // {basename: bytes} bag, so a zip and a multi-select take the same path.
+      const bag = {};
+      for (const f of files) {
+        const bytes = new Uint8Array(await f.arrayBuffer());
+        if (/\.zip$/i.test(f.name)) Object.assign(bag, await unzipFlat(bytes));
+        else bag[baseName(f.name)] = bytes;
+      }
+      const dec = new TextDecoder();
+      const objKey = Object.keys(bag).find(k => /\.obj$/i.test(k));
+      if (!objKey) { status.textContent = "No .obj found in the selection."; return; }
+      const objText = dec.decode(bag[objKey]);
+
+      // Bring textures in first, if a .mtl and its images came along -- staging
+      // TEXTURES before the reimport below means the live preview and the rebuilt
+      // Textures drawer (via applyLiveReimport -> refitAndRefresh) show the skin.
+      const mtlKey = Object.keys(bag).find(k => /\.mtl$/i.test(k));
+      const notes = [];
+      let staged = 0;
+      if (mtlKey) {
+        const matToImg = parseMtl(dec.decode(bag[mtlKey]));
+        for (const mat of objMaterials(objText)) {
+          const imgName = matToImg[mat];
+          if (!imgName) { notes.push(`${mat}: no map_Kd in the .mtl`); continue; }
+          const imgBytes = bag[imgName] || bag[baseName(imgName)];
+          if (!imgBytes) { notes.push(`${mat}: image "${imgName}" not in the selection`); continue; }
+          let imgData;
+          try { imgData = await decodeImageBytes(imgName, imgBytes); }
+          catch (err) { notes.push(`${mat}: ${err.message}`); continue; }
+          const problem = stageMaterialTexture(mat, imgData);
+          if (problem) notes.push(problem); else staged++;
+        }
+      }
+
       previewPart(selectedPartName, objText);
       const changedTab = applyLiveReimport(selectedPartName, objText);
       pendingPartEdits[selectedPartName] = objText;
@@ -2514,14 +2791,18 @@ function main() {
       const row = document.querySelector(`.part-row[data-part="${selectedPartName}"]`);
       if (row) {
         row.classList.add("pending");
-        row.querySelector(".part-name").textContent = `${selectedPartName} → ${file.name} (pending)`;
+        row.querySelector(".part-name").textContent = `${selectedPartName} → ${objKey} (pending)`;
       }
-      status.textContent = changedTab
-        ? `Previewing ${file.name} on ${selectedPartName} -- also updated the ${TAB_LABELS[changedTab] || changedTab} tab.`
-        : `Previewing ${file.name} on ${selectedPartName} -- this part isn't shown in any tab, so only the preview above updated.`;
-    };
-    reader.readAsText(file);
-    e.target.value = "";  // allow re-importing the same filename twice in a row
+      let msg = `Previewing ${objKey} on ${selectedPartName}`;
+      msg += staged ? ` with ${staged} texture(s)` : (mtlKey ? " (no textures staged)" : " (mesh only)");
+      msg += changedTab
+        ? ` -- also updated the ${TAB_LABELS[changedTab] || changedTab} tab.`
+        : " -- this part isn't shown in any tab, so only the preview above updated.";
+      if (notes.length) msg += " " + String.fromCharCode(0x26A0) + " " + notes.join("; ");
+      status.textContent = msg;
+    } catch (err) {
+      status.textContent = "Import failed: " + (err && err.message ? err.message : err);
+    }
   });
 
   // "Mod it!" -- a page-wide mode toggle, not a drawer: reveals the Car Configs/

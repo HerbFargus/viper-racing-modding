@@ -64,6 +64,36 @@ def _fit_to_original(pixels: bytes, w: int, h: int, orig_info, name: str,
     return fitted, target
 
 
+def _nearest_pow2(n: int) -> int:
+    """Nearest power of two to n (ties round down)."""
+    if n < 1:
+        return 1
+    lo = 1 << (n.bit_length() - 1)
+    hi = lo << 1
+    return lo if (n - lo) <= (hi - n) else hi
+
+
+def _fit_new_texture(pixels: bytes, w: int, h: int, name: str,
+                     resized: list, cap: int = 512) -> tuple[bytes, int]:
+    """Fit a brand-new texture -- one with no original .tex in the car or the
+    shared archives to match a size against -- to a valid .tex size.
+
+    encode_to_tex() requires a square power of two >= 8, but a skin imported
+    alongside a foreign body (via the shell's OBJ+.mtl import) is routinely
+    non-square or not-power-of-two, so resample rather than reject. The target
+    is the nearest power of two to the larger side, floored at 8 and capped at
+    `cap` (512 by default -- large enough to stay crisp, small enough to load on
+    the unpatched game and its 256/512-capped hardware without a warning). Any
+    change is recorded in `resized` so the UI can say the artwork was refit.
+    """
+    target = max(8, min(cap, _nearest_pow2(max(w, h))))
+    if w == target and h == target:
+        return pixels, target
+    fitted = tex.resize_nearest(pixels, w, h, target, target, 4)
+    resized.append(f"{name} {w}x{h} -> {target}x{target}")
+    return fitted, target
+
+
 def _apply_commit(body: dict) -> tuple[Path, Path]:
     """Turn the shell's "Save" payload into a real, edited .car file -- written
     back to the car's OWN original path/filename (backed up first, never
@@ -145,7 +175,12 @@ def _apply_commit(body: dict) -> tuple[Path, Path]:
             # would resample 3-channel data as though it were 4.
             pixels, w = _fit_to_original(pixels, w, h, orig_info, name, resized)
         else:
+            # No original to match (a brand-new material -- e.g. a foreign body's
+            # own skin arriving via the shell's OBJ+.mtl import): default to alpha
+            # and fit to a valid .tex size ourselves, since encode_to_tex demands
+            # a square power of two >= 8 and an imported skin often isn't one.
             mode, wrap = "alpha", 0
+            pixels, w = _fit_new_texture(pixels, w, h, name, resized)
         if mode == "opaque":
             # read_tga_bytes always returns RGBA (our TGAs are always 32-bit --
             # see viewer.py's encodeTga), but encode_to_tex's "opaque" mode wants
