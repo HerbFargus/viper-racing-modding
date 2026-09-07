@@ -868,9 +868,15 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   .part-row.pending{border-left:3px solid #e8a33d;padding-left:3px}
   .part-row.pending .part-name{color:#e8a33d}
   .highlight-demo{color:#8ecfff}
-  .part-row button{background:#14161c;border:1px solid #3a3f4e;color:#e8eaf2;padding:5px 10px;
-                    border-radius:3px;cursor:pointer;font-size:.75rem;white-space:nowrap}
-  .part-row button:hover{background:#2a2f3a}
+  .part-row .part-actions{display:flex;gap:6px;flex-shrink:0}
+  .part-row button,.part-row label.part-import{background:#14161c;border:1px solid #3a3f4e;color:#e8eaf2;
+                    padding:5px 10px;border-radius:3px;cursor:pointer;font-size:.75rem;white-space:nowrap}
+  .part-row button:hover,.part-row label.part-import:hover{background:#2a2f3a}
+  .part-row label.part-import{background:#1c1f4a;color:#8ecfff}
+  .part-row label.part-import:hover{background:#252a5c}
+  .part-row label.part-import input{display:none}
+  .part-row button.part-discard{background:#3a1414;border-color:#7a2020;color:#ffd9d9}
+  .part-row button.part-discard:hover{background:#4a1a1a}
   .part-row .part-error{color:#a88;font-size:.72rem}
   .sound-row{margin-bottom:16px}
   .sound-row .sound-name{font-size:.82rem;word-break:break-all}
@@ -888,11 +894,6 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   #part-preview-canvas{width:100%;height:170px;background:#14161c}
   #part-preview-canvas canvas{display:block}
   #part-preview-label{padding:6px 8px;font-size:.72rem;color:#a8adc0;background:#1c1f28;word-break:break-all}
-  #import-obj-btn,#import-tga-btn{display:block;width:100%;box-sizing:border-box;text-align:center;
-                    padding:8px;margin:8px 0;background:#2a2e38;color:#e8eaf2;border-radius:4px;
-                    cursor:pointer;font-size:.8rem}
-  #import-obj-btn:hover,#import-tga-btn:hover{background:#343946}
-  #import-obj-btn input,#import-tga-btn input{display:none}
   #import-obj-status,#import-tga-status{font-size:.72rem;color:#8ecfff;margin-bottom:8px;min-height:1em;word-break:break-all}
   #hint{position:absolute;bottom:16px;left:16px;color:#8a90a4;font-size:.75rem;z-index:3}
   #eye-mode-bar{display:none;align-items:center;gap:10px;position:absolute;bottom:16px;left:16px;
@@ -984,8 +985,7 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
     <div id="part-preview-canvas"></div>
     <div id="part-preview-label">Click a part below to preview it</div>
   </div>
-  <label id="import-obj-btn">Import OBJ (+ .mtl &amp; textures)<input type="file" id="import-obj-input" multiple accept=".obj,.mtl,.png,.jpg,.jpeg,.bmp,.webp,.gif,.tga,.zip"></label>
-  <div class="hint">Pick just the <code>.obj</code>, or select it together with its <code>.mtl</code> and texture image(s) &mdash; or a single <code>.zip</code> of all of them &mdash; to bring the skin in with the mesh.</div>
+  <div class="hint">Each part has its own <b>Import</b> and <b>Export</b>. Import takes the <code>.obj</code> alone, or together with its <code>.mtl</code> and texture image(s), or a single <code>.zip</code> of all of them. Export downloads a zip (mesh + <code>.mtl</code> + textures). A staged edit shows a <b>Discard</b> until you Save.</div>
   <div id="import-obj-status"></div>
   <div id="parts-list"></div>
 </aside>
@@ -1276,10 +1276,28 @@ function wrapWithStepper(input, step) {
     btn.className = "step-btn";
     btn.textContent = label;
     btn.tabIndex = -1;  // click/tap only -- keeps Tab order on the real fields
-    btn.addEventListener("click", () => {
+    const nudge = () => {
       input.value = roundStep((Number(input.value) || 0) + dir * step, step);
       input.dispatchEvent(new Event("input", {bubbles: true}));
+    };
+    // Press-and-hold auto-repeat: one immediate step (a plain click still works),
+    // then after a short hold it counts continuously until release. Pointer events
+    // (not click) so mouse/touch/pen all repeat; pointer capture means the release
+    // is caught even if the cursor drifts off the button mid-hold. The per-field
+    // `step` is already magnitude-scaled (see fieldStep), so a fixed rate reads well
+    // across fields from mass down to drag without needing acceleration.
+    let holdTimer = null, repeatTimer = null;
+    const stop = () => { clearTimeout(holdTimer); clearInterval(repeatTimer); holdTimer = repeatTimer = null; };
+    btn.addEventListener("pointerdown", e => {
+      if (e.button) return;              // primary button / touch only
+      e.preventDefault();
+      nudge();
+      if (btn.setPointerCapture) { try { btn.setPointerCapture(e.pointerId); } catch (_) {} }
+      holdTimer = setTimeout(() => { repeatTimer = setInterval(nudge, 55); }, 400);
     });
+    btn.addEventListener("pointerup", stop);
+    btn.addEventListener("pointercancel", stop);
+    btn.addEventListener("lostpointercapture", stop);
     return btn;
   }
   wrap.appendChild(makeBtn("−", -1));
@@ -1575,13 +1593,26 @@ async function commitChanges() {
       const bullet = String.fromCharCode(10, 0x26A0, 32);
       statusEl.textContent += bullet + warn.join(bullet);
     }
-    // Deliberately NOT clearing dirtyFields/pendingPartEdits/pendingTextureEdits
-    // here: STATS itself still holds the ORIGINAL pre-edit values (this page
-    // never re-fetches what it just wrote), so marking fields "clean" would make
-    // a later Mod-mode toggle silently snap displayed values back to the old
-    // ones even though the .car on disk already has the edit. Leaving them dirty
-    // keeps the display honest; clicking Save again just backs up the
-    // now-current file again and re-applies the same edits, which is harmless.
+    // Parts/textures/sounds just written ARE now the car's real content, so roll
+    // their baselines forward and clear the "(pending)" state -- the row honestly
+    // reads as saved, with no snap-back, because we advance the baseline too.
+    for (const name of Object.keys(pendingPartEdits)) {
+      MOD_PARTS[name] = pendingPartEdits[name];  // saved geometry becomes the new original
+      delete pendingPartEdits[name];
+    }
+    for (const mat of Object.keys(pendingTextureEdits)) {
+      delete originalTextures[mat];              // current TEXTURES[mat] is now the baseline
+      delete pendingTextureEdits[mat];
+    }
+    for (const name of Object.keys(importedTexturesByPart)) delete importedTexturesByPart[name];
+    for (const name of Object.keys(pendingSfxEdits)) delete pendingSfxEdits[name];
+    clearPendingMarkers();
+    updateCommitStatus();
+    // Stats/cockpit fields are deliberately left as-is: STATS still holds the
+    // ORIGINAL pre-edit values (the page never re-fetches what it wrote), so
+    // clearing dirtyFields would snap the displayed numbers back on the next
+    // Mod-mode toggle. The numeric inputs already show what you typed, so this
+    // reads far less like "unsaved" than a part row's amber marker did.
   } else {
     statusEl.className = "error";
     statusEl.textContent = `Save failed: ${result.error}`;
@@ -1711,7 +1742,10 @@ function importTextureAsTga(name, file, meshesByMaterial, swatchImg, statusEl, s
     // Persistent marker on the swatch itself, not just the status line below --
     // easy to miss once you've scrolled past it or switched tabs and back.
     if (swatchEl) swatchEl.classList.add("pending");
-    if (swatchLabel) swatchLabel.textContent = `${name} → ${file.name} (pending)`;
+    if (swatchLabel) {
+      swatchLabel.dataset.baseText = name;  // so Save's clearPendingMarkers can restore it
+      swatchLabel.textContent = `${name} → ${file.name} (pending)`;
+    }
     statusEl.textContent = meshes.length > 0
       ? `Previewing ${file.name} on ${name} -- updated ${meshes.length} mesh(es) in this tab.`
       : `Previewing ${file.name} on ${name} -- not used by any mesh in the current tab, so nothing visible changed.`;
@@ -1807,6 +1841,9 @@ function stageMaterialTexture(material, imgData) {
   if (new TextEncoder().encode(material).length > 16) {
     return `${material}: name too long for the archive's 16-char name field -- rename the material in your 3D tool`;
   }
+  // Snapshot the pre-import value once, so a Discard on the part that staged
+  // this skin can put the original back (undefined = the material had no texture).
+  if (!(material in originalTextures)) originalTextures[material] = TEXTURES[material];
   const canvas = document.createElement("canvas");
   canvas.width = imgData.width;
   canvas.height = imgData.height;
@@ -1967,6 +2004,53 @@ let selectedPartName = null;  // which Parts-drawer row is selected, for the imp
 const pendingPartEdits = {};     // {realFilename: objText}
 const pendingTextureEdits = {};  // {materialName: decoded TGA base64}
 const pendingSfxEdits = {};      // {realFilename: raw uploaded WAV bytes, base64}
+// Support for discarding a staged part edit and rolling baselines forward on Save.
+const originalTextures = {};        // material -> its pre-import TEXTURES value (undefined if it had none)
+const importedTexturesByPart = {};  // partName -> [materials its OBJ import staged], so Discard drops exactly those
+
+// Undo the texture side of a part's OBJ import: restore each material this part
+// staged to its pre-import state and drop its pending write. The mesh itself is
+// reverted separately by the caller (applyLiveReimport with MOD_PARTS[name]).
+function revertPartTextures(partName) {
+  for (const mat of importedTexturesByPart[partName] || []) {
+    if (mat in originalTextures) {
+      if (originalTextures[mat] === undefined) delete TEXTURES[mat];
+      else TEXTURES[mat] = originalTextures[mat];
+      delete originalTextures[mat];
+    }
+    delete pendingTextureEdits[mat];
+  }
+  delete importedTexturesByPart[partName];
+}
+
+// Toggle a part row's pending state: the amber marker, the "→ file (pending)"
+// label, and whether the Discard button shows. DOM-only, so Save's clear path
+// (clearPendingMarkers) can call it too.
+function setPartPending(row, name, pending, sourceLabel) {
+  if (!row) return;
+  row.classList.toggle("pending", pending);
+  const label = row.querySelector(".part-name");
+  if (label) {
+    label.textContent = pending
+      ? `${name} → ${sourceLabel} (pending)`
+      : name + (SHARED_PART_NAMES.has(name) ? " (shared default)" : "");
+  }
+  const discard = row.querySelector(".part-discard");
+  if (discard) discard.hidden = !pending;
+}
+
+// After a successful Save, everything staged is now the car's real content:
+// clear every pending marker across parts, texture swatches and sound rows.
+function clearPendingMarkers() {
+  document.querySelectorAll("#parts-list .part-row.pending").forEach(row => {
+    setPartPending(row, row.dataset.part, false);
+  });
+  document.querySelectorAll(".swatch.pending, .sound-row.pending").forEach(el => {
+    el.classList.remove("pending");
+    const lbl = el.querySelector("[data-base-text]");
+    if (lbl) lbl.textContent = lbl.dataset.baseText;
+  });
+}
 function ensurePartPreview() {
   if (partPreview) return partPreview;
   const wrap = document.getElementById("part-preview-canvas");
@@ -2041,13 +2125,95 @@ function updatePartsHighlight(key) {
   });
 }
 
-function buildPartsDrawer() {
+// Takes applyLiveReimport so a row's own Import/Discard can swap the live mesh --
+// it lives inside main()'s closure (it needs built/activeKey/refitAndRefresh),
+// while this drawer is built top-level. Import/Export/Discard live on each row
+// (mirroring the Textures drawer) so an edit is always bound to the row you acted
+// on -- no separate "selected part" to get wrong.
+function buildPartsDrawer(applyLiveReimport) {
   const root = document.getElementById("parts-list");
+  const status = document.getElementById("import-obj-status");
   const names = Object.keys(MOD_PARTS);
   if (names.length === 0) {
     root.innerHTML = '<div class="empty">no .mod entries found</div>';
     return;
   }
+
+  // Import a file selection (loose .obj[/.mtl/images] or one .zip) onto THIS part.
+  async function importOntoPart(name, fileList, row) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    status.textContent = "Reading import…";
+    try {
+      // Everything -- loose files and any .zip's contents -- into one
+      // {basename: bytes} bag, so a zip and a multi-select take the same path.
+      const bag = {};
+      for (const f of files) {
+        const bytes = new Uint8Array(await f.arrayBuffer());
+        if (/\.zip$/i.test(f.name)) Object.assign(bag, await unzipFlat(bytes));
+        else bag[baseName(f.name)] = bytes;
+      }
+      const dec = new TextDecoder();
+      const objKey = Object.keys(bag).find(k => /\.obj$/i.test(k));
+      if (!objKey) { status.textContent = "No .obj found in the selection."; return; }
+      const objText = dec.decode(bag[objKey]);
+
+      // Re-importing onto an already-staged part: drop the previous import's
+      // textures first so they don't orphan.
+      if (importedTexturesByPart[name]) revertPartTextures(name);
+
+      // Bring textures in first, if a .mtl and its images came along -- staging
+      // TEXTURES before the reimport means the preview + rebuilt Textures drawer
+      // (via applyLiveReimport -> refitAndRefresh) show the skin.
+      const mtlKey = Object.keys(bag).find(k => /\.mtl$/i.test(k));
+      const notes = [];
+      const stagedMats = [];
+      if (mtlKey) {
+        const matToImg = parseMtl(dec.decode(bag[mtlKey]));
+        for (const mat of objMaterials(objText)) {
+          const imgName = matToImg[mat];
+          if (!imgName) { notes.push(`${mat}: no map_Kd in the .mtl`); continue; }
+          const imgBytes = bag[imgName] || bag[baseName(imgName)];
+          if (!imgBytes) { notes.push(`${mat}: image "${imgName}" not in the selection`); continue; }
+          let imgData;
+          try { imgData = await decodeImageBytes(imgName, imgBytes); }
+          catch (err) { notes.push(`${mat}: ${err.message}`); continue; }
+          const problem = stageMaterialTexture(mat, imgData);
+          if (problem) notes.push(problem); else stagedMats.push(mat);
+        }
+      }
+      if (stagedMats.length) importedTexturesByPart[name] = stagedMats;
+
+      previewPart(name, objText);
+      const changedTab = applyLiveReimport(name, objText);
+      pendingPartEdits[name] = objText;
+      setPartPending(row, name, true, objKey);
+      updateCommitStatus();
+
+      let msg = `Previewing ${objKey} on ${name}`;
+      msg += stagedMats.length ? ` with ${stagedMats.length} texture(s)` : (mtlKey ? " (no textures staged)" : " (mesh only)");
+      msg += changedTab
+        ? ` -- also updated the ${TAB_LABELS[changedTab] || changedTab} tab.`
+        : " -- this part isn't shown in any tab, so only the preview above updated.";
+      if (notes.length) msg += " " + String.fromCharCode(0x26A0) + " " + notes.join("; ");
+      status.textContent = msg;
+    } catch (err) {
+      status.textContent = "Import failed: " + (err && err.message ? err.message : err);
+    }
+  }
+
+  // Throw away a staged edit on THIS part and put the car's original back.
+  function discardPart(name, row) {
+    revertPartTextures(name);
+    delete pendingPartEdits[name];
+    const orig = MOD_PARTS[name];
+    previewPart(name, orig);
+    applyLiveReimport(name, orig);   // reverts textures already restored above
+    setPartPending(row, name, false);
+    updateCommitStatus();
+    status.textContent = `Discarded the staged edit on ${name} -- reverted to the car's original.`;
+  }
+
   let firstOk = null;
   names.forEach(name => {
     const objText = MOD_PARTS[name];
@@ -2061,26 +2227,59 @@ function buildPartsDrawer() {
     if (objText) {
       if (firstOk === null) firstOk = name;
       row.classList.add("selectable");
+      // current state = staged edit if any, else the original
+      const current = () => pendingPartEdits[name] || MOD_PARTS[name];
       row.addEventListener("click", () => {
         root.querySelectorAll(".part-row").forEach(r => r.classList.remove("selected"));
         row.classList.add("selected");
         selectedPartName = name;
-        document.getElementById("import-obj-status").textContent = "";
-        previewPart(name, objText);
+        previewPart(name, current());
       });
-      const btn = document.createElement("button");
-      btn.textContent = "Export OBJ";
-      btn.title = "Download a .zip: the mesh (.obj), its .mtl, and a PNG per texture -- re-imports fully skinned";
-      btn.addEventListener("click", async e => {
+
+      const actions = document.createElement("div");
+      actions.className = "part-actions";
+
+      const importLabel = document.createElement("label");
+      importLabel.className = "part-import";
+      importLabel.textContent = "Import";
+      importLabel.title = "Import an .obj (alone, with its .mtl + textures, or a .zip) onto this part";
+      const importInput = document.createElement("input");
+      importInput.type = "file";
+      importInput.multiple = true;
+      importInput.accept = ".obj,.mtl,.png,.jpg,.jpeg,.bmp,.webp,.gif,.tga,.zip";
+      importLabel.addEventListener("click", e => e.stopPropagation());
+      importInput.addEventListener("change", async e => {
+        await importOntoPart(name, e.target.files, row);
+        e.target.value = "";  // allow re-importing the same filenames again
+      });
+      importLabel.appendChild(importInput);
+      actions.appendChild(importLabel);
+
+      const discardBtn = document.createElement("button");
+      discardBtn.className = "part-discard";
+      discardBtn.textContent = "Discard";
+      discardBtn.title = "Throw away this part's staged edit and revert to the car's original";
+      discardBtn.hidden = true;
+      discardBtn.addEventListener("click", e => { e.stopPropagation(); discardPart(name, row); });
+      actions.appendChild(discardBtn);
+
+      const exportBtn = document.createElement("button");
+      exportBtn.textContent = "Export";
+      exportBtn.title = "Download a .zip: the mesh (.obj), its .mtl, and a PNG per texture -- re-imports fully skinned";
+      exportBtn.addEventListener("click", async e => {
         e.stopPropagation();
-        btn.disabled = true;
-        const was = btn.textContent;
-        btn.textContent = "Zipping…";
-        try { await exportPartBundle(name, objText); }
+        exportBtn.disabled = true;
+        const was = exportBtn.textContent;
+        exportBtn.textContent = "Zipping…";
+        try { await exportPartBundle(name, current()); }
         catch (err) { alert("Export failed: " + (err && err.message ? err.message : err)); }
-        finally { btn.disabled = false; btn.textContent = was; }
+        finally { exportBtn.disabled = false; exportBtn.textContent = was; }
       });
-      row.appendChild(btn);
+      actions.appendChild(exportBtn);
+
+      row.appendChild(actions);
+      // Reflect any edit already staged (e.g. if the drawer is ever rebuilt).
+      if (pendingPartEdits[name]) setPartPending(row, name, true, "edited");
     } else {
       const err = document.createElement("div");
       err.className = "part-error";
@@ -2166,6 +2365,7 @@ function buildSoundDrawer() {
         // Persistent marker on the row itself, not just the status line below --
         // easy to miss once you've scrolled past it or reopened the drawer.
         row.classList.add("pending");
+        label.dataset.baseText = name;  // so Save's clearPendingMarkers can restore it
         label.textContent = `${name} → ${file.name} (pending)`;
         statusEl.textContent = `Previewing ${file.name} -- will replace ${name} on commit.`;
       };
@@ -2735,75 +2935,9 @@ function main() {
   document.getElementById("commit-btn").addEventListener("click", commitChanges);
   updateCommitStatus();
 
-  buildPartsDrawer();
+  buildPartsDrawer(applyLiveReimport);  // each row's own Import/Discard drives the live mesh
   updatePartsHighlight(activeKey);  // setActiveTab's own call ran before these rows existed
   buildSoundDrawer();
-
-  document.getElementById("import-obj-input").addEventListener("change", async e => {
-    const files = Array.from(e.target.files || []);
-    e.target.value = "";  // allow re-importing the same filenames again
-    const status = document.getElementById("import-obj-status");
-    if (!files.length || !selectedPartName) return;
-    status.textContent = "Reading import…";
-    try {
-      // Everything -- loose files and any .zip's contents -- into one
-      // {basename: bytes} bag, so a zip and a multi-select take the same path.
-      const bag = {};
-      for (const f of files) {
-        const bytes = new Uint8Array(await f.arrayBuffer());
-        if (/\.zip$/i.test(f.name)) Object.assign(bag, await unzipFlat(bytes));
-        else bag[baseName(f.name)] = bytes;
-      }
-      const dec = new TextDecoder();
-      const objKey = Object.keys(bag).find(k => /\.obj$/i.test(k));
-      if (!objKey) { status.textContent = "No .obj found in the selection."; return; }
-      const objText = dec.decode(bag[objKey]);
-
-      // Bring textures in first, if a .mtl and its images came along -- staging
-      // TEXTURES before the reimport below means the live preview and the rebuilt
-      // Textures drawer (via applyLiveReimport -> refitAndRefresh) show the skin.
-      const mtlKey = Object.keys(bag).find(k => /\.mtl$/i.test(k));
-      const notes = [];
-      let staged = 0;
-      if (mtlKey) {
-        const matToImg = parseMtl(dec.decode(bag[mtlKey]));
-        for (const mat of objMaterials(objText)) {
-          const imgName = matToImg[mat];
-          if (!imgName) { notes.push(`${mat}: no map_Kd in the .mtl`); continue; }
-          const imgBytes = bag[imgName] || bag[baseName(imgName)];
-          if (!imgBytes) { notes.push(`${mat}: image "${imgName}" not in the selection`); continue; }
-          let imgData;
-          try { imgData = await decodeImageBytes(imgName, imgBytes); }
-          catch (err) { notes.push(`${mat}: ${err.message}`); continue; }
-          const problem = stageMaterialTexture(mat, imgData);
-          if (problem) notes.push(problem); else staged++;
-        }
-      }
-
-      previewPart(selectedPartName, objText);
-      const changedTab = applyLiveReimport(selectedPartName, objText);
-      pendingPartEdits[selectedPartName] = objText;
-      updateCommitStatus();
-      // Persistent marker on the row itself, not just this status line -- the
-      // status text is easy to miss once you've scrolled away or the drawer's
-      // been closed and reopened, but "will this really get replaced on
-      // commit" needs to stay answerable at a glance.
-      const row = document.querySelector(`.part-row[data-part="${selectedPartName}"]`);
-      if (row) {
-        row.classList.add("pending");
-        row.querySelector(".part-name").textContent = `${selectedPartName} → ${objKey} (pending)`;
-      }
-      let msg = `Previewing ${objKey} on ${selectedPartName}`;
-      msg += staged ? ` with ${staged} texture(s)` : (mtlKey ? " (no textures staged)" : " (mesh only)");
-      msg += changedTab
-        ? ` -- also updated the ${TAB_LABELS[changedTab] || changedTab} tab.`
-        : " -- this part isn't shown in any tab, so only the preview above updated.";
-      if (notes.length) msg += " " + String.fromCharCode(0x26A0) + " " + notes.join("; ");
-      status.textContent = msg;
-    } catch (err) {
-      status.textContent = "Import failed: " + (err && err.message ? err.message : err);
-    }
-  });
 
   // "Mod it!" -- a page-wide mode toggle, not a drawer: reveals the Car Configs/
   // Cockpit Configs/Textures/Parts drawer buttons (see updateConfigButtonsVisibility
