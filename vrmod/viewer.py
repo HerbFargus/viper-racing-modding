@@ -1535,8 +1535,20 @@ function downloadText(text, filename) {
   downloadBytes(new Blob([text], {type: "text/plain"}), filename);
 }
 
-function downloadBytes(blobOrBytes, filename) {
+async function downloadBytes(blobOrBytes, filename) {
   const blob = blobOrBytes instanceof Blob ? blobOrBytes : new Blob([blobOrBytes], {type: "application/octet-stream"});
+  // Desktop app path: the embedded webview (pywebview) silently ignores an
+  // <a download>, so when the Python bridge is present hand it the bytes and let
+  // the OS save dialog write them. A plain browser (the CLI-served page, the
+  // gallery) has no bridge and falls through to the anchor download below.
+  const api = window.pywebview && window.pywebview.api;
+  if (api && api.save_file) {
+    const buf = new Uint8Array(await blob.arrayBuffer());
+    let bin = "";
+    for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
+    try { await api.save_file(filename, btoa(bin)); return; }
+    catch (e) { /* bridge failed -- fall through to the anchor download */ }
+  }
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -1544,7 +1556,9 @@ function downloadBytes(blobOrBytes, filename) {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+  // Defer the revoke: calling it synchronously after click() can abort the
+  // download before the browser has read the blob.
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 function bytesToBase64(bytes) {
@@ -3883,8 +3897,20 @@ function parseObj(text) {
   return {positions, uvs, normals, groups};
 }
 
-function downloadBytes(blobOrBytes, filename) {
+async function downloadBytes(blobOrBytes, filename) {
   const blob = blobOrBytes instanceof Blob ? blobOrBytes : new Blob([blobOrBytes], {type: "application/octet-stream"});
+  // Desktop app path: the embedded webview (pywebview) silently ignores an
+  // <a download>, so when the Python bridge is present hand it the bytes and let
+  // the OS save dialog write them. A plain browser (the CLI-served page, the
+  // gallery) has no bridge and falls through to the anchor download below.
+  const api = window.pywebview && window.pywebview.api;
+  if (api && api.save_file) {
+    const buf = new Uint8Array(await blob.arrayBuffer());
+    let bin = "";
+    for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
+    try { await api.save_file(filename, btoa(bin)); return; }
+    catch (e) { /* bridge failed -- fall through to the anchor download */ }
+  }
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -3892,7 +3918,9 @@ function downloadBytes(blobOrBytes, filename) {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+  // Defer the revoke: calling it synchronously after click() can abort the
+  // download before the browser has read the blob.
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 function bytesToBase64(bytes) {

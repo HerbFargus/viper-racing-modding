@@ -76,6 +76,25 @@ class Api:
         d = switcher_ui.get_data_dir()
         return str(d) if d else None
 
+    def save_file(self, filename: str, b64: str) -> dict:
+        """Native Save-As for a file the page generated in the browser (Export
+        TGA, an OBJ bundle, ...). The embedded webview can't honor an <a
+        download> / blob download, so the page base64-encodes the bytes and
+        hands them here; we pop the OS save dialog and write them where the user
+        picks. (A plain browser keeps the <a download> path -- see viewer.py's
+        downloadBytes.)"""
+        import base64
+        win = webview.active_window()
+        result = win.create_file_dialog(webview.SAVE_DIALOG, save_filename=filename)
+        if not result:
+            return {"ok": False}                       # user cancelled
+        path = result[0] if isinstance(result, (list, tuple)) else result
+        try:
+            Path(path).write_bytes(base64.b64decode(b64))
+        except (OSError, ValueError) as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "path": str(path)}
+
 
 def main() -> None:
     # Reopen the last folder if it still looks valid, so the app lands straight
