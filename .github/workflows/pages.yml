@@ -1,9 +1,11 @@
 name: Deploy Library to GitHub Pages
 
-# Publishes the client-side gallery (gallery/) to GitHub Pages. The gallery loads
-# vrmod at runtime via Pyodide, so it needs gallery/vrmod.zip -- a build artifact
-# that is gitignored, not committed. CI regenerates it from the canonical vrmod/
-# on every deploy, so the hosted Library can never drift from the toolkit.
+# Publishes the client-side gallery (gallery/) to GitHub Pages as the site root,
+# plus the docs/ folder under /docs/ so the file-format reference and modding
+# history are browsable online (e.g. .../viper-racing-modding/docs/reference.html).
+# The gallery loads vrmod at runtime via Pyodide, so it needs gallery/vrmod.zip --
+# a build artifact that is gitignored, not committed. CI regenerates it from the
+# canonical vrmod/ on every deploy, so the hosted Library can never drift.
 
 on:
   push:
@@ -11,6 +13,7 @@ on:
     paths:
       - "gallery/**"
       - "vrmod/**"
+      - "docs/**"
       - "scripts/build_gallery.py"
       - ".github/workflows/pages.yml"
   workflow_dispatch:        # allow manual runs from the Actions tab
@@ -35,11 +38,16 @@ jobs:
           python-version: "3.12"
       - name: Build gallery/vrmod.zip from the canonical vrmod/
         run: python scripts/build_gallery.py
+      - name: Stage the site (gallery at root, docs under /docs)
+        run: |
+          mkdir -p _site
+          cp -r gallery/. _site/
+          cp -r docs _site/docs
       - uses: actions/configure-pages@v5
-      - name: Upload the gallery as the Pages artifact
+      - name: Upload the staged site as the Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: gallery
+          path: _site
 
   deploy:
     needs: build
