@@ -3671,8 +3671,9 @@ function main() {
       // pane isn't disturbed; the canvas refits on the iframe's own resize.
       if(HOST && !HOST.isExpanded()){
         HOST.setExpanded(true);
+        // Keep the sidebar ICON; just reflect the new state (library now hidden).
         const eb = document.getElementById("expand-btn");
-        if(eb) eb.textContent = "⇲ Show library";
+        if(eb){ eb.classList.remove("active"); eb.title = "Show the library"; }
       }
     }
   });
