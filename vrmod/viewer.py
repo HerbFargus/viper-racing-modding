@@ -921,6 +921,11 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
                             color:#e8eaf2;border-radius:4px;cursor:pointer;font-size:.72rem}
   .sound-row .sound-import:hover{background:#343946}
   .sound-row .sound-import input{display:none}
+  .sound-row .sound-actions{display:flex;gap:6px;align-items:center;margin-top:6px}
+  .sound-row .sound-actions .sound-import{margin-top:0}
+  .sound-row button.sound-revert{padding:4px 9px;font-size:.9rem;line-height:1;border-radius:3px;cursor:pointer;
+                    background:#3a1414;border:1px solid #7a2020;color:#ffd9d9}
+  .sound-row button.sound-revert:hover{background:#4a1a1a}
   .sound-row .sound-import-status{font-size:.7rem;color:#8ecfff;margin-top:4px;min-height:1em;word-break:break-all}
   .info-i{font-size:.8rem;color:#8ecfff;cursor:help;margin-left:6px;vertical-align:middle;font-weight:400}
   .info-i:hover{color:#bfe4ff}
@@ -1669,9 +1674,17 @@ async function commitChanges() {
       delete pendingTextureEdits[mat];
     }
     for (const name of Object.keys(importedTexturesByPart)) delete importedTexturesByPart[name];
-    for (const name of Object.keys(pendingSfxEdits)) delete pendingSfxEdits[name];
-    clearPendingMarkers();                       // texture swatches + sound rows
+    for (const name of Object.keys(pendingSfxEdits)) {
+      // The staged WAV is now the car's real, owned sound -- roll it into the
+      // baseline (owned + previewable) so the redrawn row reads as saved, not
+      // pending, with no snap-back to the original.
+      const prev = SFX_PARTS[name] || {};
+      SFX_PARTS[name] = Object.assign({}, prev, {wav_b64: pendingSfxEdits[name], is_pcm: true, shared: false});
+      delete pendingSfxEdits[name];
+    }
+    clearPendingMarkers();                       // texture swatches
     if (rebuildPartsDrawer) rebuildPartsDrawer();  // parts: redraw with fresh present/empty states
+    buildSoundDrawer();                          // sounds: redraw from the rolled-forward SFX_PARTS
     updateCommitStatus();
     // Stats/cockpit fields are deliberately left as-is: STATS still holds the
     // ORIGINAL pre-edit values (the page never re-fetches what it wrote), so
@@ -2195,11 +2208,11 @@ function revertPartTextures(partName) {
 }
 
 // After a successful Save, clear the staged markers on texture swatches and sound
-// rows. Parts are handled separately -- Save rebuilds the whole Parts drawer from
-// the rolled-forward MOD_PARTS (see commitChanges), so their staged state clears
-// with the redraw.
+// swatches. Parts AND sounds are handled separately -- Save rebuilds each of
+// those drawers from its rolled-forward baseline (MOD_PARTS / SFX_PARTS, see
+// commitChanges), so their staged state clears with the redraw.
 function clearPendingMarkers() {
-  document.querySelectorAll(".swatch.pending, .sound-row.pending").forEach(el => {
+  document.querySelectorAll(".swatch.pending").forEach(el => {
     el.classList.remove("pending");
     const lbl = el.querySelector("[data-base-text]");
     if (lbl) lbl.textContent = lbl.dataset.baseText;
@@ -2635,6 +2648,7 @@ function buildPartsDrawer(applyLiveReimport, removeLivePart, highlightPart) {
 // makes for a .mod entry that fails to parse.
 function buildSoundDrawer() {
   const root = document.getElementById("sound-list");
+  root.innerHTML = "";                              // rebuildable -- re-run on import, revert, and Save
   const names = Object.keys(SFX_PARTS);
   if (names.length === 0) {
     root.innerHTML = '<div class="empty">no .sfx entries found</div>';
@@ -2642,13 +2656,26 @@ function buildSoundDrawer() {
   }
   names.forEach(name => {
     const info = SFX_PARTS[name];
+    const pendingB64 = pendingSfxEdits[name];        // a staged replacement (mono 16-bit WAV), if any
     const row = document.createElement("div");
-    row.className = "sound-row";
+    row.className = "sound-row" + (pendingB64 ? " pending" : "");
     const label = document.createElement("div");
     label.className = "sound-name";
-    label.textContent = name + (info && info.shared ? " (shared default)" : "");
+    label.textContent = name + (pendingB64 ? " (pending)" : (info && info.shared ? " (shared default)" : ""));
     row.appendChild(label);
-    if (info && info.wav_b64) {
+
+    // Body: a pending replacement previews the CONVERTED wav (what actually gets
+    // committed); otherwise the original entry, playable if PCM.
+    if (pendingB64) {
+      const meta = document.createElement("div");
+      meta.className = "sound-meta";
+      meta.textContent = "staged replacement — mono 16-bit, commits on Save";
+      row.appendChild(meta);
+      const audio = document.createElement("audio");
+      audio.controls = true;
+      audio.src = "data:audio/wav;base64," + pendingB64;
+      row.appendChild(audio);
+    } else if (info && info.wav_b64) {
       const meta = document.createElement("div");
       meta.className = "sound-meta";
       meta.textContent = `${info.sample_rate} Hz, ${info.bits_per_sample}-bit PCM, ${info.duration}s`;
@@ -2666,22 +2693,26 @@ function buildSoundDrawer() {
         : "couldn't parse";
       row.appendChild(note);
     }
-    // Import works even on an unplayable (ADPCM/parse-failure) row or a shared
-    // default -- the replacement is a fresh real WAV either way, independent of
-    // whatever the original entry was. Only the raw uploaded bytes are kept
-    // (pendingSfxEdits); the real .sfx conversion happens server-side at commit
+
+    const statusEl = document.createElement("div");
+    statusEl.className = "sound-import-status";
+
+    // Actions: Import (always) + ↺ Revert (only when a change is staged) --
+    // parity with the Parts drawer's Import / ↺ pair. Import works on any row
+    // (playable, ADPCM, or a shared default); the replacement is a fresh WAV
+    // regardless, converted to the mono 16-bit .sfx server-side at commit
     // (sfx.from_wav_bytes()+build(), see cli.py's _apply_commit) via
-    // archive.upsert_entry -- same shared-default-becomes-a-real-override
-    // pattern already proven for ball.mod and unowned textures.
+    // archive.upsert_entry -- same shared-default-becomes-an-override pattern
+    // proven for ball.mod and unowned textures.
+    const actions = document.createElement("div");
+    actions.className = "sound-actions";
     const importLabel = document.createElement("label");
     importLabel.className = "sound-import";
-    importLabel.textContent = "Import";
+    importLabel.textContent = pendingB64 ? "Replace" : "Import";
     importLabel.title = "Import a sound (WAV, MP3, OGG, …) -- converted to the mono 16-bit .sfx the game needs";
     const importInput = document.createElement("input");
     importInput.type = "file";
     importInput.accept = ".wav,.mp3,.ogg,.m4a,.aac,.flac,.opus";
-    const statusEl = document.createElement("div");
-    statusEl.className = "sound-import-status";
     importInput.addEventListener("change", async e => {
       const file = e.target.files[0];
       e.target.value = "";
@@ -2695,24 +2726,27 @@ function buildSoundDrawer() {
         const wav = await decodeAudioToMonoWav(new Uint8Array(await file.arrayBuffer()), rate);
         pendingSfxEdits[name] = bytesToBase64(wav);
         updateCommitStatus();
-        // Preview the CONVERTED wav (what actually gets committed), not the raw file.
-        row.querySelectorAll("audio, .sound-meta, .sound-unplayable").forEach(el => el.remove());
-        const audio = document.createElement("audio");
-        audio.controls = true;
-        audio.src = URL.createObjectURL(new Blob([wav], {type: "audio/wav"}));
-        row.insertBefore(audio, importLabel);
-        // Persistent marker on the row itself, not just the status line below --
-        // easy to miss once you've scrolled past it or reopened the drawer.
-        row.classList.add("pending");
-        label.dataset.baseText = name;  // so Save's clearPendingMarkers can restore it
-        label.textContent = `${name} → ${file.name} (pending)`;
-        statusEl.textContent = `Previewing ${file.name} → mono 16-bit @ ${rate} Hz. Replaces ${name} on Save.`;
+        buildSoundDrawer();                          // redraw: this row now shows the staged preview + ↺
       } catch (err) {
         statusEl.textContent = `${file.name}: couldn't decode audio (${err && err.message ? err.message : err}).`;
       }
     });
     importLabel.appendChild(importInput);
-    row.appendChild(importLabel);
+    actions.appendChild(importLabel);
+
+    if (pendingB64) {
+      const rev = document.createElement("button");
+      rev.className = "sound-revert";
+      rev.textContent = "↺";
+      rev.title = "Discard this staged sound and restore the original";
+      rev.addEventListener("click", () => {
+        delete pendingSfxEdits[name];
+        updateCommitStatus();
+        buildSoundDrawer();                          // redraw: back to the original row
+      });
+      actions.appendChild(rev);
+    }
+    row.appendChild(actions);
     row.appendChild(statusEl);
     root.appendChild(row);
   });
