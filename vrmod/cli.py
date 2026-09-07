@@ -231,8 +231,12 @@ def _apply_commit(body: dict) -> tuple[Path, Path]:
     # existing name, so none of this identity-tied machinery is ever at risk.
     # Never overwriting car_path blindly, though: back it up first, collision-
     # safe via the same _unique_path() scheme the old renamed-output approach
-    # used, so the pre-edit state is always recoverable.
-    backup_path = _unique_path(car_path.with_name(f"{car_path.stem}_original{car_path.suffix}"))
+    # used, so the pre-edit state is always recoverable. The backup gets a
+    # trailing ".bak" so it is NOT a loadable ".car": the game scans Data/ and
+    # loads every *.car, deriving each one's member names from its filename, so a
+    # "viper_original.car" backup would make it look for "viper_original0.mod" and
+    # panic (the exact filename<->members crash from the format reference).
+    backup_path = _unique_path(car_path.with_name(f"{car_path.stem}_original{car_path.suffix}.bak"))
     shutil.copy2(car_path, backup_path)
     archive.write(entries, car_path)
     return car_path, backup_path, resized, warnings
@@ -289,7 +293,9 @@ def _apply_track_commit(body: dict) -> tuple[Path, Path]:
             real = next(e.name for e in entries if e.name.lower() == name)
             entries = archive.replace_entry(entries, real, raw)
 
-    backup_path = _unique_path(track_path.with_name(f"{track_path.stem}_original{track_path.suffix}"))
+    # ".bak" so the backup isn't a loadable ".trk" (same reasoning as the car
+    # backup in _apply_commit -- keep stray copies out of the game's scan).
+    backup_path = _unique_path(track_path.with_name(f"{track_path.stem}_original{track_path.suffix}.bak"))
     shutil.copy2(track_path, backup_path)
     archive.write(entries, track_path)
     return track_path, backup_path, resized, []
