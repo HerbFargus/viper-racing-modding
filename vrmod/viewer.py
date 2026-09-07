@@ -1846,6 +1846,25 @@ function objMaterials(objText) {
   return out;
 }
 
+// Viper matches a mesh's material to its texture by literal name, and the stock
+// convention that its texture lookup expects is a ".tex" suffix (VIPER.tex,
+// UCAR.tex, ...). Most models in the wild use bare material names (body,
+// carpaint, eyeball), which would import as textures the game never resolves --
+// rendering untextured. So we normalise every imported material name to end in
+// ".tex". It has to be applied in BOTH places the name lands, identically, or
+// the .mod material and its texture member stop matching: normalizeObjMaterials
+// rewrites the OBJ's usemtl lines (-> the .mod material name via from_obj), and
+// the same normalizeMaterialName keys the staged texture member. A name that
+// already ends in .tex is left alone, so re-imports and tool-made bundles are
+// unchanged (idempotent).
+function normalizeMaterialName(name) {
+  return /\.tex$/i.test(name) ? name : name + ".tex";
+}
+function normalizeObjMaterials(objText) {
+  return objText.replace(/^(\s*usemtl\s+)(.+?)(\s*)$/gm,
+    (_m, pre, name, tail) => pre + normalizeMaterialName(name) + tail);
+}
+
 // data: URI -> raw bytes, for turning a TEXTURES[...] PNG back into file bytes.
 async function dataUriToBytes(dataUri) {
   return new Uint8Array(await (await fetch(dataUri)).arrayBuffer());
@@ -2328,14 +2347,19 @@ function buildPartsDrawer(applyLiveReimport, removeLivePart, highlightPart) {
       const dec = new TextDecoder();
       const objKey = Object.keys(bag).find(k => /\.obj$/i.test(k));
       if (!objKey) { status.textContent = "No .obj found in the selection."; return; }
-      const objText = dec.decode(bag[objKey]);
+      const objTextRaw = dec.decode(bag[objKey]);
+      // Normalise material names to the .tex convention up front, then use the
+      // normalised OBJ for preview, live re-import and the staged edit so the
+      // 3D lookup, the .mod, and the texture members all key off the same name.
+      const objText = normalizeObjMaterials(objTextRaw);
       if (importedTexturesByPart[member]) revertPartTextures(member);
       const mtlKey = Object.keys(bag).find(k => /\.mtl$/i.test(k));
       const notes = [], stagedMats = [];
       if (mtlKey) {
-        const matToImg = parseMtl(dec.decode(bag[mtlKey]));
-        for (const mat of objMaterials(objText)) {
-          const imgName = matToImg[mat];
+        const matToImg = parseMtl(dec.decode(bag[mtlKey]));  // keyed by the .mtl's original names
+        for (const rawMat of objMaterials(objTextRaw)) {
+          const mat = normalizeMaterialName(rawMat);   // stage/report under the normalised name
+          const imgName = matToImg[rawMat];
           if (!imgName) { notes.push(`${mat}: no map_Kd in the .mtl`); continue; }
           const imgBytes = bag[imgName] || bag[baseName(imgName)];
           if (!imgBytes) { notes.push(`${mat}: image "${imgName}" not in the selection`); continue; }
