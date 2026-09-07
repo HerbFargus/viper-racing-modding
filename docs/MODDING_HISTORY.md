@@ -82,11 +82,40 @@ preserved archives it's marked ✓.
 - **MKTABLE / MKILI** ✓ — data tables / the AI racing line (`.ili`).
 - **trkaitweaker** ✓ — AI tuning. **jpg2sky / sky-tga2tex** — the four skybox tiles.
 
-### Engine patches (`race.bin`)
-- **Sucahyo's 1.2.4-beta `race.bin`** (2007) — raised the polygon/vertex limits.
-- **Charlie Ward's 2016 `race.bin`** — the modern-GPU fix (from beatcracker's
-  solution). **`race.bin-25kvert-512tex`** ✓ — a high-limit community build.
-- **Patch 1.2.3 / 1.2.5** and **ResolutionChanger.exe** ✓ — resolution support.
+### Engine patches & `race.bin` versions
+
+Every modern install runs a community-patched `race.bin` (the game engine). The
+version is shown in-game at the **Options screen, bottom-right corner**, and is
+stored as a plain string inside `race.bin` itself (near offset `0x0D37FD` — e.g.
+`1.2.4 BETA`, `v1.2.5 2016`).
+
+**Official (Sierra / Monster Games):**
+
+| Version | Patch file | Notes |
+|---|---|---|
+| 1.0 | (retail) | base game, 1998 |
+| 1.1 | `VIPER11` | lock-ups, Force Feedback, minor fixes |
+| 1.2.1 beta | `VIPER121B` | beta |
+| 1.2.3 beta | `VIPER123B` | last official patch; community builds fork from here |
+
+**Community `race.bin` (unofficial, built on 1.2.3):**
+
+| In-game string | Author / date | What it adds |
+|---|---|---|
+| `1.2.4 BETA` | Sucahyo, 4 Oct 2007 | 95,000-polygon track support; 20,000 vertices/object (≈100k-poly cars possible, though total per-scene vertex limits remain — ~14 AI cars at 20k each can still crash); the rear **spoiler** (`<car>S.mod`) visible without an `option.cfg` edit; the **mirror** visible in F1–F8 views |
+| `v1.2.5 2016` | Val Novak, 20 Mar 2016 | Sucahyo's 1.2.4-beta **plus** Charlie Ward's modern-GPU / video-memory fix (from a DirectDraw solution by **beatcracker**), **plus** a scratchy-sound fix — the standard modern binary; runs on Windows 10/11 |
+| `v1.2.6 2017` | Val Novak, 15 Nov 2017 | same as 1.2.5 but the extra rear wing is **no longer always shown** on the viper/AI cars (a 46-byte change to one visibility check) |
+
+Notes for anyone cataloguing binaries:
+- The pcgamingwiki "Viper Racing Unofficial Patch 1.2.4" (uploaded by *Blackbird*)
+  is a **re-upload of Sucahyo's 2007 1.2.4-beta**, not a separate build.
+- A file circulated as **`race.bin-25kvert-512tex-allmirror`** is **byte-identical
+  to the 1.2.4-beta** (whose own readme still says 20,000 vertices) — the name
+  over-promises. "512tex" most plausibly means the *number of textures loaded
+  simultaneously* (a limit Sucahyo's notes mention raising), not a 512×512
+  resolution, but it can't be confirmed from that mislabeled file.
+- **ResolutionChanger.exe** (shipped in `Data/`) sets screen resolution
+  independently of the `race.bin` version.
 
 ### Hex editor
 - **XVi32** — the community's recommended editor. Nearly every "edit" that wasn't
