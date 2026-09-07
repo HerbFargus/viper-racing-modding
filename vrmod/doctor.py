@@ -171,10 +171,11 @@ def vertex_budget(data_dir: str | Path) -> tuple[int | None, str]:
     fine is its own kind of wrong.
 
     The ceiling is a property of race.bin, not of the car -- see
-    mod.VERTEX_BUDGETS. Only two points are known for certain: the original
-    release allows 1,200, and the v1.2.5 2016 community build documents 20,000.
-    Other community builds carry a version marker but no figure we have
-    verified, so they report None.
+    mod.VERTEX_BUDGETS. The original release allows 1,200; the three confirmed
+    community builds -- Sucahyo's v1.2.4 BETA (2007) and Val Novak's v1.2.5 2016
+    and v1.2.6 2017 -- all document 20,000 (their readmes/changelogs state the
+    same figure; see MODDING_HISTORY.md's race.bin version table). Any other
+    version marker reports None rather than guess.
     """
     from . import mod as mod_mod
 
@@ -184,7 +185,7 @@ def vertex_budget(data_dir: str | Path) -> tuple[int | None, str]:
     version = race_bin_version(data_dir)
     if version is None:
         return mod_mod.VERTEX_BUDGETS["original"], "the original release"
-    if "1.2.5" in version:
+    if any(v in version for v in ("1.2.4", "1.2.5", "1.2.6")):
         return mod_mod.VERTEX_BUDGETS["hd"], f"race.bin {version}"
     return None, f"race.bin {version}, whose limit this tool has not confirmed"
 
