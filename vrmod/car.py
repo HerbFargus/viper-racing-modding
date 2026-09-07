@@ -357,6 +357,58 @@ def body_prefix(entries: list[archive.ArchiveEntry]) -> str | None:
     return be.name[:-5] if be else None
 
 
+# The <prefix>1.tab spec sheet (STAB, tag "BATS") is a fixed-width key/value
+# table: a header, then records of a 33-byte KEY field + a 33-byte VALUE field.
+# Record 0 is "Name" -> the in-game display name. The value is a NUL-terminated
+# string inside its 33-byte field, so a rename is a pure in-place field overwrite:
+# the payload size and every other stat column stay put. (This is the display
+# label only -- distinct from the car's FILENAME, which is its load-bearing
+# identity; renaming the name here is safe, renaming the .car file is not.)
+_TAB_FIELD = 33
+
+
+def _spec_tab_entry(entries: list[archive.ArchiveEntry]):
+    """The car's <prefix>1.tab spec sheet, if present."""
+    prefix = body_prefix(entries)
+    if prefix:
+        want = f"{prefix}1.tab".lower()
+        for e in entries:
+            if e.name.lower() == want:
+                return e
+    for e in entries:   # fallback: any *1.tab that actually carries a Name field
+        if e.name.lower().endswith("1.tab") and b"Name" in e.payload[:160]:
+            return e
+    return None
+
+
+def read_car_name(entries: list[archive.ArchiveEntry]) -> str | None:
+    """The car's in-game display name (record 0 'Name' in <prefix>1.tab)."""
+    e = _spec_tab_entry(entries)
+    if e is None:
+        return None
+    off = e.payload.find(b"Name")
+    if off < 0:
+        return None
+    val = e.payload[off + _TAB_FIELD: off + 2 * _TAB_FIELD]
+    return val.split(b"\x00", 1)[0].decode("latin-1").strip() or None
+
+
+def set_car_name(entries: list[archive.ArchiveEntry], new_name: str) -> list[archive.ArchiveEntry]:
+    """Return entries with the car's display name rewritten in place in its
+    spec-sheet tab. Capped at 32 chars (the field is 33 wide, NUL-terminated);
+    nothing else in the tab moves. Raises if there's no spec sheet / Name field."""
+    e = _spec_tab_entry(entries)
+    if e is None:
+        raise ValueError("this car has no <prefix>1.tab spec sheet to rename")
+    off = e.payload.find(b"Name")
+    if off < 0:
+        raise ValueError("no Name field in the car's spec sheet")
+    field = new_name.strip().encode("latin-1", "replace")[: _TAB_FIELD - 1]
+    pay = bytearray(e.payload)
+    pay[off + _TAB_FIELD: off + 2 * _TAB_FIELD] = field.ljust(_TAB_FIELD, b"\x00")
+    return archive.replace_entry(entries, e.name, envelope.build(e.tag, e.version, bytes(pay)))
+
+
 def car_material_names(entries: list[archive.ArchiveEntry]) -> set[str]:
     """Every material name referenced by any of a car's .mod meshes."""
     names: set[str] = set()

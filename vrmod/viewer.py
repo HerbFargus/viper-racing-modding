@@ -850,6 +850,11 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   #export:hover{background:#2419d0}
   #reset-stats{background:#2a2e38;color:#e8eaf2}
   #reset-stats:hover{background:#343946}
+  .car-name-row{display:flex;align-items:center;gap:8px;margin:2px 0 8px}
+  .car-name-row label{font-size:.8rem;color:#a8adc0;flex:0 0 auto}
+  #car-name-input{flex:1 1 auto;min-width:0;background:#14161c;border:1px solid #3a3f4e;color:#e8eaf2;
+                  border-radius:3px;padding:6px 8px;font-size:.85rem}
+  #car-name-input:focus{outline:none;border-color:#5a6cff}
   #hint2{font-size:.72rem;color:#8a90a4;margin-top:8px;display:none}
   body.mod-mode #hint2{display:block}
   #texture-list{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -1039,6 +1044,8 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
 <div id="eye-mode-bar">Driver's-eye view -- drag to look around, scroll to zoom <button id="exit-eye-mode">Back to free orbit</button></div>
 <aside id="stats-drawer" class="drawer">
   <h2>Car Configs</h2>
+  <div class="car-name-row"><label for="car-name-input">Name</label><input id="car-name-input" type="text" maxlength="32" spellcheck="false" autocomplete="off" placeholder="(car display name)"></div>
+  <div class="hint">The name shown in the game's car-select screen (stored in the car's spec sheet). Renaming is display-only and safe -- it never touches the car's filename. Up to 32 characters.</div>
   <div class="hint">The .cf stats behind this car. Fields are editable; <strong class="highlight-demo">blue</strong> fields (hover for the tooltip) move the wheels live in the Car tab. Hover any field for its real stock-car range (viper/exotic/plane/sedan/sports) -- shown for reference only, not enforced. "Export edited .txt" downloads a file for <code>txt2cf</code>/<code>cfpatch</code>.</div>
   <div id="sections"></div>
   <button id="export">Export edited .txt</button>
@@ -1115,6 +1122,7 @@ const PROV_META = {
 };
 const TAB_LABELS = {car: "Car", cockpit: "Cockpit", hornball: "Horn Ball"};
 const STATS = __STATS_JSON__;
+let CAR_NAME = __CAR_NAME_JSON__;   // display name from <prefix>1.tab; let, so Save can roll it forward
 const SECTIONS = __SECTIONS_JSON__;
 // (min, max) per field across the game's 5 genuinely-stock retail cars -- see
 // STOCK_STAT_RANGES's own comment in viewer.py for why only those 5 and why
@@ -1462,6 +1470,7 @@ function resetStats() {
   document.querySelectorAll("#sections input").forEach(inp => {
     inp.value = roundDisplay(STATS[inp.dataset.field]);
   });
+  const ni = document.getElementById("car-name-input"); if (ni) ni.value = CAR_NAME;
   document.getElementById("sections").dispatchEvent(new Event("input", {bubbles: true}));
 }
 
@@ -1638,11 +1647,18 @@ const COMMIT_ROUTE = "/__vrmod_commit__";
 // Enables/disables Save based on whether there's anything to send -- called
 // after every edit (stat, part reimport, texture reimport) and after Reset to
 // default (via the synthetic "input" event it dispatches).
+// The car-name field is dirty when the input differs from the saved CAR_NAME.
+function carNameChanged() {
+  const inp = document.getElementById("car-name-input");
+  return !!inp && inp.value.trim() !== CAR_NAME;
+}
+
 function updateCommitStatus() {
   const btn = document.getElementById("commit-btn");
   if (!btn) return;
   const hasPending = dirtyFields.size > 0
     || cockpitDirtyRecords.size > 0
+    || carNameChanged()
     || Object.keys(pendingPartEdits).length > 0
     || pendingPartRemovals.size > 0
     || Object.keys(pendingTextureEdits).length > 0
@@ -1676,6 +1692,7 @@ async function commitChanges() {
     car_path: CAR_PATH, stats, cockpit, parts: pendingPartEdits, textures: pendingTextureEdits,
     sounds: pendingSfxEdits, remove: Array.from(pendingPartRemovals),
   };
+  if (carNameChanged()) payload.car_name = document.getElementById("car-name-input").value.trim();
 
   statusEl.className = "pending";
   statusEl.textContent = "Saving...";
@@ -1739,6 +1756,7 @@ async function commitChanges() {
     if (rebuildTextureDrawer) rebuildTextureDrawer();  // textures: redraw, staged swatches now clean
     if (rebuildPartsDrawer) rebuildPartsDrawer();  // parts: redraw with fresh present/empty states
     buildSoundDrawer();                          // sounds: redraw from the rolled-forward SFX_PARTS
+    if (payload.car_name !== undefined) CAR_NAME = payload.car_name;   // name: new baseline, no snap-back
     updateCommitStatus();
     // Stats/cockpit fields are deliberately left as-is: STATS still holds the
     // ORIGINAL pre-edit values (the page never re-fetches what it wrote), so
@@ -2388,7 +2406,7 @@ function updatePartsHighlight(key) {
 // can curate the list to whatever tab you're looking at.
 const SLOT_DEFS = [
   {group: "Body",               label: "Body",               suffix: "0", structural: true, view: "car"},
-  {group: "Exterior add-ons",   label: "Mirror",             suffix: "b", removable: true, view: "car"},
+  {group: "Exterior add-ons",   label: "Brake lights",       suffix: "b", removable: true, view: "car"},
   {group: "Exterior add-ons",   label: "Spoiler",            suffix: "s", removable: true, view: "car"},
   {group: "Interior · primary car", label: "Dashboard",      suffix: "c", removable: true, view: "cockpit"},
   {group: "Interior · primary car", label: "Speedometer needle", fixedName: "Needle.mod", removable: true, view: "cockpit"},
@@ -3473,6 +3491,11 @@ function main() {
   setActiveTab(tabKeys[0]);
 
   buildStatsPanel();
+  const nameInput = document.getElementById("car-name-input");
+  if (nameInput) {
+    nameInput.value = CAR_NAME;
+    nameInput.addEventListener("input", updateCommitStatus);
+  }
   document.getElementById("export").addEventListener("click", exportTxt);
   document.getElementById("reset-stats").addEventListener("click", resetStats);
   document.getElementById("commit-btn").addEventListener("click", commitChanges);
@@ -3857,6 +3880,7 @@ def build_shell_html(
         provenance = {"verdict": "unknown", "own": [], "shared": [], "paint": [], "missing": []}
     html = html.replace("__PROVENANCE_JSON__", json.dumps(provenance))
     html = html.replace("__STATS_JSON__", json.dumps(live.stats))
+    html = html.replace("__CAR_NAME_JSON__", json.dumps(car.read_car_name(entries) or ""))
     html = html.replace("__SECTIONS_JSON__", json.dumps(_SECTIONS))
     html = html.replace("__STOCK_RANGES_JSON__", json.dumps(STOCK_STAT_RANGES))
     html = html.replace("__MOD_PARTS_JSON__", json.dumps(mod_parts_obj))

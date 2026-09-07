@@ -224,6 +224,12 @@ def _apply_commit(body: dict) -> tuple[Path, Path]:
         info = sfx.from_wav_bytes(base64.b64decode(wav_b64))
         entries = archive.upsert_entry(entries, name, sfx.build(info))
 
+    # Display name: the <prefix>1.tab "Name" field (an in-place, fixed-width
+    # rewrite -- this is the shown label only, NOT the car's filename identity).
+    new_name = body.get("car_name")
+    if new_name is not None and new_name.strip():
+        entries = car.set_car_name(entries, new_name)
+
     # Write edits back under the car's OWN original filename, not a renamed
     # copy -- deliberate, not an oversight. The game ties several things to a
     # car's exact identity beyond just its own <prefix>0.mod-style archive
