@@ -746,11 +746,14 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   #mod-toggle{background:#2a1f10;border-color:#7a5220;color:#ffce8a}
   #mod-toggle:hover{background:#372811}
   body.mod-mode #mod-toggle{background:#7a5220;border-color:#ffce8a;color:#fff}
-  #textures-btn,#parts-btn,#sound-btn,#commit-btn{display:none}
-  body.mod-mode #textures-btn,body.mod-mode #parts-btn,body.mod-mode #sound-btn,body.mod-mode #commit-btn{display:inline-block}
+  #textures-btn,#parts-btn,#sound-btn,#commit-btn,#discard-btn{display:none}
+  body.mod-mode #textures-btn,body.mod-mode #parts-btn,body.mod-mode #sound-btn,body.mod-mode #commit-btn,body.mod-mode #discard-btn{display:inline-block}
+  #discard-btn{background:#3a1414;border-color:#7a2020;color:#ffd9d9}
+  #discard-btn:hover{background:#4a1a1a}
+  #discard-btn:disabled{background:#14161c;border-color:#3a3f4e;color:#5a5f6e;cursor:default}
   /* View-only (public gallery): no way into mod mode at all -- the "Mod it!"
      entry point is gone, and every mod affordance stays behind it. */
-  body.view-only #mod-toggle,body.view-only #commit-btn,
+  body.view-only #mod-toggle,body.view-only #commit-btn,body.view-only #discard-btn,
   body.view-only #stats-btn,body.view-only #cockpit-configs-btn,
   body.view-only #textures-btn,body.view-only #parts-btn,body.view-only #sound-btn{display:none!important}
   #commit-btn{background:#1a5c2e;border-color:#2e8a4e}
@@ -857,6 +860,9 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   .swatch-import{background:#1c1f4a;color:#8ecfff}
   .swatch-import:hover{background:#252a5c}
   .swatch-import input{display:none}
+  .swatch-revert{flex:0 0 auto;text-align:center;cursor:pointer;font-size:.85rem;line-height:1;
+                 padding:5px 9px;box-sizing:border-box;background:#3a1414;color:#ffd9d9}
+  .swatch-revert:hover{background:#4a1a1a}
   #import-tga-status{font-size:.72rem;color:#8ecfff;margin-bottom:8px;min-height:1em;word-break:break-all}
   .empty{font-size:.8rem;color:#8a90a4;font-style:italic}
   .part-grp{font-size:.68rem;color:#7f8598;letter-spacing:.03em;padding:11px 6px 3px;text-transform:none}
@@ -1000,6 +1006,7 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
     <button id="parts-btn">Parts</button>
     <button id="sound-btn">Sound</button>
     <button id="commit-btn">Save (backs up original)</button>
+    <button id="discard-btn" title="Discard every staged change and return to the car as saved on disk">Discard all</button>
     <button id="mod-toggle">Mod it! ✎</button>
   </div>
 </header>
@@ -1481,8 +1488,9 @@ function buildTextureDrawer(meshesByMaterial) {
   }
   names.forEach(name => {
     const dataUri = TEXTURES[name];
+    const pending = !!pendingTextureEdits[name];     // a staged import awaiting Save
     const el = document.createElement("div");
-    el.className = "swatch";
+    el.className = "swatch" + (pending ? " pending" : "");
     let img = null;
     if (dataUri) {
       img = document.createElement("img");
@@ -1496,7 +1504,7 @@ function buildTextureDrawer(meshesByMaterial) {
     }
     const label = document.createElement("div");
     label.className = "name";
-    label.textContent = name;
+    label.textContent = name + (pending ? " (pending)" : "");
     const bucket = PROV_BUCKET[name.toLowerCase()];
     if (bucket) {
       const badge = document.createElement("span");
@@ -1516,7 +1524,7 @@ function buildTextureDrawer(meshesByMaterial) {
       actions.appendChild(btn);
       const importLabel = document.createElement("label");
       importLabel.className = "swatch-import";
-      importLabel.textContent = "Import";
+      importLabel.textContent = pending ? "Replace" : "Import";
       importLabel.title = "Import a PNG, TGA, or other image (JPG warns before flattening transparency)";
       const importInput = document.createElement("input");
       importInput.type = "file";
@@ -1524,11 +1532,23 @@ function buildTextureDrawer(meshesByMaterial) {
       importInput.addEventListener("click", e => e.stopPropagation());
       importInput.addEventListener("change", e => {
         const file = e.target.files[0];
-        if (file) importTextureAsTga(name, file, meshesByMaterial, img, statusEl, el, label);
+        if (file) importTextureAsTga(name, file, meshesByMaterial);
         e.target.value = "";
       });
       importLabel.appendChild(importInput);
       actions.appendChild(importLabel);
+      if (pending) {
+        const rev = document.createElement("div");
+        rev.className = "swatch-revert";
+        rev.textContent = "↺";
+        rev.title = "Discard this staged texture and restore the original";
+        rev.addEventListener("click", e => {
+          e.stopPropagation();
+          revertTexture(name, meshesByMaterial);
+          buildTextureDrawer(meshesByMaterial);        // redraw: back to the original swatch
+        });
+        actions.appendChild(rev);
+      }
       el.appendChild(actions);
     }
     if (img) attachDims(el, img);
@@ -1593,9 +1613,12 @@ function updateCommitStatus() {
   const hasPending = dirtyFields.size > 0
     || cockpitDirtyRecords.size > 0
     || Object.keys(pendingPartEdits).length > 0
+    || pendingPartRemovals.size > 0
     || Object.keys(pendingTextureEdits).length > 0
     || Object.keys(pendingSfxEdits).length > 0;
   btn.disabled = !hasPending;
+  const discard = document.getElementById("discard-btn");
+  if (discard) discard.disabled = !hasPending;
 }
 
 // Reads a cockpit.tab record's 3 fields straight from the DOM inputs rather than
@@ -1682,7 +1705,7 @@ async function commitChanges() {
       SFX_PARTS[name] = Object.assign({}, prev, {wav_b64: pendingSfxEdits[name], is_pcm: true, shared: false});
       delete pendingSfxEdits[name];
     }
-    clearPendingMarkers();                       // texture swatches
+    if (rebuildTextureDrawer) rebuildTextureDrawer();  // textures: redraw, staged swatches now clean
     if (rebuildPartsDrawer) rebuildPartsDrawer();  // parts: redraw with fresh present/empty states
     buildSoundDrawer();                          // sounds: redraw from the rolled-forward SFX_PARTS
     updateCommitStatus();
@@ -1790,12 +1813,14 @@ function decodeTga(arrayBuffer) {
 // build_shell_html's docstring). Also updates the shared TEXTURES lookup itself,
 // so anything built or swapped in AFTER this point (a later OBJ reimport landing
 // on a piece that uses this same material, for instance) picks it up too.
-async function importTextureAsTga(name, file, meshesByMaterial, swatchImg, statusEl, swatchEl, swatchLabel) {
+async function importTextureAsTga(name, file, meshesByMaterial) {
+  const statusEl = document.getElementById("import-tga-status");
+  const setStatus = t => { const s = document.getElementById("import-tga-status"); if (s) s.textContent = t; };
   let imgData;
   try {
     imgData = await decodeImageBytes(file.name, new Uint8Array(await file.arrayBuffer()));
   } catch (err) {
-    statusEl.textContent = `${file.name}: ${err && err.message ? err.message : err}`;
+    setStatus(`${file.name}: ${err && err.message ? err.message : err}`);
     return;
   }
   // Transparency gate: a flat/lossy format (JPG, most BMP) has no alpha channel,
@@ -1804,7 +1829,7 @@ async function importTextureAsTga(name, file, meshesByMaterial, swatchImg, statu
   // it opaque. Warn before doing that; PNG/TGA carry alpha and skip the prompt.
   if (!imageDataHasAlpha(imgData) && TEXTURES[name] && await dataUriHasAlpha(TEXTURES[name])) {
     if (!confirm(`"${name}" has transparency that ${file.name} can't carry (no alpha channel -- typical of JPG). Import anyway and make it fully opaque?`)) {
-      statusEl.textContent = `Import cancelled -- ${name} kept. Use a PNG or TGA to preserve transparency.`;
+      setStatus(`Import cancelled -- ${name} kept. Use a PNG or TGA to preserve transparency.`);
       return;
     }
   }
@@ -1813,25 +1838,36 @@ async function importTextureAsTga(name, file, meshesByMaterial, swatchImg, statu
   canvas.height = imgData.height;
   canvas.getContext("2d").putImageData(imgData, 0, 0);
   const dataUri = canvas.toDataURL("image/png");
+  // Snapshot the pre-import value once so the swatch's ↺ revert can restore it
+  // (undefined = the material had no texture before this import).
+  if (!(name in originalTextures)) originalTextures[name] = TEXTURES[name];
   TEXTURES[name] = dataUri;
   const newTexture = loadTexture(dataUri);
   const meshes = (meshesByMaterial && meshesByMaterial[name]) || [];
   meshes.forEach(m => { m.material.map = newTexture; m.material.needsUpdate = true; });
-  if (swatchImg) swatchImg.src = dataUri;
   // Re-encoded to TGA bytes (not the PNG dataUri above) for commitChanges() -- the
   // local endpoint decodes real TGA bytes server-side via tex.read_tga_bytes().
   pendingTextureEdits[name] = bytesToBase64(encodeTga(imgData));
   updateCommitStatus();
-  // Persistent marker on the swatch itself, not just the status line below --
-  // easy to miss once you've scrolled past it or switched tabs and back.
-  if (swatchEl) swatchEl.classList.add("pending");
-  if (swatchLabel) {
-    swatchLabel.dataset.baseText = name;  // so Save's clearPendingMarkers can restore it
-    swatchLabel.textContent = `${name} → ${file.name} (pending)`;
-  }
-  statusEl.textContent = meshes.length > 0
+  buildTextureDrawer(meshesByMaterial);   // redraw: swatch shows the preview, pending marker, and ↺
+  setStatus(meshes.length > 0
     ? `Previewing ${file.name} on ${name} -- updated ${meshes.length} mesh(es) in this tab.`
-    : `Previewing ${file.name} on ${name} -- not used by any mesh in the current tab, so nothing visible changed.`;
+    : `Previewing ${file.name} on ${name} -- not used by any mesh in the current tab, so nothing visible changed.`);
+}
+
+// Drop a swatch's staged import and restore the pre-import texture (see
+// originalTextures) -- the Textures-drawer counterpart to the Parts/Sound ↺.
+function revertTexture(name, meshesByMaterial) {
+  if (name in originalTextures) {
+    const orig = originalTextures[name];
+    if (orig === undefined) delete TEXTURES[name]; else TEXTURES[name] = orig;
+    delete originalTextures[name];
+  }
+  delete pendingTextureEdits[name];
+  const meshes = (meshesByMaterial && meshesByMaterial[name]) || [];
+  const t = TEXTURES[name] ? loadTexture(TEXTURES[name]) : null;
+  meshes.forEach(m => { m.material.map = t; m.material.needsUpdate = true; });
+  updateCommitStatus();
 }
 
 // ---------------------------------------------------------------------------
@@ -2165,6 +2201,7 @@ const originalTextures = {};        // material -> its pre-import TEXTURES value
 const importedTexturesByPart = {};  // partName -> [materials its OBJ import staged], so Discard drops exactly those
 const pendingPartRemovals = new Set();  // member names staged for deletion (optional slots / reverted overrides)
 let rebuildPartsDrawer = null;      // set by buildPartsDrawer so Save can redraw with fresh present/empty states
+let rebuildTextureDrawer = null;    // set in main() so Save/revert can redraw the active tab's swatches
 let getActiveKey = null;            // set in main() so a rebuild can re-apply the in-view (.rendered) highlight
 let partsFilterOn = true;           // default: show only what's on the car; the filter toggle reveals add-only slots
 
@@ -2207,17 +2244,6 @@ function revertPartTextures(partName) {
   delete importedTexturesByPart[partName];
 }
 
-// After a successful Save, clear the staged markers on texture swatches and sound
-// swatches. Parts AND sounds are handled separately -- Save rebuilds each of
-// those drawers from its rolled-forward baseline (MOD_PARTS / SFX_PARTS, see
-// commitChanges), so their staged state clears with the redraw.
-function clearPendingMarkers() {
-  document.querySelectorAll(".swatch.pending").forEach(el => {
-    el.classList.remove("pending");
-    const lbl = el.querySelector("[data-base-text]");
-    if (lbl) lbl.textContent = lbl.dataset.baseText;
-  });
-}
 function ensurePartPreview() {
   if (partPreview) return partPreview;
   const wrap = document.getElementById("part-preview-canvas");
@@ -3133,8 +3159,12 @@ function main() {
 
   function resetCockpitConfigs() {
     cockpitDirtyRecords.clear();
-    document.querySelectorAll("#cockpit-sections input").forEach(inp => {
+    // [data-record] only -- #cockpit-sections also holds the gauge-sweep preview
+    // sliders (#sweep-rpm/#sweep-mph), which carry no record and must be skipped
+    // (reading COCKPIT_RECORDS[undefined][NaN] otherwise throws).
+    document.querySelectorAll("#cockpit-sections input[data-record]").forEach(inp => {
       const name = inp.dataset.record;
+      if (!COCKPIT_RECORDS[name]) return;
       inp.value = COCKPIT_RECORDS[name][Number(inp.dataset.index)];
     });
     // Re-sync every live-linked view to the values just restored -- not just the
@@ -3380,9 +3410,57 @@ function main() {
   document.getElementById("export").addEventListener("click", exportTxt);
   document.getElementById("reset-stats").addEventListener("click", resetStats);
   document.getElementById("commit-btn").addEventListener("click", commitChanges);
+
+  // Global "Discard all" -- the counterpart to Save. Composes the per-domain
+  // reverts (stats, cockpit, parts, textures, sounds) so one click returns the
+  // whole tool to the car as saved on disk. Per-item ↺ stays for surgical undo;
+  // this is the "start over" escape hatch, so it confirms first.
+  function discardAllChanges() {
+    if (!confirm("Discard ALL staged changes and return to the car as saved on disk?")) return;
+    resetStats();                                  // stat inputs -> STATS, clears dirtyFields
+    resetCockpitConfigs();                         // cockpit inputs -> cockpit, clears cockpitDirtyRecords
+    // Parts: undo staged edits/adds and removals live.
+    for (const m of Object.keys(pendingPartEdits)) {
+      if (m in MOD_PARTS) applyLiveReimport(m, MOD_PARTS[m]);   // undo an edit to an existing part
+      else removeLivePart(m);                                    // undo an added slot
+      delete pendingPartEdits[m];
+    }
+    for (const m of Array.from(pendingPartRemovals)) applyLiveReimport(m, MOD_PARTS[m]);  // put removed parts back
+    pendingPartRemovals.clear();
+    for (const k of Object.keys(importedTexturesByPart)) delete importedTexturesByPart[k];
+    // Textures: restore each staged material's pre-import value and re-apply to
+    // every built tab's meshes that use it.
+    const revertedMats = Object.keys(pendingTextureEdits);
+    for (const name of revertedMats) {
+      if (name in originalTextures) {
+        const orig = originalTextures[name];
+        if (orig === undefined) delete TEXTURES[name]; else TEXTURES[name] = orig;
+      }
+      delete pendingTextureEdits[name];
+      delete originalTextures[name];
+    }
+    for (const key of Object.keys(built)) {
+      const mbm = built[key].meshesByMaterial || {};
+      for (const name of revertedMats) {
+        const meshes = mbm[name];
+        if (!meshes) continue;
+        const t = TEXTURES[name] ? loadTexture(TEXTURES[name]) : null;
+        meshes.forEach(m => { m.material.map = t; m.material.needsUpdate = true; });
+      }
+    }
+    for (const k of Object.keys(pendingSfxEdits)) delete pendingSfxEdits[k];  // sounds
+    if (rebuildPartsDrawer) rebuildPartsDrawer();
+    if (rebuildTextureDrawer) rebuildTextureDrawer();
+    buildSoundDrawer();
+    updateCommitStatus();
+    const s = document.getElementById("commit-status");
+    if (s) { s.className = "pending"; s.textContent = "Discarded all staged changes — back to the saved car."; }
+  }
+  document.getElementById("discard-btn").addEventListener("click", discardAllChanges);
   updateCommitStatus();
 
   getActiveKey = () => activeKey;  // lets a Save-triggered rebuild re-highlight the in-view slot
+  rebuildTextureDrawer = () => { if (activeKey && built[activeKey]) buildTextureDrawer(built[activeKey].meshesByMaterial); };
   buildPartsDrawer(applyLiveReimport, removeLivePart, highlightPart);  // each row's own Import/Remove drives the live mesh
   updatePartsHighlight(activeKey);  // setActiveTab's own call ran before these rows existed
 
