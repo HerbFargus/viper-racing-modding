@@ -779,8 +779,10 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   #commit-btn{background:#1a5c2e;border-color:#2e8a4e}
   #commit-btn:hover{background:#206e38}
   #commit-btn:disabled{background:#14161c;border-color:#3a3f4e;color:#5a5f6e;cursor:default}
+  /* Below the drawers (z-index:4) so a save/export banner never paints over an
+     open drawer's header/filter; its left-aligned text still reads in the open area. */
   #commit-status{position:absolute;top:52px;left:0;right:0;padding:10px 16px;font-size:.82rem;
-                  z-index:6;display:none;word-break:break-all}
+                  z-index:3;display:none;word-break:break-all}
   #commit-status.ok{display:block;background:#123a1e;color:#9fe3af;border-bottom:1px solid #2e8a4e}
   #commit-status.error{display:block;background:#3a1414;color:#ffd9d9;border-bottom:1px solid #7a2020}
   #commit-status.pending{display:block;background:#20242c;color:#a8adc0;border-bottom:1px solid #3a3f4e}
