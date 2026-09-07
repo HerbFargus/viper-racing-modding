@@ -1917,11 +1917,14 @@ function revertTexture(name, meshesByMaterial) {
 function baseName(p) { return String(p).replace(/\\/g, "/").split("/").pop(); }
 function sanitizeFilename(s) { return String(s).replace(/[^A-Za-z0-9._-]+/g, "_"); }
 
-// Parse a Wavefront .mtl into {materialName: imageBasename}. Only map_Kd (the
-// diffuse map) has a Viper equivalent -- one .tex per material -- so other maps
-// are ignored. The filename is the last token, so option flags (-o/-s/-mm/...)
-// before it are skipped; any path is reduced to its basename to match how the
-// image files themselves are keyed.
+// Parse a Wavefront .mtl into {materialName: {img, kd}}. Only map_Kd (the
+// diffuse map) has a direct Viper equivalent -- one .tex per material -- so
+// other maps are ignored; its filename is the last token (option flags
+// -o/-s/-mm/... before it are skipped) reduced to its basename to match how the
+// image files are keyed. Kd (the flat diffuse colour) is captured too: colour-
+// only models (Blender/Quaternius exports with no image maps) are common, and
+// we synthesise a solid-colour .tex from Kd so they import in their real
+// colours instead of untextured -- see importOntoMember / solidColorImageData.
 function parseMtl(text) {
   const map = {};
   let current = null;
@@ -1930,10 +1933,23 @@ function parseMtl(text) {
     if (!line || line[0] === "#") continue;
     const parts = line.split(/\s+/);
     const tag = parts[0].toLowerCase();
-    if (tag === "newmtl") current = parts.slice(1).join(" ");
-    else if (tag === "map_kd" && current) map[current] = baseName(parts[parts.length - 1]);
+    if (tag === "newmtl") { current = parts.slice(1).join(" "); map[current] = {img: null, kd: null}; }
+    else if (tag === "map_kd" && current) map[current].img = baseName(parts[parts.length - 1]);
+    else if (tag === "kd" && current) map[current].kd = parts.slice(1, 4).map(Number);
   }
   return map;
+}
+
+// An 8x8 solid-colour ImageData from an MTL Kd triple (0..1 floats). 8px is the
+// smallest size encode_to_tex accepts; a flat colour needs no more. Kd is used
+// as-authored (Blender's OBJ exporter writes the sRGB base colour here), clamped
+// to bytes.
+function solidColorImageData(kd) {
+  const b = c => Math.max(0, Math.min(255, Math.round((c || 0) * 255)));
+  const r = b(kd[0]), g = b(kd[1]), bl = b(kd[2]);
+  const S = 8, data = new Uint8ClampedArray(S * S * 4);
+  for (let i = 0; i < S * S; i++) { data[i*4] = r; data[i*4+1] = g; data[i*4+2] = bl; data[i*4+3] = 255; }
+  return new ImageData(data, S, S);
 }
 
 // Ordered, de-duplicated usemtl names as they appear in an OBJ.
@@ -2446,15 +2462,24 @@ function buildPartsDrawer(applyLiveReimport, removeLivePart, highlightPart) {
       const mtlKey = Object.keys(bag).find(k => /\.mtl$/i.test(k));
       const notes = [], stagedMats = [];
       if (mtlKey) {
-        const matToImg = parseMtl(dec.decode(bag[mtlKey]));  // keyed by the .mtl's original names
+        const matToInfo = parseMtl(dec.decode(bag[mtlKey]));  // {mat: {img, kd}}, original names
         for (const rawMat of objMaterials(objTextRaw)) {
           const mat = normalizeMaterialName(rawMat);   // stage/report under the normalised name
-          const imgName = matToImg[rawMat];
-          if (!imgName) { notes.push(`${mat}: no map_Kd in the .mtl`); continue; }
-          const imgBytes = bag[imgName] || bag[baseName(imgName)];
-          if (!imgBytes) { notes.push(`${mat}: image "${imgName}" not in the selection`); continue; }
-          let imgData; try { imgData = await decodeImageBytes(imgName, imgBytes); }
-          catch (err) { notes.push(`${mat}: ${err.message}`); continue; }
+          const info = matToInfo[rawMat] || {};
+          let imgData = null;
+          if (info.img) {
+            const imgBytes = bag[info.img] || bag[baseName(info.img)];
+            if (imgBytes) {
+              try { imgData = await decodeImageBytes(info.img, imgBytes); }
+              catch (err) { notes.push(`${mat}: ${err.message}`); continue; }
+            } else if (!info.kd) {
+              notes.push(`${mat}: image "${info.img}" not in the selection`); continue;
+            }
+          }
+          // Colour-only material (no map_Kd, or its image wasn't in the bundle):
+          // synthesise a flat swatch from Kd so it imports in its real colour.
+          if (!imgData && info.kd) imgData = solidColorImageData(info.kd);
+          if (!imgData) { notes.push(`${mat}: no map_Kd or Kd colour in the .mtl`); continue; }
           const problem = stageMaterialTexture(mat, imgData);
           if (problem) notes.push(problem); else stagedMats.push(mat);
         }
