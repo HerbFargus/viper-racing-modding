@@ -2285,8 +2285,8 @@ const SHARED_SLOTS = [
   {label: "Wheel spin (R)",  members: ["spin_r.mod"]},
 ];
 
-function buildPartsDrawer(applyLiveReimport, removeLivePart) {
-  rebuildPartsDrawer = () => { buildPartsDrawer(applyLiveReimport, removeLivePart); if (getActiveKey) updatePartsHighlight(getActiveKey()); };
+function buildPartsDrawer(applyLiveReimport, removeLivePart, highlightPart) {
+  rebuildPartsDrawer = () => { buildPartsDrawer(applyLiveReimport, removeLivePart, highlightPart); if (getActiveKey) updatePartsHighlight(getActiveKey()); };
   const root = document.getElementById("parts-list");
   const status = document.getElementById("import-obj-status");
   root.innerHTML = "";
@@ -2435,6 +2435,11 @@ function buildPartsDrawer(applyLiveReimport, removeLivePart) {
       selectedPartName = cfg.member;
       if (current()) previewPart(cfg.member, current());
     });
+    // Hover glows this part in the live 3D view (no-op for off-tab/empty slots).
+    if (highlightPart) {
+      row.addEventListener("mouseenter", () => highlightPart(cfg.member, true));
+      row.addEventListener("mouseleave", () => highlightPart(cfg.member, false));
+    }
 
     // always-visible: staged tag + revert, or the Add button for an empty slot
     const always = document.createElement("span"); always.className = "part-always";
@@ -2837,6 +2842,46 @@ function main() {
     else if (CAR_ROLES.hornball && lc === CAR_ROLES.hornball.toLowerCase()) changedTab = removeTabPiece("hornball", "ball");
     if (changedTab && changedTab === activeKey) refitAndRefresh(changedTab);
     return changedTab;
+  }
+
+  // Hovering a part row tints its mesh in the live view (emissive glow), so you
+  // can see which piece a row is. Only parts rendered in the CURRENT tab have a
+  // target -- hovering an off-tab or empty slot is a no-op. Materials are fresh
+  // per piece (buildPartGroup), so the tint is local; the animate() loop shows it.
+  function partHighlightTargets(member) {
+    const tab = built[activeKey];
+    if (!tab) return [];
+    const cr = CAR_ROLES.car, lc = String(member).toLowerCase();
+    const grp = role => (tab.pieces && tab.pieces[role]) ? [tab.pieces[role].group] : [];
+    if (activeKey === "car") {
+      if (cr.body && lc === cr.body.toLowerCase()) return grp("body");
+      if (cr.sub_b && lc === cr.sub_b.toLowerCase()) return grp("sub_b");
+      if (cr.sub_s && lc === cr.sub_s.toLowerCase()) return grp("sub_s");
+      if (/^f?wheel_\d+\.mod$/i.test(member)) return Object.values(wheelObjs);  // all 4 corners
+    } else if (activeKey === "cockpit" && CAR_ROLES.cockpit) {
+      const ck = CAR_ROLES.cockpit;
+      if (ck.dash && lc === ck.dash.toLowerCase()) return grp("dash");
+      if (ck.wheel && lc === ck.wheel.toLowerCase()) return grp("wheel");
+      if (ck.needle && lc === ck.needle.toLowerCase()) return [...grp("needle_rpm"), ...grp("needle_mph")];
+    } else if (activeKey === "hornball" && CAR_ROLES.hornball && lc === CAR_ROLES.hornball.toLowerCase()) {
+      return grp("ball");
+    }
+    return [];
+  }
+  function highlightPart(member, on) {
+    for (const g of partHighlightTargets(member)) g.traverse(o => {
+      if (!o.isMesh || !o.material) return;
+      for (const m of (Array.isArray(o.material) ? o.material : [o.material])) {
+        if (!m.emissive) continue;
+        if (on) {
+          if (m.__origEmissive === undefined) m.__origEmissive = m.emissive.getHex();
+          m.emissive.setHex(0x2a4a6a);   // subtle blue glow, matching the cyan accent
+        } else if (m.__origEmissive !== undefined) {
+          m.emissive.setHex(m.__origEmissive);
+          delete m.__origEmissive;
+        }
+      }
+    });
   }
 
   // Cockpit Configs' live links -- see COCKPIT_LIVE_RECORDS' comment for which
@@ -3259,7 +3304,7 @@ function main() {
   updateCommitStatus();
 
   getActiveKey = () => activeKey;  // lets a Save-triggered rebuild re-highlight the in-view slot
-  buildPartsDrawer(applyLiveReimport, removeLivePart);  // each row's own Import/Remove drives the live mesh
+  buildPartsDrawer(applyLiveReimport, removeLivePart, highlightPart);  // each row's own Import/Remove drives the live mesh
   updatePartsHighlight(activeKey);  // setActiveTab's own call ran before these rows existed
 
   // Filter toggle: default shows only what's on the car; click to reveal every
