@@ -767,9 +767,9 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   #mod-toggle:hover{background:#372811}
   body.mod-mode #mod-toggle{background:#7a5220;border-color:#ffce8a;color:#fff}
   /* Editing panels + file actions appear only in mod mode. */
-  #panel-group,#commit-btn,#more-wrap{display:none}
+  #panel-group,#file-actions{display:none}
   body.mod-mode #panel-group{display:inline-flex}
-  body.mod-mode #commit-btn,body.mod-mode #more-wrap{display:inline-block}
+  body.mod-mode #file-actions{display:inline-flex}
   /* Segmented panel group: joined toggle buttons with hairline dividers. */
   #panel-group{border:1px solid #3a3f4e;border-radius:4px;overflow:hidden}
   #panel-group button{background:#14161c;border:none;border-left:1px solid #3a3f4e;color:#e8eaf2;
@@ -777,25 +777,20 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   #panel-group button:first-child{border-left:none}
   #panel-group button:hover{background:#1c1f28}
   #panel-group button.active{background:#1911ab}
-  /* ⋯ overflow menu for the secondary file actions (Discard, Restore). */
-  #more-wrap{position:relative}
-  #more-btn{padding:8px 12px}
-  #more-menu{position:absolute;top:calc(100% + 4px);right:0;min-width:190px;background:#20242c;
-             border:1px solid #3a3f4e;border-radius:6px;padding:4px;z-index:8;flex-direction:column;gap:2px;
-             box-shadow:0 8px 24px rgba(0,0,0,.5)}
-  #more-menu:not([hidden]){display:flex}
-  #more-menu button{display:block;width:100%;text-align:left;background:none;border:none;color:#e8eaf2;
-                    padding:8px 10px;border-radius:4px;cursor:pointer;font-size:.82rem;white-space:nowrap}
-  #more-menu button:hover{background:#2a2f3a}
-  #more-menu button:disabled{color:#5a5f6e;cursor:default;background:none}
-  #restore-btn{color:#ffd9d9}
-  #restore-btn:hover{background:#3a1414}
+  /* File-action icons (Save / Discard / Restore). Tooltips carry the detail;
+     Restore is destructive so it's red and set slightly apart with extra gap. */
+  #file-actions{gap:6px;align-items:center}
+  .icon-btn{font-size:1.05rem;line-height:1;padding:7px 10px;min-width:36px}
+  #restore-btn{margin-left:6px}
+  #commit-btn{background:#1a5c2e;border-color:#2e8a4e;color:#fff}
+  #commit-btn:hover{background:#206e38}
+  #discard-btn:hover{background:#2a2f3a}
+  #restore-btn.danger{background:#3a1414;border-color:#7a2020;color:#ffd9d9}
+  #restore-btn.danger:hover{background:#4a1a1a}
+  .icon-btn:disabled{background:#14161c!important;border-color:#3a3f4e!important;color:#5a5f6e!important;cursor:default}
   /* View-only (public gallery): no way into mod mode -- hide every mod affordance. */
   body.view-only #mod-toggle,body.view-only #panel-group,
-  body.view-only #commit-btn,body.view-only #more-wrap{display:none!important}
-  #commit-btn{background:#1a5c2e;border-color:#2e8a4e}
-  #commit-btn:hover{background:#206e38}
-  #commit-btn:disabled{background:#14161c;border-color:#3a3f4e;color:#5a5f6e;cursor:default}
+  body.view-only #file-actions{display:none!important}
   /* Below the drawers (z-index:4) so a save/export banner never paints over an
      open drawer's header/filter; its left-aligned text still reads in the open area. */
   #commit-status{position:absolute;top:52px;left:0;right:0;padding:10px 16px;font-size:.82rem;
@@ -1053,14 +1048,15 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
       <button id="parts-btn">Parts</button>
       <button id="sound-btn">Sound</button>
     </div>
-    <!-- File actions: Save is primary; the rest live in the ⋯ menu. -->
-    <button id="commit-btn" title="Save changes to the car (backs up the original first)">Save</button>
-    <div id="more-wrap">
-      <button id="more-btn" title="More actions" aria-haspopup="true" aria-expanded="false">⋯</button>
-      <div id="more-menu" hidden role="menu">
-        <button id="discard-btn" role="menuitem" title="Discard every staged (unsaved) change">Discard all changes</button>
-        <button id="restore-btn" role="menuitem" title="Revert the car on disk to its original pre-edit backup">Restore original…</button>
-      </div>
+    <!-- File actions as icons (tooltips carry the detail). Restore is the
+         destructive one -- styled red and set slightly apart. -->
+    <div id="file-actions">
+      <button id="commit-btn" class="icon-btn" aria-label="Save"
+        title="Save — write your staged changes into the car (backs up the original first)">&#128190;</button>
+      <button id="discard-btn" class="icon-btn" aria-label="Discard all changes"
+        title="Discard all — drop every unsaved (staged) change and return to the last saved state">&#10226;</button>
+      <button id="restore-btn" class="icon-btn danger" aria-label="Restore original"
+        title="Restore original — revert the car file to its first backup, discarding ALL changes you've saved (asks first)">&#10227;</button>
     </div>
     <button id="mod-toggle">Mod it! ✎</button>
   </div>
@@ -3587,27 +3583,12 @@ function main() {
     const s = document.getElementById("commit-status");
     if (s) { s.className = "pending"; s.textContent = "Discarded all staged changes — back to the saved car."; }
   }
-  // ⋯ overflow menu (Discard all / Restore original). Toggle on click, close on
-  // an outside click or after choosing an item.
-  const moreBtn = document.getElementById("more-btn");
-  const moreMenu = document.getElementById("more-menu");
-  function closeMoreMenu() { moreMenu.hidden = true; moreBtn.setAttribute("aria-expanded", "false"); }
-  moreBtn.addEventListener("click", e => {
-    e.stopPropagation();
-    const open = moreMenu.hidden;
-    moreMenu.hidden = !open;
-    moreBtn.setAttribute("aria-expanded", String(open));
-  });
-  moreMenu.addEventListener("click", e => e.stopPropagation());
-  document.addEventListener("click", closeMoreMenu);
-
-  document.getElementById("discard-btn").addEventListener("click", () => { closeMoreMenu(); discardAllChanges(); });
+  document.getElementById("discard-btn").addEventListener("click", discardAllChanges);
 
   // Restore original: revert the car ON DISK to its pristine pre-edit backup,
   // then reload so the whole tool rebuilds from the restored car. Discards saved
   // changes too (not just staged ones), so it confirms first.
   document.getElementById("restore-btn").addEventListener("click", async () => {
-    closeMoreMenu();
     if (!confirm("Restore this car to its ORIGINAL (pre-edit) state?\n\nThis reverts the file on disk to its first backup, discarding ALL changes you've saved, and reloads.")) return;
     const s = document.getElementById("commit-status");
     s.className = "pending"; s.style.display = "block"; s.textContent = "Restoring original…";
