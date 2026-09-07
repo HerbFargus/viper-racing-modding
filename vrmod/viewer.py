@@ -766,21 +766,10 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   #mod-toggle{background:#2a1f10;border-color:#7a5220;color:#ffce8a}
   #mod-toggle:hover{background:#372811}
   body.mod-mode #mod-toggle{background:#7a5220;border-color:#ffce8a;color:#fff}
-  /* Editing panels + file actions appear only in mod mode. */
-  #panel-group,#file-actions{display:none}
-  body.mod-mode #panel-group{display:inline-flex}
+  /* File actions (top-right) + the left tool rail appear only in mod mode. */
+  #file-actions{display:none;gap:6px;align-items:center}
   body.mod-mode #file-actions{display:inline-flex}
-  /* Segmented panel group: joined toggle buttons with hairline dividers. */
-  #panel-group{border:1px solid #3a3f4e;border-radius:4px;overflow:hidden}
-  #panel-group button{background:#14161c;border:none;border-left:1px solid #3a3f4e;color:#e8eaf2;
-                      padding:8px 14px;cursor:pointer;font-size:.85rem;border-radius:0}
-  #panel-group button:first-child{border-left:none}
-  #panel-group button:hover{background:#1c1f28}
-  #panel-group button.active{background:#1911ab}
-  /* File-action icons (Save / Discard / Restore). Tooltips carry the detail;
-     Restore is destructive so it's red and set slightly apart with extra gap. */
-  #file-actions{gap:6px;align-items:center}
-  .icon-btn{font-size:1.05rem;line-height:1;padding:7px 10px;min-width:36px}
+  .icon-btn{line-height:0;padding:7px 9px;min-width:36px;display:inline-flex;align-items:center;justify-content:center}
   #restore-btn{margin-left:6px}
   #commit-btn{background:#1a5c2e;border-color:#2e8a4e;color:#fff}
   #commit-btn:hover{background:#206e38}
@@ -788,9 +777,21 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   #restore-btn.danger{background:#3a1414;border-color:#7a2020;color:#ffd9d9}
   #restore-btn.danger:hover{background:#4a1a1a}
   .icon-btn:disabled{background:#14161c!important;border-color:#3a3f4e!important;color:#5a5f6e!important;cursor:default}
+  /* Left tool rail: the per-view editors (icon over a small label). */
+  #tool-rail{position:absolute;top:52px;left:0;bottom:0;width:64px;background:#1a1d24;
+             border-right:1px solid #333;display:none;flex-direction:column;padding:8px 0;gap:2px;z-index:5}
+  body.mod-mode #tool-rail{display:flex}
+  .rail-btn{display:flex;flex-direction:column;align-items:center;gap:3px;width:56px;margin:0 4px;
+            padding:8px 0;background:none;border:none;border-radius:6px;color:#a8adc0;cursor:pointer}
+  .rail-btn span{font-size:9px;letter-spacing:.2px}
+  .rail-btn:hover{background:#232833;color:#e8eaf2}
+  .rail-btn.active{background:#1911ab;color:#fff}
+  /* Give the rail its own column: the 3D view + hint shift over in mod mode. */
+  body.mod-mode #canvas-wrap{left:64px}
+  body.mod-mode #hint{left:80px}
   /* View-only (public gallery): no way into mod mode -- hide every mod affordance. */
-  body.view-only #mod-toggle,body.view-only #panel-group,
-  body.view-only #file-actions{display:none!important}
+  body.view-only #mod-toggle,body.view-only #file-actions,
+  body.view-only #tool-rail{display:none!important}
   /* Below the drawers (z-index:4) so a save/export banner never paints over an
      open drawer's header/filter; its left-aligned text still reads in the open area. */
   #commit-status{position:absolute;top:52px;left:0;right:0;padding:10px 16px;font-size:.82rem;
@@ -798,9 +799,11 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   #commit-status.ok{display:block;background:#123a1e;color:#9fe3af;border-bottom:1px solid #2e8a4e}
   #commit-status.error{display:block;background:#3a1414;color:#ffd9d9;border-bottom:1px solid #7a2020}
   #commit-status.pending{display:block;background:#20242c;color:#a8adc0;border-bottom:1px solid #3a3f4e}
-  .drawer{position:absolute;top:52px;right:0;width:320px;height:calc(100% - 52px);background:#20242c;
-          color:#e8eaf2;box-sizing:border-box;padding:16px;overflow-y:auto;border-left:1px solid #333;
-          transform:translateX(100%);transition:transform .18s ease;z-index:4}
+  /* Drawers open just to the RIGHT of the tool rail (slide in from the left),
+     so the editor icon and its panel sit together. */
+  .drawer{position:absolute;top:52px;left:64px;width:320px;height:calc(100% - 52px);background:#20242c;
+          color:#e8eaf2;box-sizing:border-box;padding:16px;overflow-y:auto;border-right:1px solid #333;
+          transform:translateX(calc(-100% - 64px));transition:transform .18s ease;z-index:4}
   .drawer.open{transform:translateX(0)}
   .drawer h2{margin:0 0 4px;font-size:1.1rem}
   .drawer .hint{font-size:.75rem;color:#8a90a4;margin-bottom:14px}
@@ -1037,30 +1040,26 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   <div id="car-name">__CAR_TITLE__<span class="file">__CAR_FILE__</span></div>
   <nav id="tabs"></nav>
   <div id="topbar-actions">
-    <!-- Sizing is a property of the view, so it lives here rather than in the
-         host's footer. Hidden unless embedded -- see the HOST block below. -->
+    <!-- Sizing is a property of the view; hidden unless embedded (see HOST block). -->
     <button id="expand-btn" type="button" hidden></button>
-    <!-- Editing panels, grouped as one segmented unit. "Configs" is contextual:
-         it opens Car Configs on the Car tab, Cockpit Configs on the Cockpit tab. -->
-    <div id="panel-group">
-      <button id="configs-btn" title="Edit this view's config (car stats / cockpit calibration)">Configs</button>
-      <button id="textures-btn">Textures</button>
-      <button id="parts-btn">Parts</button>
-      <button id="sound-btn">Sound</button>
-    </div>
-    <!-- File actions as icons (tooltips carry the detail). Restore is the
-         destructive one -- styled red and set slightly apart. -->
+    <!-- File actions (about the whole car): Save / Discard / Restore, as icons.
+         The per-view EDITORS live on the left tool rail (#tool-rail below). -->
     <div id="file-actions">
-      <button id="commit-btn" class="icon-btn" aria-label="Save"
-        title="Save — write your staged changes into the car (backs up the original first)">&#128190;</button>
-      <button id="discard-btn" class="icon-btn" aria-label="Discard all changes"
-        title="Discard all — drop every unsaved (staged) change and return to the last saved state">&#10226;</button>
-      <button id="restore-btn" class="icon-btn danger" aria-label="Restore original"
-        title="Restore original — revert the car file to its first backup, discarding ALL changes you've saved (asks first)">&#10227;</button>
+      <button id="commit-btn" class="icon-btn" aria-label="Save" title="Save — write your staged changes into the car (backs up the original first)"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7"/><rect x="8" y="13" width="8" height="6"/></svg></button>
+      <button id="discard-btn" class="icon-btn" aria-label="Discard all changes" title="Discard all — drop every unsaved (staged) change and return to the last saved state"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 13 4 8l5-5"/><path d="M4 8h9a7 7 0 0 1 0 14H7"/></svg></button>
+      <button id="restore-btn" class="icon-btn danger" aria-label="Restore original" title="Restore original — revert the car file to its first backup, discarding ALL changes you've saved (asks first)"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v5h5"/><path d="M4.5 9a8 8 0 1 0 3-4"/><path d="M12 8v4l3 2"/></svg></button>
     </div>
-    <button id="mod-toggle">Mod it! ✎</button>
+    <button id="mod-toggle" class="icon-btn" aria-label="Edit car" title="Edit this car — open the modding tools"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10-10-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg></button>
   </div>
 </header>
+<!-- Left tool rail: the per-view EDITORS (icon + label). Shown only in mod mode.
+     Configs is contextual (car stats / cockpit calibration by active tab). -->
+<nav id="tool-rail" aria-label="Editors">
+  <button id="configs-btn" class="rail-btn" aria-label="Configs" title="Configs — car stats (Car tab) or cockpit calibration (Cockpit tab)"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="16" x2="20" y2="16"/><circle cx="9" cy="8" r="2.4" fill="currentColor" stroke="none"/><circle cx="15" cy="16" r="2.4" fill="currentColor" stroke="none"/></svg><span>Configs</span></button>
+  <button id="textures-btn" class="rail-btn" aria-label="Textures" title="Textures — swap the car's images"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="M4 17l5-4 4 3 3-3 4 4"/></svg><span>Textures</span></button>
+  <button id="parts-btn" class="rail-btn" aria-label="Parts" title="Parts — swap meshes (body, wheels, horn ball, ...)"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5"/><path d="M12 12v9"/></svg><span>Parts</span></button>
+  <button id="sound-btn" class="rail-btn" aria-label="Sound" title="Sound — swap the car's .sfx sounds"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/></svg><span>Sound</span></button>
+</nav>
 <div id="commit-status"></div>
 <div id="canvas-wrap"></div>
 <div id="fatal-error"></div>
@@ -3639,7 +3638,9 @@ function main() {
   modToggle.addEventListener("click", () => {
     modMode = !modMode;
     document.body.classList.toggle("mod-mode", modMode);
-    modToggle.textContent = modMode ? "‹ Back to viewing" : "Mod it! ✎";
+    // Keep the pencil icon; reflect state via .active + the tooltip.
+    modToggle.classList.toggle("active", modMode);
+    modToggle.title = modMode ? "Done editing — back to viewing" : "Edit this car — open the modding tools";
     updateConfigButtonsVisibility();
     if (!modMode) {
       // Textures'/Parts' trigger buttons are about to disappear -- don't leave
