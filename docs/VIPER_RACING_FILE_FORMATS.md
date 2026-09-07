@@ -606,13 +606,16 @@ transparency marker.
 > (`3ter.tex` alone is used by 191 chunks of one track). **Read the colorkey from 0x18 and treat both it
 > and `0x0000` as transparent.**
 
-> **Modding gotcha — `0x0000` reads as transparent *in game even in an opaque texture* (flags `0x00`).**
-> Confirmed in game (2026-09-07): a material painted a solid color that quantizes to RGB565 `0x0000`
-> renders **invisible** even when the texture is encoded opaque with no colorkey bit set. So the
-> transparent-black behavior is **not** gated on the colorkey flag — any pixel that lands on `0x0000` is
-> see-through. Two consequences for tools and modders:
-> - **Hazard:** a genuinely-black region must not be allowed to collapse to `0x0000` unless you *want*
->   a hole — nudge it to a neighbor such as `0x0020` or `0x0841` (an imperceptibly-dark, still-visible
+> **Modding gotcha — near-black reads as transparent *in game even in an opaque texture* (flags `0x00`).**
+> Confirmed in game (2026-09-07): a pixel is keyed transparent whenever its **5-bit red AND 5-bit blue
+> are both zero** — not just literal `0x0000`. Both `0x0000` (RGB `0,0,0`) and `0x0020` (RGB `7,7,7`)
+> render **invisible**, while `0x0841` (RGB `8,8,8`) is solid — so a non-zero *green* does **not** save it.
+> This happens even when the texture is opaque with no colorkey bit set, so the behavior is **not** gated
+> on the colorkey flag. (Observed across three solid-color materials; the exact predicate may be `R5==0 &&
+> B5==0` or a low-value threshold — either way, lifting red and blue clears it.) Two consequences for tools
+> and modders:
+> - **Hazard:** a dark region whose red and blue both quantize to 0 will vanish unless you *want* a hole —
+>   lift red and blue to at least `8` (e.g. RGB `8,8,8` → `0x0841`, an imperceptibly-dark but still-visible
 >   black). `vrmod` does this automatically when it synthesizes a flat color from an OBJ material's `Kd`
 >   (a near-black `Kd` would otherwise import as an invisible part).
 > - **Intentional use:** conversely, painting a region pure `0x0000` black is a valid, flag-independent
