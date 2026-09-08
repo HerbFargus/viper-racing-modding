@@ -38,8 +38,10 @@ it must never be reachable from off-machine.
 from __future__ import annotations
 
 import functools
+import hashlib
 import http.server
 import json
+import os
 import threading
 import webbrowser
 from pathlib import Path
@@ -276,6 +278,11 @@ body.resizing #frame{pointer-events:none}   /* keep the drag out of the iframe *
 #change-folder{font-size:11.5px;padding:4px 11px;border-radius:99px;background:var(--panel);
                border:1px solid var(--edge);color:var(--dim);cursor:pointer}
 #change-folder:hover{color:var(--fg);border-color:var(--acc)}
+#refresh-folder{display:inline-flex;align-items:center;justify-content:center;line-height:0;
+  padding:5px 8px;border-radius:99px;background:var(--panel);border:1px solid var(--line);
+  color:var(--dim);cursor:pointer;margin-left:6px}
+#refresh-folder:hover{color:var(--fg);border-color:var(--acc)}
+#refresh-folder:disabled{opacity:.5;cursor:default}
 header .path{cursor:default}
 </style>
 <header>
@@ -286,6 +293,8 @@ header .path{cursor:default}
   </nav>
   <span class="path" id="dir"></span>
   <button id="change-folder" onclick="chooseFolder()" hidden title="Choose a different Data folder">Change folder</button>
+  <button id="refresh-folder" onclick="refreshFolder()" hidden aria-label="Re-scan the Data folder"
+          title="Re-scan the Data folder — picks up mods added, removed or changed outside the app"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-.6 4"/><path d="M20 4v7h-7"/></svg></button>
   <!-- Install health lives behind a chip rather than a second screen: it is
        something you check occasionally, not a place you work. -->
   <button id="health" onclick="toggleHealth()" hidden></button>
@@ -369,6 +378,28 @@ function toggleHealth(){
 // stale state until a manual page refresh.
 window.addEventListener('focus', () => { if(!el$('health-panel').hidden) loadHealth(); });
 
+// Manual re-scan: the app has no other way to notice a mod dropped into the Data
+// folder from Explorer -- before this you had to restart it.
+async function refreshFolder(){
+  const b = el$('refresh-folder');
+  b.disabled = true;
+  try { await refresh(); toast('Data folder re-scanned'); }
+  catch(e){ toast('Could not re-scan: ' + (e && e.message ? e.message : e)); }
+  finally { b.disabled = false; }
+}
+
+// ...and do it automatically when the window regains focus, which is exactly the
+// alt-tab-to-Explorer-and-back case. Guarded by the cheap fingerprint endpoint so
+// an unchanged folder costs one stat sweep, not a re-parse of every .car.
+window.addEventListener('focus', async () => {
+  if(!STATE || STATE.needs_folder) return;
+  try {
+    const r = await api('/api/fingerprint');
+    if(LAST_FP !== null && r && r.fp !== LAST_FP) await refresh();
+    else if(r) LAST_FP = r.fp;
+  } catch(e){ /* transient -- the manual button is always there */ }
+});
+
 async function loadHealth(){
   const r = await api('/api/doctor');
   const chip = el$('health');
@@ -400,14 +431,20 @@ async function applyFix(action){
   if(VIEW === 'game') renderGame();     // the Game tab shows the same fixes
 }
 
+// Last-seen Data-folder signature, so a focus check can tell "something changed
+// out there" from "nothing to do" without paying for a full re-scan.
+let LAST_FP = null;
+
 async function refresh(){
   STATE = await api('/api/status');
+  if(STATE && STATE.fp !== undefined) LAST_FP = STATE.fp;
   // No folder chosen -> show the landing screen and stop; everything else needs
   // a Data folder to render.
   const need = !!(STATE && STATE.needs_folder);
   el$('view-landing').hidden = !need;
   el$('viewnav').hidden = need;
   el$('change-folder').hidden = need;
+  el$('refresh-folder').hidden = need;
   el$('view-library').hidden = need || VIEW !== 'library';
   el$('view-game').hidden = need || VIEW !== 'game';
   if(need){ el$('dir').textContent = ''; el$('health').hidden = true; return; }
@@ -634,6 +671,11 @@ function actionBar({game = '', msg = '', warn = false}){
 window.vrmodHost = {
   isExpanded: () => el$('view-library').classList.contains('expanded'),
   setExpanded: (on) => toggleExpand(!!on),
+  // Called by the shell after it writes a NEW file into the Data folder (a
+  // Save-As fork, an exported .tra), so the list picks it up instead of going
+  // stale behind the iframe. selectKey ("car:jeep.car") also moves the
+  // selection onto it, so the left pane matches what the frame is showing.
+  refresh: async (selectKey) => { if(selectKey) SEL = selectKey; await refresh(); },
 };
 
 // Same-origin iframe, so the viewer's own controls can just be clicked from
@@ -1054,6 +1096,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             if self.path == "/api/status":
                 return self._json({"needs_folder": True})
             return self._json({"ok": False, "error": "no data folder selected"}, 409)
+        if self.path == "/api/fingerprint":
+            return self._json({"fp": _folder_fingerprint(d)})
         if self.path == "/api/doctor":
             rep = doctor.check(d)
             return self._json({
@@ -1229,10 +1273,17 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                     return self._json({"ok": False,
                                        "error": "edit target is outside this Data folder"})
                 try:
-                    out_path, backup_path, resized, warnings = cli._apply_commit(req)
-                    return self._json({"ok": True, "out_path": str(out_path),
-                                       "backup_path": str(backup_path) if backup_path else None,
-                                       "resized": resized, "warnings": warnings})
+                    out_path, backup_path, resized, warnings, data = cli._apply_commit(req)
+                    payload = {"ok": True, "out_path": str(out_path),
+                               "backup_path": str(backup_path) if backup_path else None,
+                               "resized": resized, "warnings": warnings}
+                    # "elsewhere": nothing was written -- the page hands these
+                    # bytes to the OS save dialog (see viewer.py), which is why
+                    # this server never writes outside the folder it was given.
+                    if data is not None:
+                        payload["filename"] = out_path.name
+                        payload["data"] = data
+                    return self._json(payload)
                 except Exception as ex:
                     return self._json({"ok": False, "error": f"{type(ex).__name__}: {ex}"})
             if self.path == "/api/plan":
@@ -1422,6 +1473,22 @@ def _car_entry(c: Path, active: bool) -> dict:
     return entry
 
 
+def _folder_fingerprint(d: Path) -> str:
+    """A cheap signature of the Data folder's mod files -- name/size/mtime only,
+    no archive parsing (unlike _status_payload, which opens every .car). Lets the
+    page ask "did anything change out from under me?" on window focus without
+    paying for a full re-scan every time."""
+    sig = []
+    try:
+        for e in os.scandir(d):
+            if e.is_file() and e.name.lower().endswith((".car", ".trk", ".tra", ".res", ".bin")):
+                st = e.stat()
+                sig.append(f"{e.name}:{st.st_size}:{int(st.st_mtime)}")
+    except OSError:
+        return ""
+    return hashlib.sha1("|".join(sorted(sig)).encode("utf-8", "replace")).hexdigest()
+
+
 def _status_payload(d: Path) -> dict:
     slots = []
     for s in switcher.status(d):
@@ -1521,6 +1588,7 @@ def _status_payload(d: Path) -> dict:
         "ai_field": ai_field, "primary_car": primary,
         "vertex_verts": verts, "vertex_max": vertexbuffer.FORMAT_CAP_VERTS,
         "resolution": res_info,
+        "fp": _folder_fingerprint(d),
     }
 
 

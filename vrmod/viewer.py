@@ -1688,16 +1688,20 @@ function carNameChanged() {
   return !!inp && inp.value.trim() !== CAR_NAME;
 }
 
-function updateCommitStatus() {
-  const btn = document.getElementById("commit-btn");
-  if (!btn) return;
-  const hasPending = dirtyFields.size > 0
+function hasPendingEdits() {
+  return dirtyFields.size > 0
     || cockpitDirtyRecords.size > 0
     || carNameChanged()
     || Object.keys(pendingPartEdits).length > 0
     || pendingPartRemovals.size > 0
     || Object.keys(pendingTextureEdits).length > 0
     || Object.keys(pendingSfxEdits).length > 0;
+}
+
+function updateCommitStatus() {
+  const btn = document.getElementById("commit-btn");
+  if (!btn) return;
+  const hasPending = hasPendingEdits();
   btn.disabled = !hasPending;
   const discard = document.getElementById("discard-btn");
   if (discard) discard.disabled = !hasPending;
@@ -1813,6 +1817,61 @@ async function commitChanges() {
   }
 }
 
+// Ask the switcher (our parent, same-origin) to re-scan the Data folder after we
+// put a NEW file in it, optionally landing the selection on it. No-op when this
+// page is opened standalone.
+function hostRefresh(selectKey) {
+  try {
+    const h = (window.self !== window.top) ? window.parent.vrmodHost : null;
+    if (h && h.refresh) h.refresh(selectKey);
+  } catch (e) { /* not embedded, or cross-origin -- nothing to tell */ }
+}
+
+// The desktop bridge, or null in a plain browser. Injected into the TOP window
+// only and this page runs in the switcher's same-origin iframe, so reach through
+// window.parent too -- same ladder as downloadBytes().
+function bridgeApi() {
+  try {
+    return (window.pywebview && window.pywebview.api)
+        || (window.parent && window.parent.pywebview && window.parent.pywebview.api)
+        || null;
+  } catch (e) { return null; }        // cross-origin parent -- no bridge
+}
+
+// Open the OS folder picker NOW and return the chosen path, so the dialog can
+// show where it is about to write before you commit. null when there is no
+// bridge (a plain browser cannot choose a folder -- the caller falls back to a
+// download) or when the picker was cancelled.
+async function pickSaveFolder() {
+  const api = bridgeApi();
+  if (!api || !api.pick_save_folder) return null;
+  try {
+    const r = await api.pick_save_folder();
+    return (r && r.ok && r.path) ? r.path : null;
+  } catch (e) { return null; }
+}
+
+// Write server-produced bytes into an already-chosen folder. The FILENAME is
+// always ours (a forked .car must stay <prefix>.car to match its own internal
+// members, and both dialogs already name the file), so the OS is only ever asked
+// where. No folder / no bridge -> ordinary browser download.
+async function writeBytesTo(folder, filename, b64) {
+  const api = bridgeApi();
+  if (folder && api && api.write_into_folder) {
+    try { return await api.write_into_folder(folder, filename, b64); }
+    catch (e) { /* bridge failed -- fall through to the download */ }
+  }
+  const bin = atob(b64);
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  const url = URL.createObjectURL(new Blob([buf], {type: "application/octet-stream"}));
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+  return {ok: true, path: "your browser's downloads"};
+}
+
 // Save As a NEW car: pop a small dialog for the new file name (+ optional in-game
 // display name), then POST the SAME edit payload with action:"saveas" so the
 // server forks the edited state to <name>.car (re-prefixing every internal member
@@ -1843,6 +1902,16 @@ function saveAsNewCar() {
     + 'title="The car-select menu shows up to 24 characters; longer names are truncated there." '
     + 'style="width:100%;box-sizing:border-box;padding:6px 8px;background:#151820;color:#e6e8ec;'
     + 'border:1px solid #39404c;border-radius:4px;">'
+    + '<label style="display:block;margin:10px 0 4px;">Save to</label>'
+    + '<div style="display:flex;align-items:center;gap:7px;font-size:12px;color:#a8adc0;'
+    + 'background:#151820;border:1px solid #39404c;border-radius:4px;padding:6px 8px;">'
+    + '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#a8adc0" stroke-width="1.8" '
+    + 'stroke-linejoin="round"><path d="M3 7h6l2 2h10v10H3z"/></svg>'
+    + '<span id="saveas-destpath" style="color:#e6e8ec;flex:1;min-width:0;overflow:hidden;'
+    + 'text-overflow:ellipsis;white-space:nowrap;">Data folder</span>'
+    + '<span id="saveas-destlink" style="color:#8fb7ff;text-decoration:underline;cursor:pointer;">Change&hellip;</span>'
+    + "</div>"
+    + '<div id="saveas-destnote" style="font-size:11px;opacity:.75;margin:4px 0 0;"></div>'
     + '<div id="saveas-err" style="color:#ff7a7a;min-height:15px;font-size:11px;margin-top:8px;"></div>'
     + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">'
     + '<button id="saveas-cancel" type="button" class="icon-btn" style="width:auto;padding:5px 12px;">Cancel</button>'
@@ -1853,7 +1922,37 @@ function saveAsNewCar() {
   const nameInp = modal.querySelector("#saveas-name");
   const preview = modal.querySelector("#saveas-preview");
   const errEl = modal.querySelector("#saveas-err");
+  const destPath = modal.querySelector("#saveas-destpath");
+  const destLink = modal.querySelector("#saveas-destlink");
+  const destNote = modal.querySelector("#saveas-destnote");
   const close = () => modal.remove();
+  // Destination: the Data folder by default (the only place the game loads cars
+  // from). "Change..." opens the OS FOLDER picker immediately and shows the real
+  // path, so you can see where it will land before committing. A folder, never a
+  // filename -- a fork must keep <prefix>.car to match its own internal members.
+  let destFolder = null;      // chosen folder path, null = Data folder
+  let destBrowser = false;    // no bridge (plain browser): it downloads instead
+  const elsewhere = () => destFolder !== null || destBrowser;
+  function renderDest() {
+    destPath.textContent = destFolder ? destFolder
+      : destBrowser ? "Your browser's downloads" : "Data folder";
+    destPath.title = destFolder || "";
+    destLink.textContent = elsewhere() ? "Use Data folder" : "Change…";
+    destNote.style.color = elsewhere() ? "#ffcf8a" : "";
+    destNote.textContent = elsewhere()
+      ? "Saved outside the Data folder, so the game will not load it from there — this is a copy to keep or share."
+      : "";
+  }
+  renderDest();
+  destLink.addEventListener("click", async () => {
+    errEl.textContent = "";
+    if (elsewhere()) { destFolder = null; destBrowser = false; renderDest(); return; }
+    if (!bridgeApi()) { destBrowser = true; renderDest(); return; }   // browser: no picker exists
+    destLink.textContent = "Opening…";
+    const folder = await pickSaveFolder();
+    if (folder) destFolder = folder;      // cancelled -> stay on the Data folder
+    renderDest();
+  });
   prefixInp.addEventListener("input", () => {
     const v = prefixInp.value.trim();
     preview.textContent = (v || "jeep") + ".car";
@@ -1882,6 +1981,7 @@ function saveAsNewCar() {
     payload.new_prefix = prefix;
     const dn = nameInp.value.trim();
     if (dn) payload.car_name = dn;      // else keep whatever the fork inherits
+    if (elsewhere()) payload.destination = "elsewhere";  // server returns bytes, writes nothing
     let result;
     try {
       const resp = await fetch(COMMIT_ROUTE, {
@@ -1897,8 +1997,35 @@ function saveAsNewCar() {
       return;
     }
     if (result.ok) {
+      if (result.data) {
+        // Saved OUTSIDE the Data folder: the server deliberately wrote nothing,
+        // so hand the bytes to the OS folder dialog (or a browser download).
+        // No navigation -- the fork isn't in the Data folder, so there's no
+        // /car/<name> route to open.
+        const r = await writeBytesTo(destFolder, result.filename, result.data);
+        if (r && r.ok) {
+          // Into the persistent banner, not the modal we are about to close --
+          // and say plainly that THIS car is untouched and the staged edits are
+          // still staged, since "saved" otherwise reads as "committed here".
+          close();
+          const s = document.getElementById("commit-status");
+          s.className = "ok"; s.style.display = "block";
+          s.textContent = "Copy saved to " + (r.path || "your downloads")
+            + " - this car is unchanged"
+            + (hasPendingEdits() ? ", and your edits here are still unsaved." : ".");
+          return;
+        } else if (r && r.error) {
+          errEl.style.color = "#ff7a7a"; errEl.textContent = r.error; create.disabled = false;
+        } else {
+          errEl.style.color = "#9fb0c8"; errEl.textContent = "Save cancelled."; create.disabled = false;
+        }
+        return;
+      }
       errEl.style.color = "#7ad19f";
       errEl.textContent = "Created " + prefix + ".car - opening...";
+      // A new file just landed in the Data folder, so nudge the switcher to
+      // re-scan and select it -- otherwise its list goes stale behind us.
+      hostRefresh("car:" + prefix + ".car");
       // Go to the new car's OWN editor page (relative to the current /car/<name>
       // route) so further edits and Saves target the fork, not this car.
       location.assign(new URL(encodeURIComponent(prefix + ".car"), location.href).href);
@@ -4302,6 +4429,7 @@ _TRACK_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   <div id="topbar-actions">
     <div id="file-actions">
       <button id="commit-btn" class="icon-btn" disabled aria-label="Save" title="Save — write texture changes into the track (backs up the original first)"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7"/><rect x="8" y="13" width="8" height="6"/></svg></button>
+      <button id="exporttra-btn" class="icon-btn" aria-label="Export as .tra" title="Export as .tra — write your retexture to a shareable, installable track file, leaving this track untouched"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7"/><rect x="8" y="13" width="8" height="6"/><g transform="translate(11.6,11.2) scale(0.5)" stroke="#20242c" stroke-width="6"><path d="M4 20h4l10-10-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></g><g transform="translate(11.6,11.2) scale(0.5)" stroke-width="3.2"><path d="M4 20h4l10-10-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></g></svg></button>
       <button id="restore-btn" class="icon-btn danger" aria-label="Restore original" title="Restore original — revert the track to its first backup, discarding saved changes (asks first)"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v5h5"/><path d="M4.5 9a8 8 0 1 0 3-4"/><path d="M12 8v4l3 2"/></svg></button>
     </div>
     <button id="mod-btn" type="button" class="icon-btn" aria-label="Edit track" title="Edit this track — open the texture tools"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10-10-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg></button>
@@ -4885,6 +5013,214 @@ function main() {
   // so this is the earliest the drawer can be built with the sky in it.
   buildTextureDrawer(meshesByMaterial, loadTexture);
   document.getElementById("commit-btn").addEventListener("click", commitChanges);
+
+  // Export as .tra: bake the staged retexture into a portable, installable track
+  // file and leave THIS track alone. Unlike the car's "Save as new car" there is
+  // nothing to navigate to -- a .tra isn't an editing target, it's the unit the
+  // switcher installs into one of the eight slots -- so we just report where it
+  // landed. Always enabled: repacking an unmodified track as a .tra is useful too.
+  // Ask the switcher (our same-origin parent) to re-scan after a NEW file lands
+  // in the Data folder. No-op when this page is opened standalone.
+  function hostRefresh(selectKey) {
+    try {
+      const h = (window.self !== window.top) ? window.parent.vrmodHost : null;
+      if (h && h.refresh) h.refresh(selectKey);
+    } catch (e) { /* not embedded, or cross-origin */ }
+  }
+
+  // Same bridge ladder as the car shell's copies: desktop bridge (reached
+  // through window.parent, since this page runs in the switcher's same-origin
+  // iframe), else a plain-browser anchor download.
+  function bridgeApi() {
+    try {
+      return (window.pywebview && window.pywebview.api)
+          || (window.parent && window.parent.pywebview && window.parent.pywebview.api)
+          || null;
+    } catch (e) { return null; }
+  }
+  async function pickSaveFolder() {
+    const api = bridgeApi();
+    if (!api || !api.pick_save_folder) return null;
+    try {
+      const r = await api.pick_save_folder();
+      return (r && r.ok && r.path) ? r.path : null;
+    } catch (e) { return null; }
+  }
+  async function writeBytesTo(folder, filename, b64) {
+    const api = bridgeApi();
+    if (folder && api && api.write_into_folder) {
+      try { return await api.write_into_folder(folder, filename, b64); }
+      catch (e) { /* bridge failed -- fall through to the download */ }
+    }
+    const bin = atob(b64);
+    const buf = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    const url = URL.createObjectURL(new Blob([buf], {type: "application/octet-stream"}));
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    return {ok: true, path: "your browser's downloads"};
+  }
+
+  function exportTraDialog() {
+    if (document.getElementById("tra-modal")) return;
+    const NAME_RE = /^[A-Za-z0-9_-]{1,32}$/;
+    const modal = document.createElement("div");
+    modal.id = "tra-modal";
+    modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;"
+      + "align-items:center;justify-content:center;z-index:9999;";
+    modal.innerHTML =
+      '<div role="dialog" aria-modal="true" aria-label="Export as .tra" style="background:#20242c;'
+      + 'color:#e6e8ec;padding:18px 20px;border-radius:8px;width:340px;max-width:90vw;'
+      + 'font:13px system-ui,sans-serif;box-shadow:0 10px 34px rgba(0,0,0,.55);">'
+      + '<div style="font-weight:600;font-size:14px;margin-bottom:12px;">Export as .tra</div>'
+      + '<label style="display:block;margin-bottom:4px;">Track file name</label>'
+      + '<input id="tra-name" autocomplete="off" spellcheck="false" maxlength="32" placeholder="e.g. bemidji-night" '
+      + 'style="width:100%;box-sizing:border-box;padding:6px 8px;background:#151820;color:#e6e8ec;'
+      + 'border:1px solid #39404c;border-radius:4px;">'
+      + '<div style="font-size:11px;opacity:.7;margin:4px 0 10px;">Letters, digits, dash, underscore '
+      + '&mdash; writes <b><span id="tra-preview">bemidji-night.tra</span></b>. '
+      + 'This track is left untouched.</div>'
+      + '<label style="display:block;margin-bottom:4px;">Save to</label>'
+      + '<div style="display:flex;align-items:center;gap:7px;font-size:12px;color:#a8adc0;'
+      + 'background:#151820;border:1px solid #39404c;border-radius:4px;padding:6px 8px;">'
+      + '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#a8adc0" stroke-width="1.8" '
+      + 'stroke-linejoin="round"><path d="M3 7h6l2 2h10v10H3z"/></svg>'
+      + '<span id="tra-destpath" style="color:#e6e8ec;flex:1;min-width:0;overflow:hidden;'
+      + 'text-overflow:ellipsis;white-space:nowrap;">Data folder</span>'
+      + '<span id="tra-destlink" style="color:#8fb7ff;text-decoration:underline;cursor:pointer;">Change&hellip;</span>'
+      + "</div>"
+      + '<div id="tra-destnote" style="font-size:11px;opacity:.75;margin:4px 0 0;"></div>'
+      + '<div id="tra-err" style="color:#ff7a7a;min-height:15px;font-size:11px;margin-top:6px;"></div>'
+      + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">'
+      + '<button id="tra-cancel" type="button" class="icon-btn" style="width:auto;padding:5px 12px;">Cancel</button>'
+      + '<button id="tra-go" type="button" class="icon-btn" style="width:auto;padding:5px 12px;">Export</button>'
+      + "</div></div>";
+    document.body.appendChild(modal);
+    const inp = modal.querySelector("#tra-name");
+    const preview = modal.querySelector("#tra-preview");
+    const errEl = modal.querySelector("#tra-err");
+    const go = modal.querySelector("#tra-go");
+    const destPath = modal.querySelector("#tra-destpath");
+    const destLink = modal.querySelector("#tra-destlink");
+    const destNote = modal.querySelector("#tra-destnote");
+    const close = () => modal.remove();
+    // Data folder by default, but unlike a car a .tra outside it is perfectly
+    // normal -- it's the thing you hand to someone else. Same folder picker as
+    // the car dialog rather than a file Save dialog: this dialog already names
+    // the file (with the live preview above), so the OS is only asked WHERE, and
+    // the name can't drift between two places.
+    let destFolder = null;      // chosen folder path, null = Data folder
+    let destBrowser = false;    // no bridge (plain browser): it downloads instead
+    const elsewhere = () => destFolder !== null || destBrowser;
+    function renderDest() {
+      destPath.textContent = destFolder ? destFolder
+        : destBrowser ? "Your browser's downloads" : "Data folder";
+      destPath.title = destFolder || "";
+      destLink.textContent = elsewhere() ? "Use Data folder" : "Change…";
+      destNote.textContent = elsewhere()
+        ? "Install it from the Tracks tab when you want it in the game."
+        : "";
+    }
+    renderDest();
+    destLink.addEventListener("click", async () => {
+      errEl.textContent = "";
+      if (elsewhere()) { destFolder = null; destBrowser = false; renderDest(); return; }
+      if (!bridgeApi()) { destBrowser = true; renderDest(); return; }  // browser: no picker exists
+      destLink.textContent = "Opening…";
+      const folder = await pickSaveFolder();
+      if (folder) destFolder = folder;     // cancelled -> stay on the Data folder
+      renderDest();
+    });
+    inp.addEventListener("input", () => {
+      preview.textContent = (inp.value.trim() || "bemidji-night") + ".tra";
+      errEl.textContent = "";
+    });
+    modal.addEventListener("click", (e) => { if (e.target === modal) close(); });
+    modal.querySelector("#tra-cancel").addEventListener("click", close);
+    document.addEventListener("keydown", function esc(e) {
+      if (!document.getElementById("tra-modal")) { document.removeEventListener("keydown", esc); return; }
+      if (e.key === "Escape") close();
+    });
+    const submit = async () => {
+      const name = inp.value.trim();
+      if (!NAME_RE.test(name)) {
+        errEl.style.color = "#ff7a7a";
+        errEl.textContent = "1-32 letters, digits, dashes or underscores only.";
+        inp.focus();
+        return;
+      }
+      go.disabled = true;
+      errEl.style.color = "#9fb0c8";
+      errEl.textContent = "Writing " + name + ".tra...";
+      const payload = {track_path: TRACK_PATH, action: "exporttra", tra_name: name,
+                       textures: pendingTextureEdits};
+      if (pendingSkyEdit) payload.sky = pendingSkyEdit;
+      if (elsewhere()) payload.destination = "elsewhere";  // server returns bytes, writes nothing
+      let result;
+      try {
+        const resp = await fetch(COMMIT_ROUTE, {
+          method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload),
+        });
+        result = await resp.json();
+      } catch (err) {
+        errEl.style.color = "#ff7a7a";
+        errEl.textContent = "Cannot reach the local save endpoint (needs the app --serve host).";
+        go.disabled = false;
+        return;
+      }
+      const s = document.getElementById("commit-status");
+      if (result.ok && result.data) {
+        // Saved OUTSIDE the Data folder: the server wrote nothing, so hand the
+        // bytes to the OS Save dialog (a .tra's name is free, so a file dialog
+        // is right here) or to a browser download.
+        const r = await writeBytesTo(destFolder, result.filename, result.data);
+        if (r && r.ok) {
+          close();
+          s.className = "ok"; s.style.display = "block";
+          const staged = Object.keys(pendingTextureEdits).length > 0 || !!pendingSkyEdit;
+          s.textContent = "Copy exported to " + (r.path || "your downloads")
+            + " - this track is unchanged"
+            + (staged ? ", and your edits here are still unsaved." : ".");
+        } else if (r && r.error) {
+          errEl.style.color = "#ff7a7a"; errEl.textContent = r.error; go.disabled = false;
+        } else {
+          errEl.style.color = "#9fb0c8"; errEl.textContent = "Save cancelled."; go.disabled = false;
+        }
+        return;
+      }
+      if (result.ok) {
+        close();
+        hostRefresh();          // a new .tra landed in the Data folder
+        s.className = "ok"; s.style.display = "block";
+        s.textContent = "Exported " + result.out_path + " - this track was not modified.";
+        const warn = result.warnings || [];
+        if (warn.length) {
+          s.className = "pending";
+          const bullet = String.fromCharCode(10, 0x26A0, 32);
+          s.textContent += bullet + warn.join(bullet);
+        }
+      } else {
+        errEl.style.color = "#ff7a7a";
+        errEl.textContent = result.error || "Export failed.";
+        go.disabled = false;
+      }
+    };
+    go.addEventListener("click", submit);
+    inp.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { submit(); return; }
+      const typing = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+      const noSel = inp.selectionStart === inp.selectionEnd;
+      if (typing && noSel && inp.value.length >= 32) {
+        e.preventDefault();
+        errEl.style.color = "#ff7a7a";
+        errEl.textContent = "Up to 32 characters.";
+      }
+    });
+    inp.focus();
+  }
+  document.getElementById("exporttra-btn").addEventListener("click", exportTraDialog);
 
   // Restore original: revert the track ON DISK to its pristine pre-edit backup,
   // then reload. Discards saved changes too, so it confirms first.

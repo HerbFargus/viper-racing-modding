@@ -76,6 +76,36 @@ class Api:
         d = switcher_ui.get_data_dir()
         return str(d) if d else None
 
+    def pick_save_folder(self) -> dict:
+        """Just open the OS folder picker and hand back the path -- no writing,
+        no validation, no side effects on the served Data folder (unlike
+        pick_folder above). Split out from the write so the Save-As dialog can
+        open the picker the moment you click "Change...", show you the real path
+        it will use, and only then write on confirm."""
+        win = webview.active_window()
+        result = win.create_file_dialog(webview.FOLDER_DIALOG)
+        if not result:
+            return {"ok": False}                       # user cancelled
+        folder = result[0] if isinstance(result, (list, tuple)) else result
+        return {"ok": True, "path": str(folder)}
+
+    def write_into_folder(self, folder: str, filename: str, b64: str) -> dict:
+        """Write `filename` into an already-chosen `folder`.
+
+        The name is the caller's, never the dialog's: a forked car must keep
+        `<prefix>.car` to match its own internal members (`jeep.car` holds
+        `jeep0.mod`), and both dialogs already name the file themselves. Refuses
+        to clobber an existing file; the caller surfaces the message."""
+        import base64
+        path = Path(folder) / filename
+        if path.exists():
+            return {"ok": False, "error": f"{filename} already exists in that folder."}
+        try:
+            path.write_bytes(base64.b64decode(b64))
+        except (OSError, ValueError) as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "path": str(path)}
+
     def save_file(self, filename: str, b64: str) -> dict:
         """Native Save-As for a file the page generated in the browser (Export
         TGA, an OBJ bundle, ...). The embedded webview can't honor an <a
