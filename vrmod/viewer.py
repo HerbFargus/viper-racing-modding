@@ -1813,22 +1813,38 @@ async function commitChanges() {
   }
 }
 
-// Hand server-produced bytes to the OS save dialog. folderOnly picks a FOLDER and
-// keeps `filename` (a forked .car must stay <prefix>.car to match its internal
-// members); otherwise it's an ordinary Save-As where the name is free. The bridge
-// is injected into the TOP window only and this page runs in the switcher's
-// same-origin iframe, so reach through window.parent too. A plain browser has no
-// bridge and falls back to an anchor download -- same ladder as downloadBytes().
-async function saveBytesElsewhere(filename, b64, folderOnly) {
-  let api = null;
+// The desktop bridge, or null in a plain browser. Injected into the TOP window
+// only and this page runs in the switcher's same-origin iframe, so reach through
+// window.parent too -- same ladder as downloadBytes().
+function bridgeApi() {
   try {
-    api = (window.pywebview && window.pywebview.api)
-       || (window.parent && window.parent.pywebview && window.parent.pywebview.api)
-       || null;
-  } catch (e) { /* cross-origin parent -- no bridge */ }
-  const method = folderOnly ? "save_into_folder" : "save_file";
-  if (api && api[method]) {
-    try { return await api[method](filename, b64); }
+    return (window.pywebview && window.pywebview.api)
+        || (window.parent && window.parent.pywebview && window.parent.pywebview.api)
+        || null;
+  } catch (e) { return null; }        // cross-origin parent -- no bridge
+}
+
+// Open the OS folder picker NOW and return the chosen path, so the dialog can
+// show where it is about to write before you commit. null when there is no
+// bridge (a plain browser cannot choose a folder -- the caller falls back to a
+// download) or when the picker was cancelled.
+async function pickSaveFolder() {
+  const api = bridgeApi();
+  if (!api || !api.pick_save_folder) return null;
+  try {
+    const r = await api.pick_save_folder();
+    return (r && r.ok && r.path) ? r.path : null;
+  } catch (e) { return null; }
+}
+
+// Write server-produced bytes into an already-chosen folder. The FILENAME is
+// always ours (a forked .car must stay <prefix>.car to match its own internal
+// members, and both dialogs already name the file), so the OS is only ever asked
+// where. No folder / no bridge -> ordinary browser download.
+async function writeBytesTo(folder, filename, b64) {
+  const api = bridgeApi();
+  if (folder && api && api.write_into_folder) {
+    try { return await api.write_into_folder(folder, filename, b64); }
     catch (e) { /* bridge failed -- fall through to the download */ }
   }
   const bin = atob(b64);
@@ -1897,20 +1913,32 @@ function saveAsNewCar() {
   const destNote = modal.querySelector("#saveas-destnote");
   const close = () => modal.remove();
   // Destination: the Data folder by default (the only place the game loads cars
-  // from). "Change..." switches to a folder you pick in the OS dialog at save
-  // time -- a FOLDER, never a filename, because a fork must keep <prefix>.car to
-  // match its own internal members.
-  let elsewhere = false;
+  // from). "Change..." opens the OS FOLDER picker immediately and shows the real
+  // path, so you can see where it will land before committing. A folder, never a
+  // filename -- a fork must keep <prefix>.car to match its own internal members.
+  let destFolder = null;      // chosen folder path, null = Data folder
+  let destBrowser = false;    // no bridge (plain browser): it downloads instead
+  const elsewhere = () => destFolder !== null || destBrowser;
   function renderDest() {
-    destPath.textContent = elsewhere ? "A folder you pick when saving" : "Data folder";
-    destLink.textContent = elsewhere ? "Use Data folder" : "Change…";
-    destNote.style.color = elsewhere ? "#ffcf8a" : "";
-    destNote.textContent = elsewhere
+    destPath.textContent = destFolder ? destFolder
+      : destBrowser ? "Your browser's downloads" : "Data folder";
+    destPath.title = destFolder || "";
+    destLink.textContent = elsewhere() ? "Use Data folder" : "Change…";
+    destNote.style.color = elsewhere() ? "#ffcf8a" : "";
+    destNote.textContent = elsewhere()
       ? "Saved outside the Data folder, so the game will not load it from there — this is a copy to keep or share."
       : "";
   }
   renderDest();
-  destLink.addEventListener("click", () => { elsewhere = !elsewhere; renderDest(); errEl.textContent = ""; });
+  destLink.addEventListener("click", async () => {
+    errEl.textContent = "";
+    if (elsewhere()) { destFolder = null; destBrowser = false; renderDest(); return; }
+    if (!bridgeApi()) { destBrowser = true; renderDest(); return; }   // browser: no picker exists
+    destLink.textContent = "Opening…";
+    const folder = await pickSaveFolder();
+    if (folder) destFolder = folder;      // cancelled -> stay on the Data folder
+    renderDest();
+  });
   prefixInp.addEventListener("input", () => {
     const v = prefixInp.value.trim();
     preview.textContent = (v || "jeep") + ".car";
@@ -1939,7 +1967,7 @@ function saveAsNewCar() {
     payload.new_prefix = prefix;
     const dn = nameInp.value.trim();
     if (dn) payload.car_name = dn;      // else keep whatever the fork inherits
-    if (elsewhere) payload.destination = "elsewhere";   // server returns bytes, writes nothing
+    if (elsewhere()) payload.destination = "elsewhere";  // server returns bytes, writes nothing
     let result;
     try {
       const resp = await fetch(COMMIT_ROUTE, {
@@ -1960,7 +1988,7 @@ function saveAsNewCar() {
         // so hand the bytes to the OS folder dialog (or a browser download).
         // No navigation -- the fork isn't in the Data folder, so there's no
         // /car/<name> route to open.
-        const r = await saveBytesElsewhere(result.filename, result.data, true);
+        const r = await writeBytesTo(destFolder, result.filename, result.data);
         if (r && r.ok) {
           errEl.style.color = "#7ad19f";
           errEl.textContent = "Saved to " + (r.path || "your downloads");
@@ -4967,19 +4995,28 @@ function main() {
   // nothing to navigate to -- a .tra isn't an editing target, it's the unit the
   // switcher installs into one of the eight slots -- so we just report where it
   // landed. Always enabled: repacking an unmodified track as a .tra is useful too.
-  // Same bridge ladder as the car shell's copy: desktop bridge (reached through
-  // window.parent, since this page runs in the switcher's same-origin iframe),
-  // else a plain-browser anchor download.
-  async function saveBytesElsewhere(filename, b64, folderOnly) {
-    let api = null;
+  // Same bridge ladder as the car shell's copies: desktop bridge (reached
+  // through window.parent, since this page runs in the switcher's same-origin
+  // iframe), else a plain-browser anchor download.
+  function bridgeApi() {
     try {
-      api = (window.pywebview && window.pywebview.api)
-         || (window.parent && window.parent.pywebview && window.parent.pywebview.api)
-         || null;
-    } catch (e) { /* cross-origin parent -- no bridge */ }
-    const method = folderOnly ? "save_into_folder" : "save_file";
-    if (api && api[method]) {
-      try { return await api[method](filename, b64); }
+      return (window.pywebview && window.pywebview.api)
+          || (window.parent && window.parent.pywebview && window.parent.pywebview.api)
+          || null;
+    } catch (e) { return null; }
+  }
+  async function pickSaveFolder() {
+    const api = bridgeApi();
+    if (!api || !api.pick_save_folder) return null;
+    try {
+      const r = await api.pick_save_folder();
+      return (r && r.ok && r.path) ? r.path : null;
+    } catch (e) { return null; }
+  }
+  async function writeBytesTo(folder, filename, b64) {
+    const api = bridgeApi();
+    if (folder && api && api.write_into_folder) {
+      try { return await api.write_into_folder(folder, filename, b64); }
       catch (e) { /* bridge failed -- fall through to the download */ }
     }
     const bin = atob(b64);
@@ -5037,18 +5074,32 @@ function main() {
     const destNote = modal.querySelector("#tra-destnote");
     const close = () => modal.remove();
     // Data folder by default, but unlike a car a .tra outside it is perfectly
-    // normal -- it's the thing you hand to someone else. A .tra's name isn't
-    // load-bearing either, so this uses the ordinary file Save dialog.
-    let elsewhere = false;
+    // normal -- it's the thing you hand to someone else. Same folder picker as
+    // the car dialog rather than a file Save dialog: this dialog already names
+    // the file (with the live preview above), so the OS is only asked WHERE, and
+    // the name can't drift between two places.
+    let destFolder = null;      // chosen folder path, null = Data folder
+    let destBrowser = false;    // no bridge (plain browser): it downloads instead
+    const elsewhere = () => destFolder !== null || destBrowser;
     function renderDest() {
-      destPath.textContent = elsewhere ? "A location you pick when saving" : "Data folder";
-      destLink.textContent = elsewhere ? "Use Data folder" : "Change…";
-      destNote.textContent = elsewhere
+      destPath.textContent = destFolder ? destFolder
+        : destBrowser ? "Your browser's downloads" : "Data folder";
+      destPath.title = destFolder || "";
+      destLink.textContent = elsewhere() ? "Use Data folder" : "Change…";
+      destNote.textContent = elsewhere()
         ? "Install it from the Tracks tab when you want it in the game."
         : "";
     }
     renderDest();
-    destLink.addEventListener("click", () => { elsewhere = !elsewhere; renderDest(); errEl.textContent = ""; });
+    destLink.addEventListener("click", async () => {
+      errEl.textContent = "";
+      if (elsewhere()) { destFolder = null; destBrowser = false; renderDest(); return; }
+      if (!bridgeApi()) { destBrowser = true; renderDest(); return; }  // browser: no picker exists
+      destLink.textContent = "Opening…";
+      const folder = await pickSaveFolder();
+      if (folder) destFolder = folder;     // cancelled -> stay on the Data folder
+      renderDest();
+    });
     inp.addEventListener("input", () => {
       preview.textContent = (inp.value.trim() || "bemidji-night") + ".tra";
       errEl.textContent = "";
@@ -5073,7 +5124,7 @@ function main() {
       const payload = {track_path: TRACK_PATH, action: "exporttra", tra_name: name,
                        textures: pendingTextureEdits};
       if (pendingSkyEdit) payload.sky = pendingSkyEdit;
-      if (elsewhere) payload.destination = "elsewhere";   // server returns bytes, writes nothing
+      if (elsewhere()) payload.destination = "elsewhere";  // server returns bytes, writes nothing
       let result;
       try {
         const resp = await fetch(COMMIT_ROUTE, {
@@ -5091,7 +5142,7 @@ function main() {
         // Saved OUTSIDE the Data folder: the server wrote nothing, so hand the
         // bytes to the OS Save dialog (a .tra's name is free, so a file dialog
         // is right here) or to a browser download.
-        const r = await saveBytesElsewhere(result.filename, result.data, false);
+        const r = await writeBytesTo(destFolder, result.filename, result.data);
         if (r && r.ok) {
           close();
           s.className = "ok"; s.style.display = "block";
