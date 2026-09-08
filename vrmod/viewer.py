@@ -1079,7 +1079,8 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
 <aside id="stats-drawer" class="drawer">
   <h2>Car Configs</h2>
   <div class="car-name-row"><label for="car-name-input">Name</label><input id="car-name-input" type="text" maxlength="24" spellcheck="false" autocomplete="off" placeholder="(car display name)" title="In-game display name. The car-select menu shows up to 24 characters; longer names are truncated there."></div>
-  <div class="hint">The name shown in the game's car-select screen (stored in the car's spec sheet). Renaming is display-only and safe -- it never touches the car's filename. Up to 32 characters.</div>
+  <div id="car-name-note" style="color:#ff7a7a;font-size:.7rem;margin:-4px 0 4px;"></div>
+  <div class="hint">The name shown in the game's car-select screen (stored in the car's spec sheet). Renaming is display-only and safe -- it never touches the car's filename. Only the first 24 characters show in the car-select menu.</div>
   <div class="hint">The .cf stats behind this car. Fields are editable; <strong class="highlight-demo">blue</strong> fields (hover for the tooltip) move the wheels live in the Car tab. Hover any field for its real stock-car range (viper/exotic/plane/sedan/sports) -- shown for reference only, not enforced. "Export edited .txt" downloads a file for <code>txt2cf</code>/<code>cfpatch</code>.</div>
   <div id="sections"></div>
   <button id="export">Export edited .txt</button>
@@ -1922,7 +1923,19 @@ function saveAsNewCar() {
       errEl.textContent = "Up to 9 characters (the car's internal identity).";
     }
   });
-  nameInp.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
+  nameInp.addEventListener("input", () => { errEl.textContent = ""; });
+  nameInp.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { submit(); return; }
+    // Same live feedback as the prefix: at the 24-char cap, tell them a longer
+    // name is clipped in the in-game menu rather than silently swallowing the key.
+    const typing = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+    const noSel = nameInp.selectionStart === nameInp.selectionEnd;
+    if (typing && noSel && nameInp.value.length >= 24) {
+      e.preventDefault();
+      errEl.style.color = "#ff7a7a";
+      errEl.textContent = "Only the first 24 characters show in the in-game menu.";
+    }
+  });
   prefixInp.focus();
 }
 
@@ -3702,7 +3715,18 @@ function main() {
   const nameInput = document.getElementById("car-name-input");
   if (nameInput) {
     nameInput.value = CAR_NAME;
-    nameInput.addEventListener("input", updateCommitStatus);
+    const nameNote = document.getElementById("car-name-note");
+    nameInput.addEventListener("input", () => { if (nameNote) nameNote.textContent = ""; updateCommitStatus(); });
+    // maxlength=24 hard-stops a 25th char; surface WHY the instant they try, so a
+    // name that would clip in the game's car-select menu never surprises them.
+    nameInput.addEventListener("keydown", (e) => {
+      const typing = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+      const noSel = nameInput.selectionStart === nameInput.selectionEnd;
+      if (nameNote && typing && noSel && nameInput.value.length >= 24) {
+        e.preventDefault();
+        nameNote.textContent = "Only the first 24 characters show in the in-game menu.";
+      }
+    });
   }
   document.getElementById("export").addEventListener("click", exportTxt);
   document.getElementById("reset-stats").addEventListener("click", resetStats);
