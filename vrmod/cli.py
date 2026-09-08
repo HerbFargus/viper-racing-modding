@@ -6,6 +6,7 @@ import base64
 import functools
 import http.server
 import json
+import re
 import shutil
 import sys
 import webbrowser
@@ -303,6 +304,23 @@ def _apply_commit(body: dict) -> tuple[Path, Path]:
     # loads every *.car, deriving each one's member names from its filename, so a
     # "viper_original.car" backup would make it look for "viper_original0.mod" and
     # panic (the exact filename<->members crash from the format reference).
+    # Save As a NEW standalone car: fork the just-edited entries to a new filename
+    # prefix (fork_car re-prefixes every internal member and texture reference --
+    # a plain file rename crashes the game, see fork_car and the format reference).
+    # The ORIGINAL car is never touched, so there is nothing to back up. Any display
+    # name and pending edits are already baked into `entries` above, so the fork is
+    # the user's current edited state under a genuinely separate identity.
+    if body.get("action") == "saveas":
+        new_prefix = (body.get("new_prefix") or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_]{1,10}", new_prefix):
+            raise ValueError("new car name must be 1-10 letters, digits or underscores "
+                             "(it becomes the car's internal file prefix, e.g. 'jeep')")
+        out_path = car_path.with_name(f"{new_prefix}.car")
+        if out_path.exists():
+            raise ValueError(f"{out_path.name} already exists in the Data folder -- pick another name")
+        archive.write(car.fork_car(entries, new_prefix), out_path)
+        return out_path, None, resized, warnings
+
     backup_path = _unique_path(car_path.with_name(f"{car_path.stem}_original{car_path.suffix}.bak"))
     shutil.copy2(car_path, backup_path)
     archive.write(entries, car_path)
@@ -382,7 +400,8 @@ class _CommitHandler(http.server.SimpleHTTPRequestHandler):
         try:
             body = json.loads(self.rfile.read(length))
             out_path, backup_path, notes, warnings = _apply_commit(body)
-            response = {"ok": True, "out_path": str(out_path), "backup_path": str(backup_path),
+            response = {"ok": True, "out_path": str(out_path),
+                        "backup_path": str(backup_path) if backup_path else None,
                         "resized": notes, "warnings": warnings}
         except Exception as e:
             response = {"ok": False, "error": str(e)}

@@ -1231,7 +1231,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 try:
                     out_path, backup_path, resized, warnings = cli._apply_commit(req)
                     return self._json({"ok": True, "out_path": str(out_path),
-                                       "backup_path": str(backup_path),
+                                       "backup_path": str(backup_path) if backup_path else None,
                                        "resized": resized, "warnings": warnings})
                 except Exception as ex:
                     return self._json({"ok": False, "error": f"{type(ex).__name__}: {ex}"})
