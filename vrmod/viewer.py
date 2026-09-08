@@ -1820,7 +1820,7 @@ async function commitChanges() {
 // Works only under `--serve` (same as Save); a static/file:// host has no route.
 function saveAsNewCar() {
   if (document.getElementById("saveas-modal")) return;   // already open
-  const NAME_RE = /^[A-Za-z0-9_]{1,10}$/;
+  const NAME_RE = /^[A-Za-z0-9_]{1,9}$/;   // 9, not 10: keeps a null terminator on the longest member name (see cli.py)
   const modal = document.createElement("div");
   modal.id = "saveas-modal";
   modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;"
@@ -1834,7 +1834,7 @@ function saveAsNewCar() {
     + '<input id="saveas-prefix" autocomplete="off" spellcheck="false" placeholder="e.g. jeep" '
     + 'style="width:100%;box-sizing:border-box;padding:6px 8px;background:#151820;color:#e6e8ec;'
     + 'border:1px solid #39404c;border-radius:4px;">'
-    + '<div style="font-size:11px;opacity:.7;margin:4px 0 12px;">Letters, digits, underscore (max 10) '
+    + '<div style="font-size:11px;opacity:.7;margin:4px 0 12px;">Letters, digits, underscore (max 9) '
     + '&mdash; becomes the car&rsquo;s identity. Creates <b><span id="saveas-preview">jeep.car</span></b> '
     + 'beside this one.</div>'
     + '<label style="display:block;margin-bottom:4px;">In-game display name <span style="opacity:.6;">(optional)</span></label>'
@@ -1867,7 +1867,7 @@ function saveAsNewCar() {
   const submit = async () => {
     const prefix = prefixInp.value.trim();
     if (!NAME_RE.test(prefix)) {
-      errEl.textContent = "1-10 letters, digits or underscores only.";
+      errEl.textContent = "1-9 letters, digits or underscores only.";
       prefixInp.focus();
       return;
     }

@@ -167,9 +167,13 @@ The game derives which internal member names to look up from **the `.car` file's
 not by reading anything stored inside the archive — renaming the *file* without renaming every
 `<prefix><suffix>`-named *member* to match leaves the game looking for members that were never created.
 
-**The prefix has a hard length limit: 10 characters.** The archive's 16-byte name field has to fit
-`<prefix>` *and* the longest real suffix in the same car (up to 6 bytes — `Viperd1.tex`'s `d1.tex`), leaving
-little headroom, and no retail car exceeds it.
+**The prefix has a hard length limit: 10 characters — but 9 is the safe cap.** The archive's 16-byte name
+field has to fit `<prefix>` *and* the longest real suffix in the same car (up to 6 bytes — `Viperd1.tex`'s
+`d1.tex`). At a 10-char prefix the longest member (`<prefix>d1.tex`) is *exactly* 16 bytes, filling the field
+with **no null terminator** — a state no shipped archive ever reaches (the longest member name in any retail
+`.car`/`.res`/`.trk` is 12 bytes), so whether the engine's own filename lookup tolerates an unterminated
+16-byte name is untested. A prefix of **≤ 9** keeps every member name ≤ 15 bytes, i.e. always null-terminated,
+which is why the toolkit's car-fork / "Save as new car" cap the prefix at 9. No retail car exceeds 6.
 
 **Renaming the prefix has to reach inside `.mod` payloads too, not just the archive's directory table.**
 `.mod` meshes reference their own textures by material name (§4.2), and that name is matched literally
