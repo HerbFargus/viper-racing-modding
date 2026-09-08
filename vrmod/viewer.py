@@ -1688,16 +1688,20 @@ function carNameChanged() {
   return !!inp && inp.value.trim() !== CAR_NAME;
 }
 
-function updateCommitStatus() {
-  const btn = document.getElementById("commit-btn");
-  if (!btn) return;
-  const hasPending = dirtyFields.size > 0
+function hasPendingEdits() {
+  return dirtyFields.size > 0
     || cockpitDirtyRecords.size > 0
     || carNameChanged()
     || Object.keys(pendingPartEdits).length > 0
     || pendingPartRemovals.size > 0
     || Object.keys(pendingTextureEdits).length > 0
     || Object.keys(pendingSfxEdits).length > 0;
+}
+
+function updateCommitStatus() {
+  const btn = document.getElementById("commit-btn");
+  if (!btn) return;
+  const hasPending = hasPendingEdits();
   btn.disabled = !hasPending;
   const discard = document.getElementById("discard-btn");
   if (discard) discard.disabled = !hasPending;
@@ -1811,6 +1815,16 @@ async function commitChanges() {
     statusEl.className = "error";
     statusEl.textContent = `Save failed: ${result.error}`;
   }
+}
+
+// Ask the switcher (our parent, same-origin) to re-scan the Data folder after we
+// put a NEW file in it, optionally landing the selection on it. No-op when this
+// page is opened standalone.
+function hostRefresh(selectKey) {
+  try {
+    const h = (window.self !== window.top) ? window.parent.vrmodHost : null;
+    if (h && h.refresh) h.refresh(selectKey);
+  } catch (e) { /* not embedded, or cross-origin -- nothing to tell */ }
 }
 
 // The desktop bridge, or null in a plain browser. Injected into the TOP window
@@ -1990,9 +2004,16 @@ function saveAsNewCar() {
         // /car/<name> route to open.
         const r = await writeBytesTo(destFolder, result.filename, result.data);
         if (r && r.ok) {
-          errEl.style.color = "#7ad19f";
-          errEl.textContent = "Saved to " + (r.path || "your downloads");
-          setTimeout(close, 1600);
+          // Into the persistent banner, not the modal we are about to close --
+          // and say plainly that THIS car is untouched and the staged edits are
+          // still staged, since "saved" otherwise reads as "committed here".
+          close();
+          const s = document.getElementById("commit-status");
+          s.className = "ok"; s.style.display = "block";
+          s.textContent = "Copy saved to " + (r.path || "your downloads")
+            + " - this car is unchanged"
+            + (hasPendingEdits() ? ", and your edits here are still unsaved." : ".");
+          return;
         } else if (r && r.error) {
           errEl.style.color = "#ff7a7a"; errEl.textContent = r.error; create.disabled = false;
         } else {
@@ -2002,6 +2023,9 @@ function saveAsNewCar() {
       }
       errEl.style.color = "#7ad19f";
       errEl.textContent = "Created " + prefix + ".car - opening...";
+      // A new file just landed in the Data folder, so nudge the switcher to
+      // re-scan and select it -- otherwise its list goes stale behind us.
+      hostRefresh("car:" + prefix + ".car");
       // Go to the new car's OWN editor page (relative to the current /car/<name>
       // route) so further edits and Saves target the fork, not this car.
       location.assign(new URL(encodeURIComponent(prefix + ".car"), location.href).href);
@@ -4995,6 +5019,15 @@ function main() {
   // nothing to navigate to -- a .tra isn't an editing target, it's the unit the
   // switcher installs into one of the eight slots -- so we just report where it
   // landed. Always enabled: repacking an unmodified track as a .tra is useful too.
+  // Ask the switcher (our same-origin parent) to re-scan after a NEW file lands
+  // in the Data folder. No-op when this page is opened standalone.
+  function hostRefresh(selectKey) {
+    try {
+      const h = (window.self !== window.top) ? window.parent.vrmodHost : null;
+      if (h && h.refresh) h.refresh(selectKey);
+    } catch (e) { /* not embedded, or cross-origin */ }
+  }
+
   // Same bridge ladder as the car shell's copies: desktop bridge (reached
   // through window.parent, since this page runs in the switcher's same-origin
   // iframe), else a plain-browser anchor download.
@@ -5146,8 +5179,10 @@ function main() {
         if (r && r.ok) {
           close();
           s.className = "ok"; s.style.display = "block";
-          s.textContent = "Exported to " + (r.path || "your downloads")
-            + " - this track was not modified.";
+          const staged = Object.keys(pendingTextureEdits).length > 0 || !!pendingSkyEdit;
+          s.textContent = "Copy exported to " + (r.path || "your downloads")
+            + " - this track is unchanged"
+            + (staged ? ", and your edits here are still unsaved." : ".");
         } else if (r && r.error) {
           errEl.style.color = "#ff7a7a"; errEl.textContent = r.error; go.disabled = false;
         } else {
@@ -5157,6 +5192,7 @@ function main() {
       }
       if (result.ok) {
         close();
+        hostRefresh();          // a new .tra landed in the Data folder
         s.className = "ok"; s.style.display = "block";
         s.textContent = "Exported " + result.out_path + " - this track was not modified.";
         const warn = result.warnings || [];
