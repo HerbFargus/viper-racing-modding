@@ -1055,7 +1055,7 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
          The per-view EDITORS live on the left tool rail (#tool-rail below). -->
     <div id="file-actions">
       <button id="commit-btn" class="icon-btn" aria-label="Save" title="Save — write your staged changes into the car (backs up the original first)"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7"/><rect x="8" y="13" width="8" height="6"/></svg></button>
-      <button id="saveas-btn" class="icon-btn" aria-label="Save as new car" title="Save as new car — write your changes to a NEW, separately-named car (a real standalone vehicle), leaving this one untouched"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h9l4 4v6"/><path d="M8 4v5h6"/><path d="M18 17v6M15 20h6"/></svg></button>
+      <button id="saveas-btn" class="icon-btn" aria-label="Save as new car" title="Save as new car — write your changes to a NEW, separately-named car (a real standalone vehicle), leaving this one untouched"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7"/><rect x="8" y="13" width="8" height="6"/><g transform="translate(11.6,11.2) scale(0.5)" stroke="#20242c" stroke-width="6"><path d="M4 20h4l10-10-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></g><g transform="translate(11.6,11.2) scale(0.5)" stroke-width="3.2"><path d="M4 20h4l10-10-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></g></svg></button>
       <button id="discard-btn" class="icon-btn" aria-label="Discard all changes" title="Discard all — drop every unsaved (staged) change and return to the last saved state"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 13 4 8l5-5"/><path d="M4 8h9a7 7 0 0 1 0 14H7"/></svg></button>
       <button id="restore-btn" class="icon-btn danger" aria-label="Restore original" title="Restore original — revert the car file to its first backup, discarding ALL changes you've saved (asks first)"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v5h5"/><path d="M4.5 9a8 8 0 1 0 3-4"/><path d="M12 8v4l3 2"/></svg></button>
     </div>
@@ -1078,8 +1078,9 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
 <div id="eye-mode-bar">Driver's-eye view -- drag to look around, scroll to zoom <button id="exit-eye-mode">Back to free orbit</button></div>
 <aside id="stats-drawer" class="drawer">
   <h2>Car Configs</h2>
-  <div class="car-name-row"><label for="car-name-input">Name</label><input id="car-name-input" type="text" maxlength="32" spellcheck="false" autocomplete="off" placeholder="(car display name)"></div>
-  <div class="hint">The name shown in the game's car-select screen (stored in the car's spec sheet). Renaming is display-only and safe -- it never touches the car's filename. Up to 32 characters.</div>
+  <div class="car-name-row"><label for="car-name-input">Name</label><input id="car-name-input" type="text" maxlength="24" spellcheck="false" autocomplete="off" placeholder="(car display name)" title="In-game display name. The car-select menu shows up to 24 characters; longer names are truncated there."></div>
+  <div id="car-name-note" style="color:#ff7a7a;font-size:.7rem;margin:-4px 0 4px;"></div>
+  <div class="hint">The name shown in the game's car-select screen (stored in the car's spec sheet). Renaming is display-only and safe -- it never touches the car's filename. Only the first 24 characters show in the car-select menu.</div>
   <div class="hint">The .cf stats behind this car. Fields are editable; <strong class="highlight-demo">blue</strong> fields (hover for the tooltip) move the wheels live in the Car tab. Hover any field for its real stock-car range (viper/exotic/plane/sedan/sports) -- shown for reference only, not enforced. "Export edited .txt" downloads a file for <code>txt2cf</code>/<code>cfpatch</code>.</div>
   <div id="sections"></div>
   <button id="export">Export edited .txt</button>
@@ -1820,7 +1821,7 @@ async function commitChanges() {
 // Works only under `--serve` (same as Save); a static/file:// host has no route.
 function saveAsNewCar() {
   if (document.getElementById("saveas-modal")) return;   // already open
-  const NAME_RE = /^[A-Za-z0-9_]{1,10}$/;
+  const NAME_RE = /^[A-Za-z0-9_]{1,9}$/;   // 9, not 10: keeps a null terminator on the longest member name (see cli.py)
   const modal = document.createElement("div");
   modal.id = "saveas-modal";
   modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;"
@@ -1831,14 +1832,15 @@ function saveAsNewCar() {
     + 'font:13px system-ui,sans-serif;box-shadow:0 10px 34px rgba(0,0,0,.55);">'
     + '<div style="font-weight:600;font-size:14px;margin-bottom:12px;">Save as new car</div>'
     + '<label style="display:block;margin-bottom:4px;">New file name</label>'
-    + '<input id="saveas-prefix" autocomplete="off" spellcheck="false" placeholder="e.g. jeep" '
+    + '<input id="saveas-prefix" autocomplete="off" spellcheck="false" maxlength="9" placeholder="e.g. jeep" '
     + 'style="width:100%;box-sizing:border-box;padding:6px 8px;background:#151820;color:#e6e8ec;'
     + 'border:1px solid #39404c;border-radius:4px;">'
-    + '<div style="font-size:11px;opacity:.7;margin:4px 0 12px;">Letters, digits, underscore (max 10) '
+    + '<div style="font-size:11px;opacity:.7;margin:4px 0 12px;">Letters, digits, underscore (max 9) '
     + '&mdash; becomes the car&rsquo;s identity. Creates <b><span id="saveas-preview">jeep.car</span></b> '
     + 'beside this one.</div>'
     + '<label style="display:block;margin-bottom:4px;">In-game display name <span style="opacity:.6;">(optional)</span></label>'
-    + '<input id="saveas-name" autocomplete="off" placeholder="(keep current)" '
+    + '<input id="saveas-name" autocomplete="off" maxlength="24" placeholder="(keep current)" '
+    + 'title="The car-select menu shows up to 24 characters; longer names are truncated there." '
     + 'style="width:100%;box-sizing:border-box;padding:6px 8px;background:#151820;color:#e6e8ec;'
     + 'border:1px solid #39404c;border-radius:4px;">'
     + '<div id="saveas-err" style="color:#ff7a7a;min-height:15px;font-size:11px;margin-top:8px;"></div>'
@@ -1867,7 +1869,8 @@ function saveAsNewCar() {
   const submit = async () => {
     const prefix = prefixInp.value.trim();
     if (!NAME_RE.test(prefix)) {
-      errEl.textContent = "1-10 letters, digits or underscores only.";
+      errEl.style.color = "#ff7a7a";
+      errEl.textContent = "1-9 letters, digits or underscores only.";
       prefixInp.focus();
       return;
     }
@@ -1906,8 +1909,33 @@ function saveAsNewCar() {
     }
   };
   create.addEventListener("click", submit);
-  prefixInp.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
-  nameInp.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
+  prefixInp.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { submit(); return; }
+    // maxlength=9 blocks a 10th character silently; surface WHY with the red note
+    // the instant they try, instead of letting them think it typed and only
+    // complaining at submit. (Only for an actual character keystroke that would
+    // grow the value -- not backspace, arrows, shortcuts, or replacing a selection.)
+    const typing = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+    const noSelection = prefixInp.selectionStart === prefixInp.selectionEnd;
+    if (typing && noSelection && prefixInp.value.length >= 9) {
+      e.preventDefault();
+      errEl.style.color = "#ff7a7a";
+      errEl.textContent = "Up to 9 characters (the car's internal identity).";
+    }
+  });
+  nameInp.addEventListener("input", () => { errEl.textContent = ""; });
+  nameInp.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { submit(); return; }
+    // Same live feedback as the prefix: at the 24-char cap, tell them a longer
+    // name is clipped in the in-game menu rather than silently swallowing the key.
+    const typing = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+    const noSel = nameInp.selectionStart === nameInp.selectionEnd;
+    if (typing && noSel && nameInp.value.length >= 24) {
+      e.preventDefault();
+      errEl.style.color = "#ff7a7a";
+      errEl.textContent = "Only the first 24 characters show in the in-game menu.";
+    }
+  });
   prefixInp.focus();
 }
 
@@ -3687,7 +3715,18 @@ function main() {
   const nameInput = document.getElementById("car-name-input");
   if (nameInput) {
     nameInput.value = CAR_NAME;
-    nameInput.addEventListener("input", updateCommitStatus);
+    const nameNote = document.getElementById("car-name-note");
+    nameInput.addEventListener("input", () => { if (nameNote) nameNote.textContent = ""; updateCommitStatus(); });
+    // maxlength=24 hard-stops a 25th char; surface WHY the instant they try, so a
+    // name that would clip in the game's car-select menu never surprises them.
+    nameInput.addEventListener("keydown", (e) => {
+      const typing = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+      const noSel = nameInput.selectionStart === nameInput.selectionEnd;
+      if (nameNote && typing && noSel && nameInput.value.length >= 24) {
+        e.preventDefault();
+        nameNote.textContent = "Only the first 24 characters show in the in-game menu.";
+      }
+    });
   }
   document.getElementById("export").addEventListener("click", exportTxt);
   document.getElementById("reset-stats").addEventListener("click", resetStats);

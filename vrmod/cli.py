@@ -312,8 +312,12 @@ def _apply_commit(body: dict) -> tuple[Path, Path]:
     # the user's current edited state under a genuinely separate identity.
     if body.get("action") == "saveas":
         new_prefix = (body.get("new_prefix") or "").strip()
-        if not re.fullmatch(r"[A-Za-z0-9_]{1,10}", new_prefix):
-            raise ValueError("new car name must be 1-10 letters, digits or underscores "
+        # Cap at 9, not the format's raw 10: the 16-byte member-name field must fit
+        # <prefix> + the longest suffix (6, e.g. "d1.tex"). At 10 the longest member
+        # (jeepd1.tex) is exactly 16 bytes with NO null terminator; 9 guarantees a
+        # terminator on every member, matching how every shipped name behaves.
+        if not re.fullmatch(r"[A-Za-z0-9_]{1,9}", new_prefix):
+            raise ValueError("new car name must be 1-9 letters, digits or underscores "
                              "(it becomes the car's internal file prefix, e.g. 'jeep')")
         out_path = car_path.with_name(f"{new_prefix}.car")
         if out_path.exists():
