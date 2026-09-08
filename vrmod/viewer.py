@@ -3259,7 +3259,17 @@ function main() {
     const ftrackM = getStat("ftrack") * INCH_TO_M;
     const rtrackM = getStat("rtrack") * INCH_TO_M;
     const wheelbaseM = getStat("wheelbase") * INCH_TO_M;
-    const frontZ = wheelbaseM / 2, rearZ = -wheelbaseM / 2;
+    // Scene space is Z-NEGATED relative to Viper's native left-handed mesh space
+    // -- mod.to_obj() does that conversion for every mesh (see its docstring), so
+    // the nose sits at NEGATIVE Z here while the brake lights (Xb.mod, the rear)
+    // land at +Z. Measured on stock exotic: brake lights +1.95, body -2.36..1.92.
+    // The front wheels therefore belong at -wheelbase/2. Using the native sign
+    // here put the front wheels -- and the front track width, and the fwheel_*
+    // mesh -- at the visual TAIL, which is what made the parts-drawer highlight
+    // look "backwards" on every car (it was faithfully lighting objects that were
+    // themselves at the wrong end). car.py's assemble_car is unaffected: it works
+    // in native space and gets negated with everything else.
+    const frontZ = -wheelbaseM / 2, rearZ = wheelbaseM / 2;
     wheelObjs.front_left.position.set(-ftrackM / 2, wheelBaseY.front_left, frontZ);
     wheelObjs.front_right.position.set(ftrackM / 2, wheelBaseY.front_right, frontZ);
     wheelObjs.rear_left.position.set(-rtrackM / 2, wheelBaseY.rear_left, rearZ);
@@ -3377,11 +3387,14 @@ function main() {
       if (cr.body && lc === cr.body.toLowerCase()) return grp("body");
       if (cr.sub_b && lc === cr.sub_b.toLowerCase()) return grp("sub_b");
       if (cr.sub_s && lc === cr.sub_s.toLowerCase()) return grp("sub_s");
-      // Front (fwheel_*) and rear (wheel_*) are distinct shared meshes, but which
-      // visual end they land on depends on the car body's orientation (custom cars
-      // vary), so highlighting only one pair proved unreliable/"backwards". Highlight
-      // all four for any wheel row -- unambiguous, and both rows do drive shared tires.
-      if (/^f?wheel_\d+\.mod$/i.test(member)) return Object.values(wheelObjs);
+      // fwheel_* and wheel_* are distinct shared meshes for the front and rear
+      // axles, so each row lights only its own pair. This once looked "backwards"
+      // on every car, which was blamed on per-car body orientation -- wrongly: the
+      // wheels themselves were being positioned with the native Z sign in
+      // Z-negated scene space (see updateWheelPositions), so the front pair really
+      // was sitting at the visual tail. With that fixed the mapping is exact.
+      if (/^fwheel_\d+\.mod$/i.test(member)) return [wheelObjs.front_left, wheelObjs.front_right];
+      if (/^wheel_\d+\.mod$/i.test(member)) return [wheelObjs.rear_left, wheelObjs.rear_right];
     } else if (activeKey === "cockpit" && CAR_ROLES.cockpit) {
       const ck = CAR_ROLES.cockpit;
       if (ck.dash && lc === ck.dash.toLowerCase()) return grp("dash");
