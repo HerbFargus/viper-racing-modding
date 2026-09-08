@@ -3113,7 +3113,10 @@ function main() {
       if (cr.body && lc === cr.body.toLowerCase()) return grp("body");
       if (cr.sub_b && lc === cr.sub_b.toLowerCase()) return grp("sub_b");
       if (cr.sub_s && lc === cr.sub_s.toLowerCase()) return grp("sub_s");
-      if (/^f?wheel_\d+\.mod$/i.test(member)) return Object.values(wheelObjs);  // all 4 corners
+      // Front vs rear are distinct meshes (fwheel_* front pair, wheel_* rear pair),
+      // so highlight only the matching two corners, not all four.
+      if (/^fwheel_\d+\.mod$/i.test(member)) return [wheelObjs.front_left, wheelObjs.front_right].filter(Boolean);
+      if (/^wheel_\d+\.mod$/i.test(member))  return [wheelObjs.rear_left, wheelObjs.rear_right].filter(Boolean);
     } else if (activeKey === "cockpit" && CAR_ROLES.cockpit) {
       const ck = CAR_ROLES.cockpit;
       if (ck.dash && lc === ck.dash.toLowerCase()) return grp("dash");
