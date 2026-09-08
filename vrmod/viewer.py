@@ -2977,10 +2977,17 @@ function buildPartsDrawer(applyLiveReimport, removeLivePart, highlightPart) {
     });
     root.appendChild(toggle);
     // makeRow appends to root and returns the row; move each into the collapsible box.
-    extras.forEach(m => box.appendChild(makeRow({
-      member: m, label: opts.label || m, present: true, importable: true, exportable: true,
-      removable: !!opts.removable, sharedNote: opts.sharedNote || null, view: opts.view || "",
-    })));
+    // An entry may be a bare member name, or {member, label} when the row wants a
+    // friendlier title than its filename (body LODs say "LOD 3", with the real
+    // member name as makeRow's subtitle).
+    extras.forEach(x => {
+      const m = (typeof x === "string") ? x : x.member;
+      const label = (typeof x === "string") ? (opts.label || m) : (x.label || opts.label || m);
+      box.appendChild(makeRow({
+        member: m, label: label, present: true, importable: true, exportable: true,
+        removable: !!opts.removable, sharedNote: opts.sharedNote || null, view: opts.view || "",
+      }));
+    });
     root.appendChild(box);
   }
 
@@ -2988,9 +2995,18 @@ function buildPartsDrawer(applyLiveReimport, removeLivePart, highlightPart) {
   groupHeader("Body");
   claimed.add(bodyName.toLowerCase());
   makeRow({member: bodyName, label: "Body", present: true, removable: false, importable: true, exportable: true, view: "car"});
+  // The body LOD chain is a fixed 0-7 (LOD0 is the Body row above), so only 1-7
+  // can exist -- scanning further would list members that aren't LODs at all.
+  // Each row is titled by its LEVEL rather than its filename: with a prefix that
+  // ends in a digit the raw name is genuinely ambiguous to read ("Fart2" + LOD 1
+  // is "Fart21.mod", which looks like level 21), and makeRow still shows the real
+  // member name underneath.
   const lods = [];
-  for (let i = 1; i <= 9; i++) { const a = owns(`${prefix}${i}.mod`); if (a) { lods.push(a); claimed.add(a.toLowerCase()); } }
-  addDetailChain(lods, {view: "car"});   // body LOD1-7: raw names, not removable (structural)
+  for (let i = 1; i <= 7; i++) {
+    const a = owns(`${prefix}${i}.mod`);
+    if (a) { lods.push({member: a, label: `LOD ${i}`}); claimed.add(a.toLowerCase()); }
+  }
+  addDetailChain(lods, {view: "car"});   // body LOD1-7: not removable (structural)
   // Generate/regenerate the LOD chain from the body (LOD0) by decimation,
   // carrying the body's textures -- keeps the car itself + textured at every
   // distance (roster, replays, distant traffic). Individual levels stay editable.
