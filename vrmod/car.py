@@ -396,7 +396,11 @@ def read_car_name(entries: list[archive.ArchiveEntry]) -> str | None:
 def set_car_name(entries: list[archive.ArchiveEntry], new_name: str) -> list[archive.ArchiveEntry]:
     """Return entries with the car's display name rewritten in place in its
     spec-sheet tab. Capped at 32 chars (the field is 33 wide, NUL-terminated);
-    nothing else in the tab moves. Raises if there's no spec sheet / Name field."""
+    nothing else in the tab moves. Raises if there's no spec sheet / Name field.
+
+    Note: the field STORES up to 32 chars, but the in-game car-select menu only
+    DISPLAYS ~24 before truncating (confirmed in-game), so the toolkit's name
+    inputs cap at 24. Longer names written here are valid, just clipped on screen."""
     e = _spec_tab_entry(entries)
     if e is None:
         raise ValueError("this car has no <prefix>1.tab spec sheet to rename")

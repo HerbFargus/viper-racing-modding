@@ -1078,7 +1078,7 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
 <div id="eye-mode-bar">Driver's-eye view -- drag to look around, scroll to zoom <button id="exit-eye-mode">Back to free orbit</button></div>
 <aside id="stats-drawer" class="drawer">
   <h2>Car Configs</h2>
-  <div class="car-name-row"><label for="car-name-input">Name</label><input id="car-name-input" type="text" maxlength="32" spellcheck="false" autocomplete="off" placeholder="(car display name)"></div>
+  <div class="car-name-row"><label for="car-name-input">Name</label><input id="car-name-input" type="text" maxlength="24" spellcheck="false" autocomplete="off" placeholder="(car display name)" title="In-game display name. The car-select menu shows up to 24 characters; longer names are truncated there."></div>
   <div class="hint">The name shown in the game's car-select screen (stored in the car's spec sheet). Renaming is display-only and safe -- it never touches the car's filename. Up to 32 characters.</div>
   <div class="hint">The .cf stats behind this car. Fields are editable; <strong class="highlight-demo">blue</strong> fields (hover for the tooltip) move the wheels live in the Car tab. Hover any field for its real stock-car range (viper/exotic/plane/sedan/sports) -- shown for reference only, not enforced. "Export edited .txt" downloads a file for <code>txt2cf</code>/<code>cfpatch</code>.</div>
   <div id="sections"></div>
@@ -1838,7 +1838,8 @@ function saveAsNewCar() {
     + '&mdash; becomes the car&rsquo;s identity. Creates <b><span id="saveas-preview">jeep.car</span></b> '
     + 'beside this one.</div>'
     + '<label style="display:block;margin-bottom:4px;">In-game display name <span style="opacity:.6;">(optional)</span></label>'
-    + '<input id="saveas-name" autocomplete="off" placeholder="(keep current)" '
+    + '<input id="saveas-name" autocomplete="off" maxlength="24" placeholder="(keep current)" '
+    + 'title="The car-select menu shows up to 24 characters; longer names are truncated there." '
     + 'style="width:100%;box-sizing:border-box;padding:6px 8px;background:#151820;color:#e6e8ec;'
     + 'border:1px solid #39404c;border-radius:4px;">'
     + '<div id="saveas-err" style="color:#ff7a7a;min-height:15px;font-size:11px;margin-top:8px;"></div>'
