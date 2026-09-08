@@ -382,6 +382,42 @@ def _apply_track_commit(body: dict) -> tuple[Path, Path]:
             real = next(e.name for e in entries if e.name.lower() == name)
             entries = archive.replace_entry(entries, real, raw)
 
+    # Export as .tra: write the edited track out as a portable, INSTALLABLE track
+    # file instead of overwriting the slot's .trk. This is the track counterpart
+    # to the car's "Save as new car", but deliberately NOT a new editing target:
+    # a track isn't identified by its filename (its members are fixed-named --
+    # track.grf, track.bpp, ... -- and the game loads whatever sits in its eight
+    # fixed slots), so a differently-named .trk would simply never be loaded. The
+    # distributable unit is a .tra, which the switcher installs INTO a slot
+    # (handling the backup, the ui.res thumbnail and the english.lng name). The
+    # original .trk is left untouched, so there is nothing to back up.
+    if body.get("action") == "exporttra":
+        name = (body.get("tra_name") or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", name):
+            raise ValueError("track file name must be 1-32 letters, digits, dashes or "
+                             "underscores (it becomes <name>.tra)")
+        out_path = track_path.with_name(f"{name}.tra")
+        if out_path.exists():
+            raise ValueError(f"{out_path.name} already exists in the Data folder -- pick another name")
+        warnings: list[str] = []
+        names = {e.name.lower() for e in entries}
+        missing = [m for m in track.REQUIRED_MEMBERS if m not in names]
+        if missing:
+            warnings.append(f"missing {len(missing)} member(s) every known track carries: "
+                            f"{', '.join(missing)}")
+        # A .ccs named for a DIFFERENT slot rides along fine (track lookups aren't
+        # filename-bound) but is worth flagging -- same warning `trk2tra` gives.
+        stem = track_path.stem.lower()
+        slot_specific = sorted(
+            e.name for e in entries
+            if e.name.lower().endswith(".ccs") and e.name.lower() != "aidef.ccs"
+            and e.name.lower()[:-4] in track.SLOTS and e.name.lower()[:-4] != stem)
+        if slot_specific:
+            warnings.append(f"carries another slot's zone file(s): {', '.join(slot_specific)}")
+        # "flat" -- the header convention every existing .tra uses (track.export_tra).
+        out_path.write_bytes(archive.to_bytes(entries, partitioned=False))
+        return out_path, None, resized, warnings
+
     # ".bak" so the backup isn't a loadable ".trk" (same reasoning as the car
     # backup in _apply_commit -- keep stray copies out of the game's scan).
     backup_path = _unique_path(track_path.with_name(f"{track_path.stem}_original{track_path.suffix}.bak"))

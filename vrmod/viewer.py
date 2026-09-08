@@ -4302,6 +4302,7 @@ _TRACK_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   <div id="topbar-actions">
     <div id="file-actions">
       <button id="commit-btn" class="icon-btn" disabled aria-label="Save" title="Save — write texture changes into the track (backs up the original first)"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7"/><rect x="8" y="13" width="8" height="6"/></svg></button>
+      <button id="exporttra-btn" class="icon-btn" aria-label="Export as .tra" title="Export as .tra — write your retexture to a shareable, installable track file, leaving this track untouched"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7"/><rect x="8" y="13" width="8" height="6"/><g transform="translate(11.6,11.2) scale(0.5)" stroke="#20242c" stroke-width="6"><path d="M4 20h4l10-10-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></g><g transform="translate(11.6,11.2) scale(0.5)" stroke-width="3.2"><path d="M4 20h4l10-10-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></g></svg></button>
       <button id="restore-btn" class="icon-btn danger" aria-label="Restore original" title="Restore original — revert the track to its first backup, discarding saved changes (asks first)"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v5h5"/><path d="M4.5 9a8 8 0 1 0 3-4"/><path d="M12 8v4l3 2"/></svg></button>
     </div>
     <button id="mod-btn" type="button" class="icon-btn" aria-label="Edit track" title="Edit this track — open the texture tools"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10-10-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg></button>
@@ -4885,6 +4886,109 @@ function main() {
   // so this is the earliest the drawer can be built with the sky in it.
   buildTextureDrawer(meshesByMaterial, loadTexture);
   document.getElementById("commit-btn").addEventListener("click", commitChanges);
+
+  // Export as .tra: bake the staged retexture into a portable, installable track
+  // file and leave THIS track alone. Unlike the car's "Save as new car" there is
+  // nothing to navigate to -- a .tra isn't an editing target, it's the unit the
+  // switcher installs into one of the eight slots -- so we just report where it
+  // landed. Always enabled: repacking an unmodified track as a .tra is useful too.
+  function exportTraDialog() {
+    if (document.getElementById("tra-modal")) return;
+    const NAME_RE = /^[A-Za-z0-9_-]{1,32}$/;
+    const modal = document.createElement("div");
+    modal.id = "tra-modal";
+    modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;"
+      + "align-items:center;justify-content:center;z-index:9999;";
+    modal.innerHTML =
+      '<div role="dialog" aria-modal="true" aria-label="Export as .tra" style="background:#20242c;'
+      + 'color:#e6e8ec;padding:18px 20px;border-radius:8px;width:340px;max-width:90vw;'
+      + 'font:13px system-ui,sans-serif;box-shadow:0 10px 34px rgba(0,0,0,.55);">'
+      + '<div style="font-weight:600;font-size:14px;margin-bottom:12px;">Export as .tra</div>'
+      + '<label style="display:block;margin-bottom:4px;">Track file name</label>'
+      + '<input id="tra-name" autocomplete="off" spellcheck="false" maxlength="32" placeholder="e.g. bemidji-night" '
+      + 'style="width:100%;box-sizing:border-box;padding:6px 8px;background:#151820;color:#e6e8ec;'
+      + 'border:1px solid #39404c;border-radius:4px;">'
+      + '<div style="font-size:11px;opacity:.7;margin:4px 0 12px;">Letters, digits, dash, underscore '
+      + '&mdash; writes <b><span id="tra-preview">bemidji-night.tra</span></b> beside this track. '
+      + 'This track is left untouched; install the .tra into a slot from the Tracks tab.</div>'
+      + '<div id="tra-err" style="color:#ff7a7a;min-height:15px;font-size:11px;margin-top:2px;"></div>'
+      + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">'
+      + '<button id="tra-cancel" type="button" class="icon-btn" style="width:auto;padding:5px 12px;">Cancel</button>'
+      + '<button id="tra-go" type="button" class="icon-btn" style="width:auto;padding:5px 12px;">Export</button>'
+      + "</div></div>";
+    document.body.appendChild(modal);
+    const inp = modal.querySelector("#tra-name");
+    const preview = modal.querySelector("#tra-preview");
+    const errEl = modal.querySelector("#tra-err");
+    const go = modal.querySelector("#tra-go");
+    const close = () => modal.remove();
+    inp.addEventListener("input", () => {
+      preview.textContent = (inp.value.trim() || "bemidji-night") + ".tra";
+      errEl.textContent = "";
+    });
+    modal.addEventListener("click", (e) => { if (e.target === modal) close(); });
+    modal.querySelector("#tra-cancel").addEventListener("click", close);
+    document.addEventListener("keydown", function esc(e) {
+      if (!document.getElementById("tra-modal")) { document.removeEventListener("keydown", esc); return; }
+      if (e.key === "Escape") close();
+    });
+    const submit = async () => {
+      const name = inp.value.trim();
+      if (!NAME_RE.test(name)) {
+        errEl.style.color = "#ff7a7a";
+        errEl.textContent = "1-32 letters, digits, dashes or underscores only.";
+        inp.focus();
+        return;
+      }
+      go.disabled = true;
+      errEl.style.color = "#9fb0c8";
+      errEl.textContent = "Writing " + name + ".tra...";
+      const payload = {track_path: TRACK_PATH, action: "exporttra", tra_name: name,
+                       textures: pendingTextureEdits};
+      if (pendingSkyEdit) payload.sky = pendingSkyEdit;
+      let result;
+      try {
+        const resp = await fetch(COMMIT_ROUTE, {
+          method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload),
+        });
+        result = await resp.json();
+      } catch (err) {
+        errEl.style.color = "#ff7a7a";
+        errEl.textContent = "Cannot reach the local save endpoint (needs the app --serve host).";
+        go.disabled = false;
+        return;
+      }
+      const s = document.getElementById("commit-status");
+      if (result.ok) {
+        close();
+        s.className = "ok"; s.style.display = "block";
+        s.textContent = "Exported " + result.out_path + " - this track was not modified.";
+        const warn = result.warnings || [];
+        if (warn.length) {
+          s.className = "pending";
+          const bullet = String.fromCharCode(10, 0x26A0, 32);
+          s.textContent += bullet + warn.join(bullet);
+        }
+      } else {
+        errEl.style.color = "#ff7a7a";
+        errEl.textContent = result.error || "Export failed.";
+        go.disabled = false;
+      }
+    };
+    go.addEventListener("click", submit);
+    inp.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { submit(); return; }
+      const typing = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+      const noSel = inp.selectionStart === inp.selectionEnd;
+      if (typing && noSel && inp.value.length >= 32) {
+        e.preventDefault();
+        errEl.style.color = "#ff7a7a";
+        errEl.textContent = "Up to 32 characters.";
+      }
+    });
+    inp.focus();
+  }
+  document.getElementById("exporttra-btn").addEventListener("click", exportTraDialog);
 
   // Restore original: revert the track ON DISK to its pristine pre-edit backup,
   // then reload. Discards saved changes too, so it confirms first.
