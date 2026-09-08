@@ -1,12 +1,20 @@
-# Viper Racing (1998) — Car Asset Decomposition Tree
+# Viper Racing (1998) — Asset Decomposition Tree
 
-**Purpose:** a top-down map of *what is inside a car* and *where every piece it needs actually comes from* —
-the containment tree (`.car` → members → textures → pixels) plus the shared `.res` bundles a car reaches
-into at runtime. This is the companion to [VIPER_RACING_FILE_FORMATS.md](VIPER_RACING_FILE_FORMATS.md)
-(which documents the byte layout of each format); this document is about **structure and resolution**, not
-byte offsets. Everything below was walked directly out of a pristine retail `Data/` folder with `vrmod`.
+**Purpose:** a top-down map of *what is inside a car or a track* and *where every piece it needs actually
+comes from* — the containment tree (`.car`/`.trk` → members → textures → pixels) plus the shared `.res`
+bundles an asset reaches into at runtime. This is the companion to
+[VIPER_RACING_FILE_FORMATS.md](VIPER_RACING_FILE_FORMATS.md) (which documents the byte layout of each
+format); this document is about **structure and resolution**, not byte offsets. Everything below was walked
+directly out of a pristine retail `Data/` folder with `vrmod`.
+
+- **Part I — Cars** (§§1–7): the 5 stock cars.
+- **Part II — Tracks** (§§8–11): the 8 stock tracks.
 
 **Confidence key** (same as the format reference): ✅ CONFIRMED · 🟡 WELL-SUPPORTED · ⚪ HYPOTHESIS.
+
+---
+
+# Part I — Cars
 
 ---
 
@@ -244,6 +252,108 @@ pipeline (✅, implemented in `vrmod/tex.py`):
 Colour-key note (✅): a texture flagged colour-key treats one exact RGB565 value as transparent — which is
 why hand-authored textures must avoid that value in opaque areas (the `R5=0, B5=0` gotcha documented in the
 OBJ+texture pipeline).
+
+---
+
+# Part II — Tracks
+
+The 8 stock tracks: **bemidji · dundas · hastings · heaven · kenyon · limbo · nfield · uptown**.
+
+A track is a `.trk` — the *same* 0SER package archive as a car, and the *same* name-based texture resolution
+from §1 applies: the world mesh names its textures and they resolve to `TEX` members inside the same `.trk`.
+The big difference from a car is **self-containment** (§11): a track carries all of its own geometry,
+collision, AI lines and textures — it barely touches the shared `.res` bundles.
+
+---
+
+## 8. Anatomy of a track — the common skeleton
+
+Every one of the 8 tracks contains these 15 members (shown with `bemidji` as the example). They fall into
+four jobs: **what you see**, **what you hit**, **where the AI drives**, and **the map**.
+
+```
+<track>.trk ............................... 0SER package archive (one track)
+│
+├── WORLD GEOMETRY & COLLISION
+│   ├── track.grf .... [GRAF] the VISIBLE world — a sequence of .mod-style mesh chunks + a scene graph   ✅ (formats §4.7)
+│   │       └── materials name textures  ──►  resolve to TEX members in this .trk (same rule as §1)
+│   ├── track.bpp .... [BPPT] the COLLISION BSP — static world surfaces as a triangle soup + BSP nodes,  ✅ (formats §4.9)
+│   │                         each triangle tagged with a SURFACE CODE (asphalt/grass/dirt…); the big file (1–2 MB)
+│   ├── track.sol .... [SOBL] COLLISION SOLIDS — rigid props (ramps, boxes, tubes) the BSP doesn't cover ✅ (formats §4.8)
+│   └── track.bsp .... [BSPT] a ~128-byte near-static STUB — vestigial, not the spatial partition        ✅ (formats §4.10)
+│
+├── AI & GAMEPLAY LAYOUT
+│   ├── default.ili .. [ILIN] the AI racing line (forward direction)                                     ✅ (formats §4.2)
+│   ├── rdefault.ili . [ILIN] the AI racing line for REVERSE-direction races                             ✅
+│   ├── track.ild .... [ILIN] a third AI line (alternate/overtake path)                                  ✅
+│   ├── aidef.ccs .... [CCS0] AI definition for this track (fixed name, but all 8 are distinct)           ✅
+│   ├── <track>.ccs .. [CCS0] the track's own zone-definition block (e.g. bemidji.ccs)                    ✅
+│   ├── camera.tab ... [STAB] broadcast / TV-camera definitions (7 fields per record)                    ✅ (formats §4.3)
+│   └── track.obt .... [STAB] placed-object table — starting grid, checkpoint gates, scenery placement   ✅ (formats §4.3)
+│
+├── UI
+│   └── Trackmap.stp . [STMP] the overhead mini-map bitmap                                               ✅
+│
+└── TEXTURES  (TEX; named by track.grf materials, resolved in-archive — §1)
+    ├── surfaces ..... asph, grs, under, trail, strpy, redwht, blwh, check …
+    ├── sky .......... sky1, sky2, sky3, sky4   (all four present on every track)
+    ├── scenery ...... shrub3, rshrub, ddg, rt2, box, glass, heads …
+    └── billboards ... vip, waldo, mgi, fang, horn, hpep, hpep2, tnt …   (sponsor/ad art)
+```
+
+> **Note — same tag, two jobs.** `CCS0` is a car's colour-scheme block in a `.car` (§2) but an AI/zone
+> definition in a `.trk`. `.ili`/`.ild` are **AI driving lines**, not lighting. The tag identifies the
+> binary *structure*; its *role* depends on the container.
+
+---
+
+## 9. What varies track to track
+
+The 15-member skeleton is fixed; everything else is content. Optional members appear on some tracks only:
+
+| Track | Members | TEX | `.bpp` triangles¹ | Extra models (`MINF`) | Extra zones (`CCS0`) | Extra UI (`STMP`) |
+|-------|:------:|:---:|:----------------:|-----------------------|----------------------|-------------------|
+| bemidji  | 40 | 28 | 10,431 | — | — | — |
+| dundas   | 59 | 43 | 11,120 | `checkpt1.mod`, `ground.mod` | — | `chekbg.stp`, `chekfg.stp` |
+| hastings | 48 | 35 | 12,694 | `checkpt1.mod` | — | — |
+| heaven   | 62 | 49 |  7,299 | `checkpt1.mod` | — | — |
+| kenyon   | 46 | 31 | 13,640 | — | `288g_sim.ccs`, `lanc_sim.ccs`, `vipe_sim.ccs` | — |
+| limbo    | 52 | 39 | 10,153 | `checkpt1.mod` | — | — |
+| nfield   | 50 | 38 | 16,525 | — | — | — |
+| uptown   | 50 | 38 | 12,092 | — | — | — |
+
+¹ collision-BSP triangle count, from the format reference §4.9.
+
+- **`checkpt1.mod`** — a standalone checkpoint-gate mesh, sitting beside `track.grf` (some scenery lives as
+  its own `.mod` rather than inside the world mesh). `ground.mod` (dundas) is an extra terrain mesh. 🟡
+- **`288g_sim.ccs` / `lanc_sim.ccs` / `vipe_sim.ccs`** (kenyon only) — per-car AI *sim* tuning blocks
+  (names read as GTO / Lancia / Viper), i.e. opponent-behaviour variants specific to that track. ⚪
+- **`chekbg.stp` / `chekfg.stp`** (dundas) — background/foreground bitmaps for the checkpoint display. 🟡
+
+---
+
+## 10. Textures: named by the world mesh, resolved in-archive
+
+Exactly like a car body (§1), `track.grf`'s materials carry texture *names* and the engine binds them to the
+`TEX` members packed in the same `.trk`. Every stock track ships its **own** sky (`sky1–4.tex`), surfaces,
+scenery and sponsor billboards — there is no shared track-texture `.res`. So a track's look is fully
+contained in its one `.trk` file, and swapping/retagging its textures (or its `.bpp` surface codes, via
+`vrmod bppsurface`) changes only that track.
+
+---
+
+## 11. Self-containment: what a track does *not* carry
+
+A car reaches into `race.res` for its wheels, driver arms, effect textures and (for viper/sports) its paint
+(§5). A **track does not** — its geometry, collision, AI lines and textures are all inside the `.trk`. What a
+track relies on from outside is only:
+
+- **the cars** racing on it (each its own `.car`, §§2–5), and
+- **the shared front-end / HUD** — mini-map frame, timing, results screens — from `ui.res` / `race.res` /
+  `postrace.res` (§5), which belong to the race UI, not the track.
+
+That self-containment is why a stock track is a clean single-file mod target, and why the toolkit's track
+tools (`grf`/`bpp`/`sol` editing) operate on one `.trk` at a time.
 
 ---
 
