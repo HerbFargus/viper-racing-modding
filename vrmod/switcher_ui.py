@@ -598,6 +598,14 @@ function renderDetail(){
   const d = el$('detail');
   const i = findSelected();
   if(!i){
+    // Nothing selected -- leave fullscreen first, or this strands you. Expanded
+    // mode hides the library pane, and the expand toggle itself lives inside the
+    // embedded viewer, which is exactly what we are NOT rendering here: you would
+    // get a placeholder telling you to pick from a pane you cannot see, with no
+    // control to bring it back. Reachable from "Restore original" on a track (the
+    // restore can drop the item out of the list), and from anything else that
+    // invalidates the selection -- a delete, or a file removed outside the app.
+    if(el$('view-library').classList.contains('expanded')) toggleExpand(false);
     d.innerHTML = `<div id="detail-body" class="placeholder">Pick something on the left to
       view it in 3D, change its textures, or put it in the game.</div>`;
     return;
