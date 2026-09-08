@@ -1831,7 +1831,7 @@ function saveAsNewCar() {
     + 'font:13px system-ui,sans-serif;box-shadow:0 10px 34px rgba(0,0,0,.55);">'
     + '<div style="font-weight:600;font-size:14px;margin-bottom:12px;">Save as new car</div>'
     + '<label style="display:block;margin-bottom:4px;">New file name</label>'
-    + '<input id="saveas-prefix" autocomplete="off" spellcheck="false" placeholder="e.g. jeep" '
+    + '<input id="saveas-prefix" autocomplete="off" spellcheck="false" maxlength="9" placeholder="e.g. jeep" '
     + 'style="width:100%;box-sizing:border-box;padding:6px 8px;background:#151820;color:#e6e8ec;'
     + 'border:1px solid #39404c;border-radius:4px;">'
     + '<div style="font-size:11px;opacity:.7;margin:4px 0 12px;">Letters, digits, underscore (max 9) '
@@ -1868,6 +1868,7 @@ function saveAsNewCar() {
   const submit = async () => {
     const prefix = prefixInp.value.trim();
     if (!NAME_RE.test(prefix)) {
+      errEl.style.color = "#ff7a7a";
       errEl.textContent = "1-9 letters, digits or underscores only.";
       prefixInp.focus();
       return;
@@ -1907,7 +1908,20 @@ function saveAsNewCar() {
     }
   };
   create.addEventListener("click", submit);
-  prefixInp.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
+  prefixInp.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { submit(); return; }
+    // maxlength=9 blocks a 10th character silently; surface WHY with the red note
+    // the instant they try, instead of letting them think it typed and only
+    // complaining at submit. (Only for an actual character keystroke that would
+    // grow the value -- not backspace, arrows, shortcuts, or replacing a selection.)
+    const typing = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+    const noSelection = prefixInp.selectionStart === prefixInp.selectionEnd;
+    if (typing && noSelection && prefixInp.value.length >= 9) {
+      e.preventDefault();
+      errEl.style.color = "#ff7a7a";
+      errEl.textContent = "Up to 9 characters (the car's internal identity).";
+    }
+  });
   nameInp.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
   prefixInp.focus();
 }
