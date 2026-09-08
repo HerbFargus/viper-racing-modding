@@ -1813,6 +1813,35 @@ async function commitChanges() {
   }
 }
 
+// Hand server-produced bytes to the OS save dialog. folderOnly picks a FOLDER and
+// keeps `filename` (a forked .car must stay <prefix>.car to match its internal
+// members); otherwise it's an ordinary Save-As where the name is free. The bridge
+// is injected into the TOP window only and this page runs in the switcher's
+// same-origin iframe, so reach through window.parent too. A plain browser has no
+// bridge and falls back to an anchor download -- same ladder as downloadBytes().
+async function saveBytesElsewhere(filename, b64, folderOnly) {
+  let api = null;
+  try {
+    api = (window.pywebview && window.pywebview.api)
+       || (window.parent && window.parent.pywebview && window.parent.pywebview.api)
+       || null;
+  } catch (e) { /* cross-origin parent -- no bridge */ }
+  const method = folderOnly ? "save_into_folder" : "save_file";
+  if (api && api[method]) {
+    try { return await api[method](filename, b64); }
+    catch (e) { /* bridge failed -- fall through to the download */ }
+  }
+  const bin = atob(b64);
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  const url = URL.createObjectURL(new Blob([buf], {type: "application/octet-stream"}));
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+  return {ok: true, path: "your browser's downloads"};
+}
+
 // Save As a NEW car: pop a small dialog for the new file name (+ optional in-game
 // display name), then POST the SAME edit payload with action:"saveas" so the
 // server forks the edited state to <name>.car (re-prefixing every internal member
@@ -1843,6 +1872,16 @@ function saveAsNewCar() {
     + 'title="The car-select menu shows up to 24 characters; longer names are truncated there." '
     + 'style="width:100%;box-sizing:border-box;padding:6px 8px;background:#151820;color:#e6e8ec;'
     + 'border:1px solid #39404c;border-radius:4px;">'
+    + '<label style="display:block;margin:10px 0 4px;">Save to</label>'
+    + '<div style="display:flex;align-items:center;gap:7px;font-size:12px;color:#a8adc0;'
+    + 'background:#151820;border:1px solid #39404c;border-radius:4px;padding:6px 8px;">'
+    + '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#a8adc0" stroke-width="1.8" '
+    + 'stroke-linejoin="round"><path d="M3 7h6l2 2h10v10H3z"/></svg>'
+    + '<span id="saveas-destpath" style="color:#e6e8ec;flex:1;min-width:0;overflow:hidden;'
+    + 'text-overflow:ellipsis;white-space:nowrap;">Data folder</span>'
+    + '<span id="saveas-destlink" style="color:#8fb7ff;text-decoration:underline;cursor:pointer;">Change&hellip;</span>'
+    + "</div>"
+    + '<div id="saveas-destnote" style="font-size:11px;opacity:.75;margin:4px 0 0;"></div>'
     + '<div id="saveas-err" style="color:#ff7a7a;min-height:15px;font-size:11px;margin-top:8px;"></div>'
     + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">'
     + '<button id="saveas-cancel" type="button" class="icon-btn" style="width:auto;padding:5px 12px;">Cancel</button>'
@@ -1853,7 +1892,25 @@ function saveAsNewCar() {
   const nameInp = modal.querySelector("#saveas-name");
   const preview = modal.querySelector("#saveas-preview");
   const errEl = modal.querySelector("#saveas-err");
+  const destPath = modal.querySelector("#saveas-destpath");
+  const destLink = modal.querySelector("#saveas-destlink");
+  const destNote = modal.querySelector("#saveas-destnote");
   const close = () => modal.remove();
+  // Destination: the Data folder by default (the only place the game loads cars
+  // from). "Change..." switches to a folder you pick in the OS dialog at save
+  // time -- a FOLDER, never a filename, because a fork must keep <prefix>.car to
+  // match its own internal members.
+  let elsewhere = false;
+  function renderDest() {
+    destPath.textContent = elsewhere ? "A folder you pick when saving" : "Data folder";
+    destLink.textContent = elsewhere ? "Use Data folder" : "Change…";
+    destNote.style.color = elsewhere ? "#ffcf8a" : "";
+    destNote.textContent = elsewhere
+      ? "Saved outside the Data folder, so the game will not load it from there — this is a copy to keep or share."
+      : "";
+  }
+  renderDest();
+  destLink.addEventListener("click", () => { elsewhere = !elsewhere; renderDest(); errEl.textContent = ""; });
   prefixInp.addEventListener("input", () => {
     const v = prefixInp.value.trim();
     preview.textContent = (v || "jeep") + ".car";
@@ -1882,6 +1939,7 @@ function saveAsNewCar() {
     payload.new_prefix = prefix;
     const dn = nameInp.value.trim();
     if (dn) payload.car_name = dn;      // else keep whatever the fork inherits
+    if (elsewhere) payload.destination = "elsewhere";   // server returns bytes, writes nothing
     let result;
     try {
       const resp = await fetch(COMMIT_ROUTE, {
@@ -1897,6 +1955,23 @@ function saveAsNewCar() {
       return;
     }
     if (result.ok) {
+      if (result.data) {
+        // Saved OUTSIDE the Data folder: the server deliberately wrote nothing,
+        // so hand the bytes to the OS folder dialog (or a browser download).
+        // No navigation -- the fork isn't in the Data folder, so there's no
+        // /car/<name> route to open.
+        const r = await saveBytesElsewhere(result.filename, result.data, true);
+        if (r && r.ok) {
+          errEl.style.color = "#7ad19f";
+          errEl.textContent = "Saved to " + (r.path || "your downloads");
+          setTimeout(close, 1600);
+        } else if (r && r.error) {
+          errEl.style.color = "#ff7a7a"; errEl.textContent = r.error; create.disabled = false;
+        } else {
+          errEl.style.color = "#9fb0c8"; errEl.textContent = "Save cancelled."; create.disabled = false;
+        }
+        return;
+      }
       errEl.style.color = "#7ad19f";
       errEl.textContent = "Created " + prefix + ".car - opening...";
       // Go to the new car's OWN editor page (relative to the current /car/<name>
@@ -4892,6 +4967,32 @@ function main() {
   // nothing to navigate to -- a .tra isn't an editing target, it's the unit the
   // switcher installs into one of the eight slots -- so we just report where it
   // landed. Always enabled: repacking an unmodified track as a .tra is useful too.
+  // Same bridge ladder as the car shell's copy: desktop bridge (reached through
+  // window.parent, since this page runs in the switcher's same-origin iframe),
+  // else a plain-browser anchor download.
+  async function saveBytesElsewhere(filename, b64, folderOnly) {
+    let api = null;
+    try {
+      api = (window.pywebview && window.pywebview.api)
+         || (window.parent && window.parent.pywebview && window.parent.pywebview.api)
+         || null;
+    } catch (e) { /* cross-origin parent -- no bridge */ }
+    const method = folderOnly ? "save_into_folder" : "save_file";
+    if (api && api[method]) {
+      try { return await api[method](filename, b64); }
+      catch (e) { /* bridge failed -- fall through to the download */ }
+    }
+    const bin = atob(b64);
+    const buf = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    const url = URL.createObjectURL(new Blob([buf], {type: "application/octet-stream"}));
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    return {ok: true, path: "your browser's downloads"};
+  }
+
   function exportTraDialog() {
     if (document.getElementById("tra-modal")) return;
     const NAME_RE = /^[A-Za-z0-9_-]{1,32}$/;
@@ -4908,10 +5009,20 @@ function main() {
       + '<input id="tra-name" autocomplete="off" spellcheck="false" maxlength="32" placeholder="e.g. bemidji-night" '
       + 'style="width:100%;box-sizing:border-box;padding:6px 8px;background:#151820;color:#e6e8ec;'
       + 'border:1px solid #39404c;border-radius:4px;">'
-      + '<div style="font-size:11px;opacity:.7;margin:4px 0 12px;">Letters, digits, dash, underscore '
-      + '&mdash; writes <b><span id="tra-preview">bemidji-night.tra</span></b> beside this track. '
-      + 'This track is left untouched; install the .tra into a slot from the Tracks tab.</div>'
-      + '<div id="tra-err" style="color:#ff7a7a;min-height:15px;font-size:11px;margin-top:2px;"></div>'
+      + '<div style="font-size:11px;opacity:.7;margin:4px 0 10px;">Letters, digits, dash, underscore '
+      + '&mdash; writes <b><span id="tra-preview">bemidji-night.tra</span></b>. '
+      + 'This track is left untouched.</div>'
+      + '<label style="display:block;margin-bottom:4px;">Save to</label>'
+      + '<div style="display:flex;align-items:center;gap:7px;font-size:12px;color:#a8adc0;'
+      + 'background:#151820;border:1px solid #39404c;border-radius:4px;padding:6px 8px;">'
+      + '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#a8adc0" stroke-width="1.8" '
+      + 'stroke-linejoin="round"><path d="M3 7h6l2 2h10v10H3z"/></svg>'
+      + '<span id="tra-destpath" style="color:#e6e8ec;flex:1;min-width:0;overflow:hidden;'
+      + 'text-overflow:ellipsis;white-space:nowrap;">Data folder</span>'
+      + '<span id="tra-destlink" style="color:#8fb7ff;text-decoration:underline;cursor:pointer;">Change&hellip;</span>'
+      + "</div>"
+      + '<div id="tra-destnote" style="font-size:11px;opacity:.75;margin:4px 0 0;"></div>'
+      + '<div id="tra-err" style="color:#ff7a7a;min-height:15px;font-size:11px;margin-top:6px;"></div>'
       + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">'
       + '<button id="tra-cancel" type="button" class="icon-btn" style="width:auto;padding:5px 12px;">Cancel</button>'
       + '<button id="tra-go" type="button" class="icon-btn" style="width:auto;padding:5px 12px;">Export</button>'
@@ -4921,7 +5032,23 @@ function main() {
     const preview = modal.querySelector("#tra-preview");
     const errEl = modal.querySelector("#tra-err");
     const go = modal.querySelector("#tra-go");
+    const destPath = modal.querySelector("#tra-destpath");
+    const destLink = modal.querySelector("#tra-destlink");
+    const destNote = modal.querySelector("#tra-destnote");
     const close = () => modal.remove();
+    // Data folder by default, but unlike a car a .tra outside it is perfectly
+    // normal -- it's the thing you hand to someone else. A .tra's name isn't
+    // load-bearing either, so this uses the ordinary file Save dialog.
+    let elsewhere = false;
+    function renderDest() {
+      destPath.textContent = elsewhere ? "A location you pick when saving" : "Data folder";
+      destLink.textContent = elsewhere ? "Use Data folder" : "Change…";
+      destNote.textContent = elsewhere
+        ? "Install it from the Tracks tab when you want it in the game."
+        : "";
+    }
+    renderDest();
+    destLink.addEventListener("click", () => { elsewhere = !elsewhere; renderDest(); errEl.textContent = ""; });
     inp.addEventListener("input", () => {
       preview.textContent = (inp.value.trim() || "bemidji-night") + ".tra";
       errEl.textContent = "";
@@ -4946,6 +5073,7 @@ function main() {
       const payload = {track_path: TRACK_PATH, action: "exporttra", tra_name: name,
                        textures: pendingTextureEdits};
       if (pendingSkyEdit) payload.sky = pendingSkyEdit;
+      if (elsewhere) payload.destination = "elsewhere";   // server returns bytes, writes nothing
       let result;
       try {
         const resp = await fetch(COMMIT_ROUTE, {
@@ -4959,6 +5087,23 @@ function main() {
         return;
       }
       const s = document.getElementById("commit-status");
+      if (result.ok && result.data) {
+        // Saved OUTSIDE the Data folder: the server wrote nothing, so hand the
+        // bytes to the OS Save dialog (a .tra's name is free, so a file dialog
+        // is right here) or to a browser download.
+        const r = await saveBytesElsewhere(result.filename, result.data, false);
+        if (r && r.ok) {
+          close();
+          s.className = "ok"; s.style.display = "block";
+          s.textContent = "Exported to " + (r.path || "your downloads")
+            + " - this track was not modified.";
+        } else if (r && r.error) {
+          errEl.style.color = "#ff7a7a"; errEl.textContent = r.error; go.disabled = false;
+        } else {
+          errEl.style.color = "#9fb0c8"; errEl.textContent = "Save cancelled."; go.disabled = false;
+        }
+        return;
+      }
       if (result.ok) {
         close();
         s.className = "ok"; s.style.display = "block";

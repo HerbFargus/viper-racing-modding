@@ -161,7 +161,7 @@ def _apply_commit(body: dict) -> tuple[Path, Path]:
     if body.get("action") == "restore":
         target = Path(body.get("track_path") or body["car_path"])
         backup = _restore_original(target)
-        return target, backup, [], []
+        return target, backup, [], [], None
     # Generate the LOD chain from the body mesh (decimate <prefix>0.mod into
     # <prefix>1..7.mod, carrying its textures) so the car stays itself at every
     # distance. Standalone action -- operates on the saved car, then the shell
@@ -175,7 +175,7 @@ def _apply_commit(body: dict) -> tuple[Path, Path]:
         shutil.copy2(car_path, backup)
         archive.write(out_entries, car_path)
         return car_path, backup, [], [f"Generated {len(made)} LOD level(s): "
-                                      + ", ".join(f"{n} ({v}v)" for n, v in made)]
+                                      + ", ".join(f"{n} ({v}v)" for n, v in made)], None
     if "track_path" in body:
         return _apply_track_commit(body)
     car_path = Path(body["car_path"])
@@ -319,16 +319,27 @@ def _apply_commit(body: dict) -> tuple[Path, Path]:
         if not re.fullmatch(r"[A-Za-z0-9_]{1,9}", new_prefix):
             raise ValueError("new car name must be 1-9 letters, digits or underscores "
                              "(it becomes the car's internal file prefix, e.g. 'jeep')")
+        forked = car.fork_car(entries, new_prefix)
+        # destination "elsewhere": hand the BYTES back instead of writing. This
+        # endpoint only ever writes inside the Data folder it was pointed at -- a
+        # save outside it goes through the OS folder dialog in the desktop bridge
+        # (or a browser download), so the location is the user's explicit choice
+        # rather than a path this server accepted and wrote to. The display name
+        # and every staged edit are already baked into `entries`, so both
+        # destinations produce the identical car.
+        if body.get("destination") == "elsewhere":
+            data = base64.b64encode(archive.to_bytes(forked)).decode("ascii")
+            return Path(f"{new_prefix}.car"), None, resized, warnings, data
         out_path = car_path.with_name(f"{new_prefix}.car")
         if out_path.exists():
             raise ValueError(f"{out_path.name} already exists in the Data folder -- pick another name")
-        archive.write(car.fork_car(entries, new_prefix), out_path)
-        return out_path, None, resized, warnings
+        archive.write(forked, out_path)
+        return out_path, None, resized, warnings, None
 
     backup_path = _unique_path(car_path.with_name(f"{car_path.stem}_original{car_path.suffix}.bak"))
     shutil.copy2(car_path, backup_path)
     archive.write(entries, car_path)
-    return car_path, backup_path, resized, warnings
+    return car_path, backup_path, resized, warnings, None
 
 
 def _apply_track_commit(body: dict) -> tuple[Path, Path]:
@@ -397,7 +408,9 @@ def _apply_track_commit(body: dict) -> tuple[Path, Path]:
             raise ValueError("track file name must be 1-32 letters, digits, dashes or "
                              "underscores (it becomes <name>.tra)")
         out_path = track_path.with_name(f"{name}.tra")
-        if out_path.exists():
+        # Only a Data-folder write can collide here; an "elsewhere" save is
+        # checked by the OS dialog (and the bridge) at the folder the user picks.
+        if body.get("destination") != "elsewhere" and out_path.exists():
             raise ValueError(f"{out_path.name} already exists in the Data folder -- pick another name")
         warnings: list[str] = []
         names = {e.name.lower() for e in entries}
@@ -415,15 +428,21 @@ def _apply_track_commit(body: dict) -> tuple[Path, Path]:
         if slot_specific:
             warnings.append(f"carries another slot's zone file(s): {', '.join(slot_specific)}")
         # "flat" -- the header convention every existing .tra uses (track.export_tra).
-        out_path.write_bytes(archive.to_bytes(entries, partitioned=False))
-        return out_path, None, resized, warnings
+        blob = archive.to_bytes(entries, partitioned=False)
+        # Same rule as the car fork: "elsewhere" returns the bytes for the OS
+        # dialog rather than having this endpoint write outside the Data folder.
+        if body.get("destination") == "elsewhere":
+            return (Path(f"{name}.tra"), None, resized, warnings,
+                    base64.b64encode(blob).decode("ascii"))
+        out_path.write_bytes(blob)
+        return out_path, None, resized, warnings, None
 
     # ".bak" so the backup isn't a loadable ".trk" (same reasoning as the car
     # backup in _apply_commit -- keep stray copies out of the game's scan).
     backup_path = _unique_path(track_path.with_name(f"{track_path.stem}_original{track_path.suffix}.bak"))
     shutil.copy2(track_path, backup_path)
     archive.write(entries, track_path)
-    return track_path, backup_path, resized, []
+    return track_path, backup_path, resized, [], None
 
 
 class _CommitHandler(http.server.SimpleHTTPRequestHandler):
@@ -439,10 +458,15 @@ class _CommitHandler(http.server.SimpleHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", 0))
         try:
             body = json.loads(self.rfile.read(length))
-            out_path, backup_path, notes, warnings = _apply_commit(body)
+            out_path, backup_path, notes, warnings, data = _apply_commit(body)
             response = {"ok": True, "out_path": str(out_path),
                         "backup_path": str(backup_path) if backup_path else None,
                         "resized": notes, "warnings": warnings}
+            # "elsewhere": nothing was written -- the page saves these bytes via
+            # the OS dialog, so send the filename and payload instead of a path.
+            if data is not None:
+                response["filename"] = out_path.name
+                response["data"] = data
         except Exception as e:
             response = {"ok": False, "error": str(e)}
         payload = json.dumps(response).encode("utf-8")

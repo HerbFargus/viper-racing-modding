@@ -1229,10 +1229,17 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                     return self._json({"ok": False,
                                        "error": "edit target is outside this Data folder"})
                 try:
-                    out_path, backup_path, resized, warnings = cli._apply_commit(req)
-                    return self._json({"ok": True, "out_path": str(out_path),
-                                       "backup_path": str(backup_path) if backup_path else None,
-                                       "resized": resized, "warnings": warnings})
+                    out_path, backup_path, resized, warnings, data = cli._apply_commit(req)
+                    payload = {"ok": True, "out_path": str(out_path),
+                               "backup_path": str(backup_path) if backup_path else None,
+                               "resized": resized, "warnings": warnings}
+                    # "elsewhere": nothing was written -- the page hands these
+                    # bytes to the OS save dialog (see viewer.py), which is why
+                    # this server never writes outside the folder it was given.
+                    if data is not None:
+                        payload["filename"] = out_path.name
+                        payload["data"] = data
+                    return self._json(payload)
                 except Exception as ex:
                     return self._json({"ok": False, "error": f"{type(ex).__name__}: {ex}"})
             if self.path == "/api/plan":

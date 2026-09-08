@@ -76,6 +76,29 @@ class Api:
         d = switcher_ui.get_data_dir()
         return str(d) if d else None
 
+    def save_into_folder(self, filename: str, b64: str) -> dict:
+        """Native FOLDER picker for a file whose name is load-bearing.
+
+        A forked car must keep `<prefix>.car` to match its own internal members
+        (`jeep.car` holds `jeep0.mod`), so the user picks only the directory and
+        we write `filename` into it -- a SAVE_DIALOG would let them rename it and
+        quietly produce a car the game can't load. Refuses to clobber an existing
+        file; the caller reports the message."""
+        import base64
+        win = webview.active_window()
+        result = win.create_file_dialog(webview.FOLDER_DIALOG)
+        if not result:
+            return {"ok": False}                       # user cancelled
+        folder = result[0] if isinstance(result, (list, tuple)) else result
+        path = Path(folder) / filename
+        if path.exists():
+            return {"ok": False, "error": f"{filename} already exists in that folder."}
+        try:
+            path.write_bytes(base64.b64decode(b64))
+        except (OSError, ValueError) as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "path": str(path)}
+
     def save_file(self, filename: str, b64: str) -> dict:
         """Native Save-As for a file the page generated in the browser (Export
         TGA, an OBJ bundle, ...). The embedded webview can't honor an <a
