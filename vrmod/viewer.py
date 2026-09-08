@@ -1055,6 +1055,7 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
          The per-view EDITORS live on the left tool rail (#tool-rail below). -->
     <div id="file-actions">
       <button id="commit-btn" class="icon-btn" aria-label="Save" title="Save — write your staged changes into the car (backs up the original first)"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7"/><rect x="8" y="13" width="8" height="6"/></svg></button>
+      <button id="saveas-btn" class="icon-btn" aria-label="Save as new car" title="Save as new car — write your changes to a NEW, separately-named car (a real standalone vehicle), leaving this one untouched"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h9l4 4v6"/><path d="M8 4v5h6"/><path d="M18 17v6M15 20h6"/></svg></button>
       <button id="discard-btn" class="icon-btn" aria-label="Discard all changes" title="Discard all — drop every unsaved (staged) change and return to the last saved state"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 13 4 8l5-5"/><path d="M4 8h9a7 7 0 0 1 0 14H7"/></svg></button>
       <button id="restore-btn" class="icon-btn danger" aria-label="Restore original" title="Restore original — revert the car file to its first backup, discarding ALL changes you've saved (asks first)"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v5h5"/><path d="M4.5 9a8 8 0 1 0 3-4"/><path d="M12 8v4l3 2"/></svg></button>
     </div>
@@ -1712,8 +1713,11 @@ function getCockpitRecordValues(name) {
   return arr;
 }
 
-async function commitChanges() {
-  const statusEl = document.getElementById("commit-status");
+// Collects every staged edit (stats, cockpit, parts, textures, sounds, removals,
+// and the display-name field) into the payload shape _apply_commit expects.
+// Shared by Save (writes back in place) and Save As (forks the edited state to a
+// brand-new, separately-named car).
+function buildEditPayload() {
   const stats = {};
   dirtyFields.forEach(field => {
     const inp = document.querySelector(`#sections input[data-field="${field}"]`);
@@ -1726,6 +1730,12 @@ async function commitChanges() {
     sounds: pendingSfxEdits, remove: Array.from(pendingPartRemovals),
   };
   if (carNameChanged()) payload.car_name = document.getElementById("car-name-input").value.trim();
+  return payload;
+}
+
+async function commitChanges() {
+  const statusEl = document.getElementById("commit-status");
+  const payload = buildEditPayload();
 
   statusEl.className = "pending";
   statusEl.textContent = "Saving...";
@@ -1800,6 +1810,105 @@ async function commitChanges() {
     statusEl.className = "error";
     statusEl.textContent = `Save failed: ${result.error}`;
   }
+}
+
+// Save As a NEW car: pop a small dialog for the new file name (+ optional in-game
+// display name), then POST the SAME edit payload with action:"saveas" so the
+// server forks the edited state to <name>.car (re-prefixing every internal member
+// -- a plain rename crashes the game) and leaves THIS car untouched. On success we
+// navigate to the new car's own editor page so further edits target the fork.
+// Works only under `--serve` (same as Save); a static/file:// host has no route.
+function saveAsNewCar() {
+  if (document.getElementById("saveas-modal")) return;   // already open
+  const NAME_RE = /^[A-Za-z0-9_]{1,10}$/;
+  const modal = document.createElement("div");
+  modal.id = "saveas-modal";
+  modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;"
+    + "align-items:center;justify-content:center;z-index:9999;";
+  modal.innerHTML =
+    '<div role="dialog" aria-modal="true" aria-label="Save as new car" style="background:#20242c;'
+    + 'color:#e6e8ec;padding:18px 20px;border-radius:8px;width:340px;max-width:90vw;'
+    + 'font:13px system-ui,sans-serif;box-shadow:0 10px 34px rgba(0,0,0,.55);">'
+    + '<div style="font-weight:600;font-size:14px;margin-bottom:12px;">Save as new car</div>'
+    + '<label style="display:block;margin-bottom:4px;">New file name</label>'
+    + '<input id="saveas-prefix" autocomplete="off" spellcheck="false" placeholder="e.g. jeep" '
+    + 'style="width:100%;box-sizing:border-box;padding:6px 8px;background:#151820;color:#e6e8ec;'
+    + 'border:1px solid #39404c;border-radius:4px;">'
+    + '<div style="font-size:11px;opacity:.7;margin:4px 0 12px;">Letters, digits, underscore (max 10) '
+    + '&mdash; becomes the car&rsquo;s identity. Creates <b><span id="saveas-preview">jeep.car</span></b> '
+    + 'beside this one.</div>'
+    + '<label style="display:block;margin-bottom:4px;">In-game display name <span style="opacity:.6;">(optional)</span></label>'
+    + '<input id="saveas-name" autocomplete="off" placeholder="(keep current)" '
+    + 'style="width:100%;box-sizing:border-box;padding:6px 8px;background:#151820;color:#e6e8ec;'
+    + 'border:1px solid #39404c;border-radius:4px;">'
+    + '<div id="saveas-err" style="color:#ff7a7a;min-height:15px;font-size:11px;margin-top:8px;"></div>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">'
+    + '<button id="saveas-cancel" type="button" class="icon-btn" style="width:auto;padding:5px 12px;">Cancel</button>'
+    + '<button id="saveas-create" type="button" class="icon-btn" style="width:auto;padding:5px 12px;">Create</button>'
+    + "</div></div>";
+  document.body.appendChild(modal);
+  const prefixInp = modal.querySelector("#saveas-prefix");
+  const nameInp = modal.querySelector("#saveas-name");
+  const preview = modal.querySelector("#saveas-preview");
+  const errEl = modal.querySelector("#saveas-err");
+  const close = () => modal.remove();
+  prefixInp.addEventListener("input", () => {
+    const v = prefixInp.value.trim();
+    preview.textContent = (v || "jeep") + ".car";
+    errEl.textContent = "";
+  });
+  modal.addEventListener("click", (e) => { if (e.target === modal) close(); });
+  modal.querySelector("#saveas-cancel").addEventListener("click", close);
+  document.addEventListener("keydown", function esc(e) {
+    if (!document.getElementById("saveas-modal")) { document.removeEventListener("keydown", esc); return; }
+    if (e.key === "Escape") close();
+  });
+  const create = modal.querySelector("#saveas-create");
+  const submit = async () => {
+    const prefix = prefixInp.value.trim();
+    if (!NAME_RE.test(prefix)) {
+      errEl.textContent = "1-10 letters, digits or underscores only.";
+      prefixInp.focus();
+      return;
+    }
+    create.disabled = true;
+    errEl.style.color = "#9fb0c8";
+    errEl.textContent = "Creating " + prefix + ".car...";
+    const payload = buildEditPayload();
+    payload.action = "saveas";
+    payload.new_prefix = prefix;
+    const dn = nameInp.value.trim();
+    if (dn) payload.car_name = dn;      // else keep whatever the fork inherits
+    let result;
+    try {
+      const resp = await fetch(COMMIT_ROUTE, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload),
+      });
+      result = await resp.json();
+    } catch (err) {
+      errEl.style.color = "#ff7a7a";
+      errEl.textContent = "Cannot reach the local save endpoint (needs the app --serve host).";
+      create.disabled = false;
+      return;
+    }
+    if (result.ok) {
+      errEl.style.color = "#7ad19f";
+      errEl.textContent = "Created " + prefix + ".car - opening...";
+      // Go to the new car's OWN editor page (relative to the current /car/<name>
+      // route) so further edits and Saves target the fork, not this car.
+      location.assign(new URL(encodeURIComponent(prefix + ".car"), location.href).href);
+    } else {
+      errEl.style.color = "#ff7a7a";
+      errEl.textContent = result.error || "Save As failed.";
+      create.disabled = false;
+    }
+  };
+  create.addEventListener("click", submit);
+  prefixInp.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
+  nameInp.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
+  prefixInp.focus();
 }
 
 // Uncompressed 32-bit TGA -- mirrors tex.py's write_tga() byte-for-byte (18-byte
@@ -2727,6 +2836,40 @@ function buildPartsDrawer(applyLiveReimport, removeLivePart, highlightPart) {
   const lods = [];
   for (let i = 1; i <= 9; i++) { const a = owns(`${prefix}${i}.mod`); if (a) { lods.push(a); claimed.add(a.toLowerCase()); } }
   addDetailChain(lods, {view: "car"});   // body LOD1-7: raw names, not removable (structural)
+  // Generate/regenerate the LOD chain from the body (LOD0) by decimation,
+  // carrying the body's textures -- keeps the car itself + textured at every
+  // distance (roster, replays, distant traffic). Individual levels stay editable.
+  (function(){
+    const gen = document.createElement("button");
+    gen.className = "part-genlods";
+    gen.style.cssText = "margin:6px 0 10px;padding:6px 11px;font-size:12px;cursor:pointer;"
+      + "background:#16233a;border:1px solid #2d4a7a;border-radius:6px;color:#cfe0ff";
+    gen.textContent = lods.length ? "↻ Regenerate LOD chain" : "✦ Generate LOD chain";
+    gen.title = "Build LOD1–7 by decimating the body (LOD0) and carrying its textures, so the car "
+      + "stays itself and textured at every distance instead of reverting to its donor. Backs up "
+      + "first; each level stays individually editable afterward.";
+    gen.addEventListener("click", async () => {
+      if (!confirm("Generate the LOD chain (LOD1–7) from this car's body?\\n\\nThis decimates the "
+        + "body into the lower detail levels (carrying its textures), backs the car up first, and "
+        + "reloads. Any existing LOD meshes are replaced.")) return;
+      const s = document.getElementById("commit-status");
+      if (s) { s.className = "pending"; s.style.display = "block"; s.textContent = "Generating LOD chain…"; }
+      try {
+        const resp = await fetch(COMMIT_ROUTE, {
+          method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({car_path: CAR_PATH, action: "genlods"}),
+        });
+        const r = await resp.json();
+        if (r.ok) {
+          if (s) { s.className = "ok"; s.textContent = "LOD chain generated — reloading…"; }
+          setTimeout(() => location.reload(), 800);
+        } else if (s) { s.className = "error"; s.textContent = "LOD generation failed: " + r.error; }
+      } catch (e) {
+        if (s) { s.className = "error"; s.textContent = "LOD generation failed: " + (e && e.message ? e.message : e); }
+      }
+    });
+    root.appendChild(gen);
+  })();
 
   // --- the remaining fixed slots ---
   for (const def of SLOT_DEFS) {
@@ -3079,7 +3222,11 @@ function main() {
       if (cr.body && lc === cr.body.toLowerCase()) return grp("body");
       if (cr.sub_b && lc === cr.sub_b.toLowerCase()) return grp("sub_b");
       if (cr.sub_s && lc === cr.sub_s.toLowerCase()) return grp("sub_s");
-      if (/^f?wheel_\d+\.mod$/i.test(member)) return Object.values(wheelObjs);  // all 4 corners
+      // Front (fwheel_*) and rear (wheel_*) are distinct shared meshes, but which
+      // visual end they land on depends on the car body's orientation (custom cars
+      // vary), so highlighting only one pair proved unreliable/"backwards". Highlight
+      // all four for any wheel row -- unambiguous, and both rows do drive shared tires.
+      if (/^f?wheel_\d+\.mod$/i.test(member)) return Object.values(wheelObjs);
     } else if (activeKey === "cockpit" && CAR_ROLES.cockpit) {
       const ck = CAR_ROLES.cockpit;
       if (ck.dash && lc === ck.dash.toLowerCase()) return grp("dash");
@@ -3545,6 +3692,8 @@ function main() {
   document.getElementById("export").addEventListener("click", exportTxt);
   document.getElementById("reset-stats").addEventListener("click", resetStats);
   document.getElementById("commit-btn").addEventListener("click", commitChanges);
+  const saveasBtn = document.getElementById("saveas-btn");
+  if (saveasBtn) saveasBtn.addEventListener("click", saveAsNewCar);
 
   // Global "Discard all" -- the counterpart to Save. Composes the per-domain
   // reverts (stats, cockpit, parts, textures, sounds) so one click returns the

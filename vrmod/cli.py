@@ -6,6 +6,7 @@ import base64
 import functools
 import http.server
 import json
+import re
 import shutil
 import sys
 import webbrowser
@@ -161,6 +162,20 @@ def _apply_commit(body: dict) -> tuple[Path, Path]:
         target = Path(body.get("track_path") or body["car_path"])
         backup = _restore_original(target)
         return target, backup, [], []
+    # Generate the LOD chain from the body mesh (decimate <prefix>0.mod into
+    # <prefix>1..7.mod, carrying its textures) so the car stays itself at every
+    # distance. Standalone action -- operates on the saved car, then the shell
+    # reloads. Backs up first, like every other write.
+    if body.get("action") == "genlods":
+        car_path = Path(body["car_path"])
+        entries = archive.read(car_path)
+        out_entries, made = car.build_lod_chain(entries)
+        backup = _unique_path(
+            car_path.with_name(f"{car_path.stem}_original{car_path.suffix}.bak"))
+        shutil.copy2(car_path, backup)
+        archive.write(out_entries, car_path)
+        return car_path, backup, [], [f"Generated {len(made)} LOD level(s): "
+                                      + ", ".join(f"{n} ({v}v)" for n, v in made)]
     if "track_path" in body:
         return _apply_track_commit(body)
     car_path = Path(body["car_path"])
@@ -289,6 +304,23 @@ def _apply_commit(body: dict) -> tuple[Path, Path]:
     # loads every *.car, deriving each one's member names from its filename, so a
     # "viper_original.car" backup would make it look for "viper_original0.mod" and
     # panic (the exact filename<->members crash from the format reference).
+    # Save As a NEW standalone car: fork the just-edited entries to a new filename
+    # prefix (fork_car re-prefixes every internal member and texture reference --
+    # a plain file rename crashes the game, see fork_car and the format reference).
+    # The ORIGINAL car is never touched, so there is nothing to back up. Any display
+    # name and pending edits are already baked into `entries` above, so the fork is
+    # the user's current edited state under a genuinely separate identity.
+    if body.get("action") == "saveas":
+        new_prefix = (body.get("new_prefix") or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_]{1,10}", new_prefix):
+            raise ValueError("new car name must be 1-10 letters, digits or underscores "
+                             "(it becomes the car's internal file prefix, e.g. 'jeep')")
+        out_path = car_path.with_name(f"{new_prefix}.car")
+        if out_path.exists():
+            raise ValueError(f"{out_path.name} already exists in the Data folder -- pick another name")
+        archive.write(car.fork_car(entries, new_prefix), out_path)
+        return out_path, None, resized, warnings
+
     backup_path = _unique_path(car_path.with_name(f"{car_path.stem}_original{car_path.suffix}.bak"))
     shutil.copy2(car_path, backup_path)
     archive.write(entries, car_path)
@@ -368,7 +400,8 @@ class _CommitHandler(http.server.SimpleHTTPRequestHandler):
         try:
             body = json.loads(self.rfile.read(length))
             out_path, backup_path, notes, warnings = _apply_commit(body)
-            response = {"ok": True, "out_path": str(out_path), "backup_path": str(backup_path),
+            response = {"ok": True, "out_path": str(out_path),
+                        "backup_path": str(backup_path) if backup_path else None,
                         "resized": notes, "warnings": warnings}
         except Exception as e:
             response = {"ok": False, "error": str(e)}
@@ -637,6 +670,21 @@ def main(argv: list[str] | None = None) -> int:
                       help=f"seconds between throws ({hornball.COOLDOWN_MIN}"
                            f"-{hornball.COOLDOWN_MAX}; stock 2.0)")
     p_hb.add_argument("--reset", action="store_true", help="restore stock (1.0x, 2.0s)")
+
+    p_carfork = sub.add_parser(
+        "carfork",
+        help="Fork a car to a NEW filename prefix so it becomes a standalone vehicle "
+             "(distinct from the one it was forked from). Re-prefixes every internal "
+             "member and texture reference -- a plain file rename crashes the game",
+    )
+    p_carfork.add_argument("car_file", type=Path, help="the source .car")
+    p_carfork.add_argument("new_prefix",
+                           help="new prefix, e.g. 'jeep' -> writes jeep.car with jeep0.mod, "
+                                "jeep.cf, jeepL.tab, ...")
+    p_carfork.add_argument("--out", type=Path, default=None,
+                           help="output path (default: <new_prefix>.car beside the source)")
+    p_carfork.add_argument("--name", default=None,
+                           help="also set the in-game display name (the car-select label)")
 
     p_skyexport = sub.add_parser(
         "skyexport",
@@ -907,6 +955,24 @@ def main(argv: list[str] | None = None) -> int:
     p_modretex.add_argument("out_file", type=Path)
     p_modretex.add_argument("index", type=int, help="material index (see modinfo)")
     p_modretex.add_argument("new_texture", help="new texture filename, e.g. MYTEXTURE.tex")
+
+    p_modlod = sub.add_parser(
+        "modlod",
+        help="Generate a car's LOD chain (<prefix>1.mod..7.mod) by decimating its body, "
+             "carrying the body's textures -- so the car stays itself (not a viper) and "
+             "stays textured at every distance (roster, replays, distant traffic)",
+    )
+    p_modlod.add_argument("car_file", type=Path, help="the .car to add LODs to")
+    p_modlod.add_argument("--out", type=Path, default=None,
+                          help="write here instead of rewriting the car in place")
+    p_modlod.add_argument("--levels", type=int, default=7,
+                          help="how many LODs to generate, 1..7 (default 7 = full chain)")
+    p_modlod.add_argument("--targets", default=None, metavar="N,N,...",
+                          help="explicit per-level vertex counts (LOD1 first), overriding the "
+                               "default geometric falloff")
+    p_modlod.add_argument("--keep-existing", action="store_true",
+                          help="don't overwrite LOD meshes that already exist (only fill missing) "
+                               "-- preserves hand-authored LODs")
 
     p_modpatch = sub.add_parser(
         "modpatch",
@@ -1187,6 +1253,21 @@ def main(argv: list[str] | None = None) -> int:
         if args.speed is None and args.cooldown is None and not args.reset:
             print("  --speed MULT / --cooldown SECONDS to change, --reset for stock. "
                   "Enable the hack in-game from the hidden hacks menu.")
+    elif args.command == "carfork":
+        entries = archive.read(args.car_file)
+        old = car.body_prefix(entries)
+        forked = car.fork_car(entries, args.new_prefix)
+        if args.name:
+            forked = car.set_car_name(forked, args.name)
+        out = args.out or (args.car_file.parent / f"{args.new_prefix}.car")
+        if out.exists():
+            print(f"refusing to overwrite existing {out}")
+            return 1
+        archive.write(forked, out)
+        print(f"forked {args.car_file.name} -> {out.name}  (prefix '{old}' -> '{args.new_prefix}', "
+              f"{len(forked)} members)")
+        print("  Put it in the Data folder: it appears in Options -> Hacks -> Vehicle, and can be "
+              "driven while the AI field keeps its own car.")
     elif args.command == "doctor":
         rep = doctor.check(args.data_dir)
         marks = {doctor.BAD: "!!", doctor.WARN: " !", doctor.OK: " *", doctor.INFO: "  "}
@@ -1409,6 +1490,25 @@ def main(argv: list[str] | None = None) -> int:
         new_entries = archive.replace_entry(entries, cf_name, new_raw)
         archive.write(new_entries, args.out_file)
         print(f"wrote {args.out_file} ({len(edits)} {cf_name} field(s) changed)")
+    elif args.command == "modlod":
+        entries = archive.read(args.car_file)
+        targets = None
+        if args.targets:
+            targets = [int(x) for x in args.targets.replace(" ", "").split(",") if x]
+        out_entries, made = car.build_lod_chain(
+            entries, targets=targets, levels=args.levels, keep_existing=args.keep_existing)
+        out = args.out or args.car_file
+        if out == args.car_file:                       # in place -> keep a pristine backup
+            backup = _unique_path(
+                args.car_file.with_name(f"{args.car_file.stem}_original{args.car_file.suffix}.bak"))
+            shutil.copy2(args.car_file, backup)
+            print(f"backed up -> {backup.name}")
+        archive.write(out_entries, out)
+        print(f"wrote {out}")
+        for name, vc in made:
+            print(f"  {name}: {vc} verts")
+        if not made:
+            print("  (nothing generated -- all levels already present and --keep-existing set)")
     elif args.command == "modpatch":
         entries = archive.read(args.car_file)
         edits = {}
