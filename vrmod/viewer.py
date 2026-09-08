@@ -2727,6 +2727,40 @@ function buildPartsDrawer(applyLiveReimport, removeLivePart, highlightPart) {
   const lods = [];
   for (let i = 1; i <= 9; i++) { const a = owns(`${prefix}${i}.mod`); if (a) { lods.push(a); claimed.add(a.toLowerCase()); } }
   addDetailChain(lods, {view: "car"});   // body LOD1-7: raw names, not removable (structural)
+  // Generate/regenerate the LOD chain from the body (LOD0) by decimation,
+  // carrying the body's textures -- keeps the car itself + textured at every
+  // distance (roster, replays, distant traffic). Individual levels stay editable.
+  (function(){
+    const gen = document.createElement("button");
+    gen.className = "part-genlods";
+    gen.style.cssText = "margin:6px 0 10px;padding:6px 11px;font-size:12px;cursor:pointer;"
+      + "background:#16233a;border:1px solid #2d4a7a;border-radius:6px;color:#cfe0ff";
+    gen.textContent = lods.length ? "↻ Regenerate LOD chain" : "✦ Generate LOD chain";
+    gen.title = "Build LOD1–7 by decimating the body (LOD0) and carrying its textures, so the car "
+      + "stays itself and textured at every distance instead of reverting to its donor. Backs up "
+      + "first; each level stays individually editable afterward.";
+    gen.addEventListener("click", async () => {
+      if (!confirm("Generate the LOD chain (LOD1–7) from this car's body?\\n\\nThis decimates the "
+        + "body into the lower detail levels (carrying its textures), backs the car up first, and "
+        + "reloads. Any existing LOD meshes are replaced.")) return;
+      const s = document.getElementById("commit-status");
+      if (s) { s.className = "pending"; s.style.display = "block"; s.textContent = "Generating LOD chain…"; }
+      try {
+        const resp = await fetch(COMMIT_ROUTE, {
+          method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({car_path: CAR_PATH, action: "genlods"}),
+        });
+        const r = await resp.json();
+        if (r.ok) {
+          if (s) { s.className = "ok"; s.textContent = "LOD chain generated — reloading…"; }
+          setTimeout(() => location.reload(), 800);
+        } else if (s) { s.className = "error"; s.textContent = "LOD generation failed: " + r.error; }
+      } catch (e) {
+        if (s) { s.className = "error"; s.textContent = "LOD generation failed: " + (e && e.message ? e.message : e); }
+      }
+    });
+    root.appendChild(gen);
+  })();
 
   // --- the remaining fixed slots ---
   for (const def of SLOT_DEFS) {

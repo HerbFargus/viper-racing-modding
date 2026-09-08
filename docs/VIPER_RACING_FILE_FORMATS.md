@@ -478,6 +478,38 @@ Confirmed by extracting printable strings directly from the payload:
 
 This is genuinely one of the more modder-friendly formats in the game — the payload is literally text.
 
+- **`<prefix>L.tab`** (per-car **LOD table**): another `STAB` use, `fieldsPerRecord = 3`, one record per
+  LOD level. This is what drives the car's `Viper0.mod`…`Viper7.mod` detail chain (§4.1). Loaded by
+  `sub_00466E70`, which builds the name `"%sL.tab"` (`0x4DF594`), reads it, stores `recordCount` on the
+  ModelInfo and parses each record's fields (`atof` on field 0). If it can't be read the game logs
+  `Can't load LOD table %s` (`0x4DF59C`). The three fields per record are **[switch distance (metres),
+  a numeric flag, a render-options string]**. Real `viperL.tab` (v1.2.5), extracted verbatim — 8 records
+  for the 8 meshes:
+
+  ```
+  LOD0  Viper0   10    0   alpha spec     <- highest detail; alpha + specular on
+  LOD1  Viper1   15    0   alpha spec
+  LOD2  Viper2   20    0   alpha spec
+  LOD3  Viper3   60    0                  <- alpha/spec dropped from here out
+  LOD4  Viper4   80    1
+  LOD5  Viper5  100    1
+  LOD6  Viper6  200    x                  <- flag "x" on the two farthest levels
+  LOD7  Viper7 1000    x                  <- last level; beyond this the car is not drawn
+  ```
+
+  The distances are the FAR bound of each level, in metres (the game's one world scale, §7). Selection is
+  **by camera distance**, not by which screen you are on: the same distance test governs every 3D context
+  that draws the car through the standard object path — so a car 5 m ahead in a chase cam is LOD0-1 and the
+  same car 300 m down the straight is LOD7, regardless of view. A global **"LOD Factor"** scalar scales the
+  whole curve (default 1.0); a hidden debug overlay exposes it (`?LOD Factor: %4.1f` / `[`=down `]`=up
+  `'`=1.0, at `0x40D3D0`), so the effective switch distance is `table_distance × LOD_factor`. The flag and
+  options fields are read but their exact effect (mip/shadow toggle; `alpha spec` clearly gates
+  alpha-blend + specular on the near levels) is inferred, not byte-traced — 🟡. **Modding note:** the
+  stock chain is real reduced-detail meshes; the old community "LOD hack" of copying `Viper0` into all of
+  `Viper1..7` satisfies the loader but gives **zero** performance benefit, since every level is then
+  full-detail. Genuine decimation (see `vrmod moddecimate`) is what actually helps a heavy custom car in
+  the near-camera pack.
+
 ### 4.4 `CCS0` — `.ccs` — semantics unconfirmed — 🟡 WELL-SUPPORTED (header only)
 
 Fixed **160 bytes** in every single sample across every track — no exceptions. Every track ships an
@@ -2151,7 +2183,7 @@ inside `ui.res`, while its minimap is the `Trackmap.stp` inside the track archiv
 |---|---|---|
 | Everything: car meshes, track geometry, AI paths (`.ili`/`.ild`), object placement (`.obt`) | **meters** | One shared scale — cars and tracks are drawn in the same world, so they cannot differ. `Viper0.mod` measures 4.43 × 1.92 × 1.10 against the real Viper GTS's 4.45 × 1.92 × 1.12 m. Cross-checked against the game's own Track Info screen: it reports Bemidji as **1.5 miles**, and that track's three stored driving lines measure 2,268 / 2,113 / 2,324 units — 1.41 / 1.31 / 1.44 miles read as meters (a centreline runs slightly longer than any driving line). Read as feet the same lap would be 0.43 miles, which the game's own figure rules out. **No conversion between car and track space.** |
 | AI path Z-axis | **same** as the mesh data — no flip | Confirmed by raycasting path points onto the track geometry, which lands them on the road surface unflipped. A flip is only ever needed to compensate an exporter that mirrors an axis. |
-| LOD levels | `Viper0.mod` (highest detail) … `Viper7.mod` (lowest) | 8 levels total, one file per LOD. |
+| LOD levels | `Viper0.mod` (highest detail) … `Viper7.mod` (lowest) | 8 levels total, one file per LOD. Switch distances live in the per-car `<prefix>L.tab` (§4.3): viper's are 10/15/20/60/80/100/200/1000 m, scaled by a global LOD Factor. Selection is by camera distance, not by screen. |
 | Texture color depth | 16-bit RGB565 (base level, §4.5) | ✅ Confirmed byte-exact. |
 | Sky strip angular width | **~90°, tiled 4× around** (§4.5.1) | The four `sky*.tex` are one strip, not one full turn. Confirmed by counting four copies of a unique feature while turning a full circle in game. |
 

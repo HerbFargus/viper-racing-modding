@@ -409,6 +409,141 @@ def set_car_name(entries: list[archive.ArchiveEntry], new_name: str) -> list[arc
     return archive.replace_entry(entries, e.name, envelope.build(e.tag, e.version, bytes(pay)))
 
 
+# Shared, car-agnostic members whose FILENAME is fixed regardless of the car
+# prefix (the game looks these up by these exact names). Their filenames are NOT
+# re-prefixed by a fork; their internal material references still are (Needle.mod
+# names the body paint slot). See the format reference, car naming.
+_FIXED_MEMBERS = {"cockpit.tab", "needle.mod", "ball.mod", "horn.sfx",
+                  "shift1.sfx", "squeal.sfx"}
+
+
+def _reprefix(name: str, old: str, new: str) -> str:
+    """Swap a leading `old` prefix for `new`, keeping the rest (and its case)."""
+    return new + name[len(old):] if name.lower().startswith(old.lower()) else name
+
+
+def fork_car(entries: list[archive.ArchiveEntry], new_prefix: str
+             ) -> list[archive.ArchiveEntry]:
+    """Clone a car under a NEW filename prefix, so it becomes a standalone
+    vehicle distinct from the one it was forked from -- e.g. fork viper.car to
+    jeep so you can drive jeep.car while the AI field stays viper.
+
+    The game derives every `<prefix>*` member name it loads from the .car file's
+    own on-disk name, so a car saved as `jeep.car` MUST contain `jeep0.mod`,
+    `jeep.cf`, `jeepL.tab`, ... -- just renaming the file leaves it hunting for
+    members that never existed (`ResourceGet("jeep0.mod") returning NULL!` ->
+    `Couldn't load ModelInfo jeep0.mod`). This returns entries with:
+      * every `<old>*` member renamed to `<new>*` (the shared, car-agnostic
+        members keep their fixed names), and
+      * every `.mod` material that references an `<old>`-prefixed texture (the
+        paint slot `<old>.tex`, decals `<old>d*.tex`, wheel `<old>w.tex`)
+        rewritten to the `<new>` prefix, so the mesh still finds its textures.
+
+    Only names change; geometry, ranges, physics, tables and the display name
+    (set separately via set_car_name) carry over unchanged. Caller writes the
+    result as `<new_prefix>.car`."""
+    old = body_prefix(entries)
+    if not old:
+        raise ValueError("couldn't determine this car's prefix")
+    new = new_prefix.strip()
+    if not re.fullmatch(r"[A-Za-z0-9_]+", new or ""):
+        raise ValueError(f"invalid prefix {new_prefix!r} (use letters/digits/underscore)")
+    if new.lower() == old.lower():
+        raise ValueError(f"new prefix is already the current one ({old!r})")
+    longest = max((len(e.name) - len(old) for e in entries
+                   if e.name.lower().startswith(old.lower())), default=0)
+    if len(new) + longest > 16:                       # archive name field is 16 bytes
+        raise ValueError(f"prefix {new!r} too long -- member names would exceed 16 chars")
+
+    # Only rewrite material references to textures actually SHIPPED (and thus
+    # renamed) inside this .car -- the decals/wheel (<old>d*.tex, <old>w.tex).
+    # The body PAINT slot <old>.tex is NOT shipped; it's supplied at runtime by
+    # NAME from the paintkit, so a fork must keep referencing the base car's
+    # paint (rewriting it to <new>.tex leaves the body untextured, since no
+    # <new>.tex paint exists). Shared textures (UCAR/WHEELS/EFFECTS.tex) aren't
+    # prefixed and are left alone automatically.
+    renamed_tex = {e.name.lower() for e in entries
+                   if e.name.lower().startswith(old.lower()) and e.name.lower().endswith(".tex")}
+    mod_tag = getattr(mod, "TAG", b"FNIM")
+    out: list[archive.ArchiveEntry] = []
+    for e in entries:
+        payload = e.payload
+        if e.tag == mod_tag:
+            std = envelope.build(e.tag, e.version, e.payload)
+            for i, m in enumerate(mod.parse(std).materials):
+                if m.name.lower() in renamed_tex:
+                    std = mod.set_material_texture(std, i, _reprefix(m.name, old, new))
+            payload = envelope.parse(std).payload
+        name = e.name if e.name.lower() in _FIXED_MEMBERS else _reprefix(e.name, old, new)
+        out.append(archive.ArchiveEntry(name=name, tag=e.tag,
+                                        version=e.version, payload=payload))
+    return out
+
+
+# Default per-level vertex fractions of LOD0, for LOD1..LOD7 -- a gentle
+# geometric falloff (lots of detail near, little far). Override with explicit
+# targets. The stock cars pair levels (LOD0==LOD1 etc.); this is monotonic,
+# which is simpler and fine for a generated chain.
+_LOD_FRACS = (0.65, 0.45, 0.30, 0.20, 0.12, 0.07, 0.04)
+
+
+def build_lod_chain(entries: list[archive.ArchiveEntry], *,
+                    targets: list[int] | None = None, levels: int = 7,
+                    keep_existing: bool = False
+                    ) -> tuple[list[archive.ArchiveEntry], list[tuple[str, int]]]:
+    """Generate a car's LOD chain `<prefix>1.mod`..`<prefix>N.mod` by decimating
+    its body `<prefix>0.mod`, carrying the body's MATERIALS through so every level
+    keeps the same textures (LOD0's shipped skin), independent of the runtime
+    paint slot.
+
+    This replaces two bad states: the old "copy LOD0 N times" hack (renders every
+    level at full detail -> zero performance benefit) and the "leftover donor LODs"
+    problem (a car forked from viper whose LOD1-7 are still viper meshes, so it
+    reverts to a viper at any distance -- roster, replays, distant traffic).
+
+    Returns (entries, made) where `made` is [(member, vertex_count), ...].
+
+    targets       explicit per-level vertex counts (LOD1 first); default is a
+                  geometric falloff of the body's vertex count (_LOD_FRACS).
+    levels        how many LODs to generate (1..levels); default 7 (full chain).
+    keep_existing don't overwrite a level that already exists -- so a hand-authored
+                  LOD is preserved and only the missing ones are generated. The
+                  generated meshes are ordinary `.mod` members, so any level can
+                  still be exported/replaced/edited afterwards via the parts drawer,
+                  moddecimate, modretex, or an OBJ round-trip.
+    """
+    prefix = body_prefix(entries)
+    if not prefix:
+        raise ValueError("couldn't determine this car's prefix")
+    body = next((e for e in entries if e.name.lower() == f"{prefix.lower()}0.mod"), None)
+    if body is None:
+        raise ValueError(f"no body mesh {prefix}0.mod to build LODs from")
+    body_mesh = mod.parse(envelope.build(body.tag, body.version, body.payload))
+    V = len(body_mesh.vertices)
+    if targets is None:
+        targets = [max(12, int(round(V * f))) for f in _LOD_FRACS[:levels]]
+    have = {e.name.lower() for e in entries}
+    out = entries
+    made: list[tuple[str, int]] = []
+    # Decimate each level from LOD0 (best quality), but never let a level exceed
+    # the previous one: on a low-poly/small-block mesh the decimator safely "backs
+    # off" to the original rather than wiping a material's faces, which would break
+    # monotonicity -- so reuse the previous (smaller) level whenever that happens.
+    prev_mesh, prev_v = body_mesh, V
+    for i in range(1, levels + 1):
+        name = f"{prefix}{i}.mod"
+        if keep_existing and name.lower() in have:
+            continue
+        tgt = targets[i - 1] if i - 1 < len(targets) else targets[-1]
+        dec = mod.decimate(body_mesh, tgt)
+        if len(dec.vertices) >= prev_v:          # backed off / not smaller than previous level
+            dec = prev_mesh
+        out = archive.upsert_entry(out, name, mod.build(dec, version=body.version))
+        made.append((name, len(dec.vertices)))
+        prev_mesh, prev_v = dec, len(dec.vertices)
+    return out, made
+
+
 def car_material_names(entries: list[archive.ArchiveEntry]) -> set[str]:
     """Every material name referenced by any of a car's .mod meshes."""
     names: set[str] = set()
