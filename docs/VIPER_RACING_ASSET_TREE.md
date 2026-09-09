@@ -259,7 +259,27 @@ OBJ+texture pipeline).
 
 # Part II — Tracks
 
-The 8 stock tracks: **bemidji · dundas · hastings · heaven · kenyon · limbo · nfield · uptown**.
+### The 8 stock tracks — file name vs. the name you see ✅ CONFIRMED
+
+Only two tracks ship under the name of their own file, so the filenames alone are close to useless when
+you're trying to work out which track is which. The mapping is read straight from `english.lng`'s
+`Tracks:<slot>:Name` entries — which is also *why* it's editable: installing an add-on rewrites that
+entry, which is how a slot ends up displaying the new track's name (see §11 and the switcher).
+
+| File | Shown in-game as |
+|------|------------------|
+| `bemidji.trk` | Bemidji |
+| `dundas.trk` | Dundas |
+| `hastings.trk` | **Ridge Valley** |
+| `heaven.trk` | **Castlegreen** |
+| `kenyon.trk` | **Rock Island** |
+| `limbo.trk` | **Dayton** |
+| `nfield.trk` | **Sunset Mesa** |
+| `uptown.trk` | **Silverdale** |
+
+`english.lng` carries two further entries with no `.trk` behind them: **`Random`** → "Random Track" (the
+menu's pick-for-me option, not a file) and **`Hell`** → "Test Track" — a development track that has a
+name and a description string but ships no geometry. ⚪
 
 A track is a `.trk` — the *same* 0SER package archive as a car, and the *same* name-based texture resolution
 from §1 applies: the world mesh names its textures and they resolve to `TEX` members inside the same `.trk`.
