@@ -291,6 +291,23 @@ def _ribbon(
         faces.append((a, b, b + 1))
         faces.append((a, b + 1, a + 1))
 
+    # Orient every ribbon the same way up.
+    #
+    # The winding a quad strip comes out with depends on whether its two lateral
+    # offsets ascend or descend, so bands swept to the left of the centreline and
+    # bands swept to the right end up facing opposite ways -- which is how the
+    # first version of this shipped: asphalt and the left bands inside-out, the
+    # right bands correct. Rather than reason about the sign (easy to get wrong,
+    # and invisible until a compiler rejects the mesh), measure the result and
+    # flip it if it faces down. Every mesh vrTrackMaker emits faces up.
+    if faces:
+        a, b, c = faces[0]
+        va, vb, vc = verts[a], verts[b], verts[c]
+        ux, uz = vb.x - va.x, vb.z - va.z
+        wx, wz = vc.x - va.x, vc.z - va.z
+        if uz * wx - ux * wz < 0:
+            faces = [(f[0], f[2], f[1]) for f in faces]
+
     material = mod.Material(texture, 0, len(verts), 0, len(faces))
     return mod.Mesh(vertices=verts, materials=[material], faces=faces)
 
@@ -345,9 +362,8 @@ def sweep(
 def add_start_gate(scene: "TrackScene", half_width: float | None = None) -> None:
     """Put a checkpoint gate across the centreline at its first point.
 
-    A gate is two points spanning the road, and the surface file carries the
-    verts while the graphic file carries only the empty marker -- which is what
-    the reference output does.
+    A gate is two points spanning the road. Both scene files carry the verts;
+    the surface file writes them negated, the graphic file as-is.
     """
     pts = scene.centreline
     if len(pts) < 2:
@@ -388,14 +404,20 @@ def _modobject(o: SceneObject) -> str:
 
 
 def write_graphic(scene: "TrackScene") -> str:
-    """The visual scene source: the centreline, an empty gate, and every object."""
+    """The visual scene source: the centreline, the gate, and every object."""
     out = [""]
     out.append("path(center)")
     out.extend(_vert(p) for p in scene.centreline)
     out.append("end")
     out.append("")
-    for name in scene.markers:
+    for name, gate in scene.markers.items():
+        # The gate verts belong in BOTH files -- unflipped here, negated in the
+        # surface file. An empty marker block is rejected by nhmkworld, which is
+        # exactly what this emitter used to write: the reference was first read
+        # through a `grep -v vert(` that hid the gate, and the artifact got
+        # encoded as a format rule.
         out.append(f"marker({name})")
+        out.extend(_vert(p) for p in gate)
         out.append("end")
     out.append("begin")
     out.extend(_modobject(o) for o in scene.driveables)

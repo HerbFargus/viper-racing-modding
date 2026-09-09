@@ -83,6 +83,21 @@ def check_invariants() -> None:
     check("surface file negates the ground axes; graphic file does not", flipped,
           f"scene {gate[0][0]:.2f},{gate[0][1]:.2f} -> written {s_pts[0][0]:.2f},{s_pts[0][1]:.2f}")
 
+    # An empty marker block is rejected by nhmkworld, and writing one is exactly
+    # the bug this emitter shipped with: the reference was first read through a
+    # filter that hid the gate verts, and the artifact was mistaken for the
+    # format itself. Both files must carry the gate.
+    def gate_verts(text):
+        head, _, rest = text.partition("marker(check1)")
+        if not rest:
+            return 0
+        block, _, _ = rest.partition("end")
+        return block.count("vert(")
+
+    check("both files carry the gate verts (empty marker breaks nhmkworld)",
+          gate_verts(surface) == 2 and gate_verts(graphic) == 2,
+          f"surface={gate_verts(surface)} graphic={gate_verts(graphic)}")
+
     # CRLF is not cosmetic -- the original reader splits on it.
     check("both files use CRLF", surface.count("\r\n") > 0 and graphic.count("\r\n") > 0)
     check("no bare LF in output",
@@ -93,6 +108,23 @@ def check_invariants() -> None:
     a, b = road.vertices[0], road.vertices[1]
     width = math.dist((a.x, a.z), (b.x, b.z))
     check("road width matches road_half_width * 2", abs(width - 12.0) < 1e-6, f"{width:.4f} m")
+
+    # Orientation. Bands swept left of the centreline and bands swept right come
+    # out with opposite winding unless the ribbon builder corrects for it, and the
+    # first version of this shipped with asphalt and the left bands inside-out.
+    # Every mesh vrTrackMaker emits faces up, so ours must too.
+    for name, mesh in scene.meshes.items():
+        up = 0
+        sample = mesh.faces[:200]
+        for a, b, c in sample:
+            va, vb, vc = mesh.vertices[a], mesh.vertices[b], mesh.vertices[c]
+            if (vb.z - va.z) * (vc.x - va.x) - (vb.x - va.x) * (vc.z - va.z) > 0:
+                up += 1
+        if up != len(sample):
+            check(f"{name} faces up", False, f"{up}/{len(sample)}")
+            break
+    else:
+        check(f"all {len(scene.meshes)} meshes face up (no inside-out bands)", True)
 
     # Every emitted mesh must survive our own reader.
     with tempfile.TemporaryDirectory() as tmp:
