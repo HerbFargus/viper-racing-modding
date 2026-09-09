@@ -12,7 +12,7 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from . import aifield, archive, aspectfix, bpp as bppmod, car, carshot, cf, cockpit_tab, doctor, envelope, hornball, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch
+from . import aifield, archive, aspectfix, bpp as bppmod, car, carshot, catalog as catalog_mod, cf, cockpit_tab, doctor, envelope, hornball, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch
 
 COMMIT_PATH = "/__vrmod_commit__"
 
@@ -611,8 +611,10 @@ def main(argv: list[str] | None = None) -> int:
                            help="downward tilt, degrees")
     p_carshot.add_argument("--no-wheels", action="store_true",
                            help="draw the body only -- about twice as fast")
-    p_carshot.add_argument("--style", choices=("wire", "shaded"), default="wire",
-                           help="hidden-line wireframe (default) or flat-shaded solid")
+    p_carshot.add_argument("--style", choices=("wire", "shaded", "textured"), default="wire",
+                           help="hidden-line wireframe (default), flat-shaded solid, or UV-textured")
+    p_carshot.add_argument("--paint", type=Path, default=None,
+                           help="a paint texture (Config/paint0.tex) for the runtime paint slot")
 
     p_doctor = sub.add_parser(
         "doctor",
@@ -965,6 +967,23 @@ def main(argv: list[str] | None = None) -> int:
              "silently fail to run its scripts in some browsers/security setups, where "
              "serving it over http:// reliably works",
     )
+
+    p_catalog = sub.add_parser(
+        "catalog",
+        help="Catalogue a folder of cars (loose .car or one-zip-per-car) into "
+             "catalog.json/.csv plus a browsable index.html",
+    )
+    p_catalog.add_argument("cars_dir", type=Path,
+                           help="folder to walk; the first directory below it becomes each car's 'collection'")
+    p_catalog.add_argument("out_dir", type=Path)
+    p_catalog.add_argument("--shots", action="store_true",
+                           help="render every car ourselves (one consistent camera) instead of using "
+                                "the zips' own screenshots -- about 0.5s per car")
+    p_catalog.add_argument("--data-dir", type=Path, default=None,
+                           help="a game Data folder, so shared materials (wheels, glass, effects, which "
+                                "live in race.res) resolve while rendering")
+    p_catalog.add_argument("--paint", type=Path, default=None,
+                           help="a paint texture (Config/paint0.tex) to fill the runtime paint slot")
 
     p_gallery = sub.add_parser(
         "gallery",
@@ -1370,7 +1389,7 @@ def main(argv: list[str] | None = None) -> int:
         args.out_file.write_bytes(carshot.to_png(
             args.car_file, style=args.style, wheels=not args.no_wheels,
             width=args.width, height=args.height,
-            yaw=args.yaw, pitch=args.pitch,
+            yaw=args.yaw, pitch=args.pitch, paint_texture=args.paint,
         ))
         print(f"wrote {args.out_file} ({args.width}x{args.height})")
     elif args.command == "list":
@@ -1501,6 +1520,26 @@ def main(argv: list[str] | None = None) -> int:
         print(f"wrote {args.html_file}")
         if args.serve:
             serve_and_open(args.html_file)
+    elif args.command == "catalog":
+        records = catalog_mod.catalog(args.cars_dir)
+        ok = sum(1 for r in records if not r.error)
+        args.out_dir.mkdir(parents=True, exist_ok=True)
+        (args.out_dir / "catalog.json").write_text(catalog_mod.to_json(records), encoding="utf-8")
+        (args.out_dir / "catalog.csv").write_text(catalog_mod.to_csv(records), encoding="utf-8")
+        if args.shots:
+            n = catalog_mod.render_shots(records, args.cars_dir, args.out_dir,
+                                         paint_texture=args.paint, shared_from=args.data_dir)
+            print(f"rendered {n} car shot(s)")
+        else:
+            n = catalog_mod.extract_thumbnails(records, args.cars_dir, args.out_dir)
+            print(f"extracted {n} bundled screenshot(s)")
+        page = catalog_mod.build_page(records, args.out_dir)
+        print(f"wrote {page} ({ok}/{len(records)} car(s) read)")
+        missing = [r.filename for r in records if r.error]
+        if missing:
+            print(f"  {len(missing)} unreadable: {', '.join(missing[:5])}"
+                  + (" ..." if len(missing) > 5 else ""))
+
     elif args.command == "gallery":
         result = viewer.build_gallery(args.data_dir, args.out_dir, paint_dir=args.paint_dir)
         ok = sum(1 for c in result.cars if c.error is None)
