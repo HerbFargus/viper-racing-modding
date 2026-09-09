@@ -1274,17 +1274,18 @@ def main(argv: list[str] | None = None) -> int:
                   "use --against <original> to catch an edit of any size.")
     elif args.command in ("bppinfo", "bpp2obj"):
         raw = args.trk_file.read_bytes()
-        # A track archive (.trk retail, .tra repacked) carries the .bpp as one
-        # member; an unpacked loose .bpp is a single-member envelope. Both open
-        # with the same magic, so decide by what the container actually holds --
-        # keying off the extension silently fed a whole .tra to the .bpp parser.
+        # Three shapes reach here, distinguished by magic rather than extension:
+        # a track archive (0TSR -- .trk retail or .tra repacked) carrying the
+        # .bpp as one member; a loose member still in its envelope (0SER), which
+        # is what the MKWORLD toolchain writes into out/; and a bare payload.
         if raw[:4] == archive.MAGIC:
-            try:
-                entries = archive.read_bytes(raw)
-            except ValueError:
-                entries = []
-            entry = next((e for e in entries if e.name.lower().endswith(".bpp")), None)
-            raw = entry.payload if entry is not None else envelope.parse(raw).payload
+            entry = next((e for e in archive.read_bytes(raw)
+                          if e.name.lower().endswith(".bpp")), None)
+            if entry is None:
+                raise SystemExit(f"no .bpp inside {args.trk_file.name}")
+            raw = entry.payload
+        elif raw[:4] == envelope.MAGIC:
+            raw = envelope.parse(raw).payload
         b = bppmod.parse(raw)
         if args.command == "bpp2obj":
             args.obj_file.write_text(bppmod.to_obj(b, args.trk_file.stem))
