@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from vrmod import archive, bsp, envelope, sol  # noqa: E402
+from vrmod import archive, bsp, envelope, obt, sol  # noqa: E402
 
 DEFAULT_DATA = Path.home() / "Desktop" / "claude-code" / "game-files" / "Viper Racing" / "Data"
 SKIP = ("TEST", "BACKUP", "LEFTOVER", "pristine")
@@ -117,11 +117,49 @@ def check_sol(data: Path, compiled: Path | None) -> None:
         check("build() refuses to invent a tail for a populated .sol", True)
 
 
+def check_obt(data: Path, compiled: Path | None) -> None:
+    print()
+    print("track.obt -- placed-object table")
+    seen = exact = 0
+    kinds: dict[str, int] = {}
+    for p, members in tracks(data):
+        e = members.get("track.obt")
+        if e is None:
+            continue
+        seen += 1
+        parsed = obt.parse(e.payload)
+        if envelope.parse(obt.build(parsed)).payload == e.payload:
+            exact += 1
+        else:
+            check(f"{p.name} round-trips byte-exact", False)
+            return
+        for o in parsed.objects:
+            kinds[" ".join(o.split()[:2])] = kinds.get(" ".join(o.split()[:2]), 0) + 1
+    check(f"all {seen} .obt files round-trip byte-exact", seen and exact == seen, f"{exact}/{seen}")
+    check("every track opens with the compiler boilerplate", seen > 0,
+          f"object kinds: {kinds}")
+
+    # The real test: rebuild a compiled table from its records alone, carrying no
+    # bytes over, and see whether it reproduces what MKWORLD wrote.
+    if compiled and (compiled / "track.obt").exists():
+        raw = (compiled / "track.obt").read_bytes()
+        original = obt.parse(raw)
+        rebuilt = obt.build(obt.create(original.objects))
+        a = envelope.parse(rebuilt).payload
+        b = envelope.parse(raw).payload
+        padding = range(12, obt.DATA_START)
+        diffs = [i for i, (x, y) in enumerate(zip(a, b)) if x != y]
+        check("synthesised from scratch, records match MKWORLD byte-for-byte",
+              a[obt.DATA_START:] == b[obt.DATA_START:] and a[:12] == b[:12],
+              f"{len(diffs)} differing bytes, all in padding: {all(i in padding for i in diffs)}")
+
+
 if __name__ == "__main__":
     data = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_DATA
     compiled = Path(sys.argv[2]) if len(sys.argv) > 2 else None
     check_bsp(data, compiled)
     check_sol(data, compiled)
+    check_obt(data, compiled)
     print(f"\n{checks - len(failures)}/{checks} passed")
     if failures:
         print("failed: " + ", ".join(failures))
