@@ -927,6 +927,28 @@ per-record loop advances by `add ebx, 0xe0` — 224, confirmed from the loop its
 `[0, n_primitives)`, all primitives referenced, many-to-one — bemidji has 382 entries over 135 primitives).
 This is the broadphase reference list: the spatial cells name the solids they contain by index here.
 
+**Confirmed against a freshly compiled `.sol`, not just shipped ones.** Running MKWORLD over a scene
+with 1,210 inline wall quads produced 1,201 BOX primitives — very nearly one per quad, so the compiler is
+not merging colinear walls the way one might assume. Every field above read correctly at the documented
+offsets, which is the strongest available check on §4.8: the layout was derived from the loader, and it
+holds for a file written today rather than in 1998.
+
+The same run says something new about the **tail spatial index**, and it rules out the obvious guess:
+
+| track | primitives | `n1` | tail bytes |
+|---|---|---|---|
+| bemidji | 135 | 382 | 10,248 |
+| kenyon | 170 | 403 | 12,808 |
+| heaven | 440 | 1,838 | **32,648** |
+| dundas | 602 | 1,498 | 26,984 |
+| **fresh compile** | **1,201** | 1,899 | **10,952** |
+
+The freshly compiled track has **more primitives than any shipped track and nearly the smallest tail**.
+So the tail is not sized by primitive count — it is sized by how the solids are *distributed*. That fits a
+spatial subdivision: our walls run in a thin ribbon along a single path and occupy few cells, while
+heaven's are spread across the map. Anyone finishing this section should treat it as an occupancy
+structure over space, not an array over primitives.
+
 **These are serialised C++ objects.** The file contains live vtable pointers from the machine that built it,
 which is why the loader re-establishes them per type: it dispatches on the FourCC to `0x42D9D0` (BOX),
 `0x42C360` (SPHR) or `0x42D760` (TUBE), each of which writes the current build's vtable, then calls through
