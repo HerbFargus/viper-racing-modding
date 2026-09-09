@@ -59,6 +59,27 @@ Everything the tutorial offered for download **did** survive, including
 `brakelt.mod` — the game's default brake-light mesh, 380 bytes, which still
 parses cleanly with this toolkit (8 vertices, 4 faces).
 
+## The images carry text the pages do not
+
+These tutorials teach through annotated screenshots — Notepad windows, hex
+editors, modeller dialogs, with instructions written in red over the picture.
+That text is invisible to search and to every earlier survey of this material,
+so the archived images were run through OCR (upscaled 300% and normalised
+first, which is what turns garbled digits into exact coordinates).
+
+It paid for itself on the track-authoring source files. `foolandsurface.jpg`
+recovered the MKWORLD scene format verbatim — `marker(check1)`,
+`vert(-2.5187, -325.5298, 0.0000)`, `modobject(sider.mod, 0, 0, 16, 0)` — and a
+second capture recovered the rule that every driveable object must be declared
+in **both** source files, in the author's own annotation. Both findings are
+written up in [VIPER_RACING_FILE_FORMATS.md](../../VIPER_RACING_FILE_FORMATS.md)
+under "How a track is actually built".
+
+The rest was corroboration rather than discovery: the `tut02x` series is Hex
+Workshop over `tf550f.mod` (a format this toolkit already reads in full), and
+the `zmod15june*` series is ZModeler's UI, confirming the "VR Track creation"
+workflow the tool chart already lists.
+
 ## Provenance
 
 - Original: `http://wrxds.mine.nu/tutorial/` by **BlasterMaster555**

@@ -1179,6 +1179,27 @@ example contains a commented-out `;Walls` block, consistent with it holding the 
 `mkfltoa` converts to **OpenFlight** (`.flt`), a standard interchange format, so track authoring goes
 through ordinary 3D tools rather than anything bespoke.
 
+⚠️ **Every driveable object must be declared in BOTH source files, with the same name and the same surface
+code.** This is the constraint that makes the two-file split workable, and it is stated outright in the
+tutorial — recovered by OCR from a screenshot of the author's Notepad window, annotated in red over the
+text:
+
+> "FOR EXAMPLE IF THESE MODS WERE YOURS, MAKE SURE YOU ALSO PUT […] IN YOUR foolandgraphic.txt"
+> — annotation on `foolandsurface.txt`, beside `modobject(road1.mod, 0, 0, 0, 0)` … `modobject(water1pond.mod, 0, 0, 14, 0)`
+
+The screenshots confirm the two files are the *same* format, not a source and a manifest: both open with a
+`path(center)` block of `vert(x, y, z)` lines, both carry `marker(checkN)` blocks, and both list
+`modobject()` entries. They differ only in which objects they name — the surface file adds the driveable
+and collidable ones, the graphic file adds scenery — so anything that is *both* seen and driven on has to
+appear twice. Divergence between the two copies is the likely cause of the classic authoring failure where
+a track looks right but the car drives through or over the wrong thing.
+
+The same screenshots corroborate the surface-code table from a direction independent of both the engine
+code and the geometry: an author naming a mesh `water1pond.mod` and tagging it **14** is the third
+confirmation that 14 is water, and the most direct kind. `path(center)` is also confirmed as the track
+centreline the rest of the build derives from — the annotation beside it reads "JUST A NOTE ABOUT THESE
+'PATH' VERTS… YOURS WILL BE A LOT LONGER THAN THIS EXAMPLE IS."
+
 #### The shipped tracks are codenamed
 
 The filenames inside `Data/` are not the names players see. Confirmed by matching `.bpp` payload hashes
