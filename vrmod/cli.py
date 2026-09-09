@@ -611,8 +611,10 @@ def main(argv: list[str] | None = None) -> int:
                            help="downward tilt, degrees")
     p_carshot.add_argument("--no-wheels", action="store_true",
                            help="draw the body only -- about twice as fast")
-    p_carshot.add_argument("--style", choices=("wire", "shaded"), default="wire",
-                           help="hidden-line wireframe (default) or flat-shaded solid")
+    p_carshot.add_argument("--style", choices=("wire", "shaded", "textured"), default="wire",
+                           help="hidden-line wireframe (default), flat-shaded solid, or UV-textured")
+    p_carshot.add_argument("--paint", type=Path, default=None,
+                           help="a paint texture (Config/paint0.tex) for the runtime paint slot")
 
     p_doctor = sub.add_parser(
         "doctor",
@@ -1384,7 +1386,7 @@ def main(argv: list[str] | None = None) -> int:
         args.out_file.write_bytes(carshot.to_png(
             args.car_file, style=args.style, wheels=not args.no_wheels,
             width=args.width, height=args.height,
-            yaw=args.yaw, pitch=args.pitch,
+            yaw=args.yaw, pitch=args.pitch, paint_texture=args.paint,
         ))
         print(f"wrote {args.out_file} ({args.width}x{args.height})")
     elif args.command == "list":

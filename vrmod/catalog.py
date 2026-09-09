@@ -807,7 +807,7 @@ def render_shots(records: list[CarRecord], root: Path | str, out_dir: Path | str
                     continue
                 cp = stage / r.filename
                 cp.write_bytes(data)
-                png = carshot.to_png(cp, style="shaded", wheels=True,
+                png = carshot.to_png(cp, style="textured", wheels=True,
                                      width=320, height=190, paint_texture=paint_texture)
                 out = tdir / (_shot_name(r) + ".png")
                 out.write_bytes(png)

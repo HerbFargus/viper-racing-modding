@@ -44,7 +44,8 @@ MARGIN = 8
 
 # A three-quarter view reads as "a car" far better than a flat side-on
 # silhouette, and it separates the add-ons from each other at icon size.
-YAW = 35.0
+YAW = 215.0        # 35 + 180: the handedness fix in _project mirrors the model,
+                   # so the old angle showed the tail. This keeps the front 3/4 view.
 PITCH = 18.0
 
 BACKGROUND = (25, 28, 34)      # sits just under the UI's panel colour
@@ -133,6 +134,53 @@ def material_colours(car_path: str | Path, mesh: mod.Mesh,
     return out
 
 
+
+# Sampling the texture rather than averaging it. The projection is ORTHOGRAPHIC
+# (see _project -- no perspective divide), so interpolating u,v with the same
+# barycentric weights as depth is exact, not an approximation: no perspective
+# correction is needed or possible here.
+#
+# V is NOT flipped here, which looks wrong next to mod.to_obj() until you see
+# why. That function writes `vt u (1-v)` because OBJ and GL put the texture
+# origin at the BOTTOM-left; we sample the decoded image directly, where row 0
+# is the TOP. The game's v is already top-down, so it indexes rows as-is.
+# Verified visually: with a flip the racing number renders mirrored and the tail
+# lights smear up onto the rear deck; without it the number reads correctly on
+# both door and tail, and the plate text reads left-to-right.
+FLIP_V = False
+
+
+def material_textures(car_path: str | Path, mesh: mod.Mesh,
+                      paint_texture: str | Path | None = None) -> dict:
+    """Decoded pixels for each material, keyed by material name.
+
+    Returns {name: (pixels, size, channels, has_key)} -- ready to index directly.
+    Resolved the way the game resolves names (own archive, shared .res, runtime
+    paint), so shared materials like wheels and glass are included.
+    """
+    from . import car as car_mod
+    names = {(m.name or "") for m in mesh.materials if m.name}
+    try:
+        raw_by_name = car_mod.resolve_textures(car_path, names, paint_texture=paint_texture)
+    except Exception:
+        return {}
+    out = {}
+    for name, raw in raw_by_name.items():
+        if raw is None:
+            continue
+        try:
+            info = tex.parse(raw)
+            px = tex.decode_base_level(info)
+        except Exception:
+            continue
+        ch = 4 if (info.has_alpha or info.has_colorkey) else 3
+        size = info.size
+        if size <= 0 or len(px) < size * size * ch:
+            continue
+        out[name] = (px, size, ch, bool(info.has_alpha or info.has_colorkey))
+    return out
+
+
 def _viewer(yaw: float, pitch: float):
     cy, sy = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
     cp, sp = math.cos(math.radians(pitch)), math.sin(math.radians(pitch))
@@ -147,7 +195,12 @@ def _viewer(yaw: float, pitch: float):
 
 def _project(mesh: mod.Mesh, width: int, height: int, yaw: float, pitch: float):
     view = _viewer(yaw, pitch)
-    pts = [view(v.x, v.y, v.z) for v in mesh.vertices]
+    # Z is negated: Viper's mesh space is LEFT-handed and this projects into a
+    # right-handed screen space, the same conversion mod.to_obj() applies. Without
+    # it every render is mirrored -- invisible in wireframe and flat shading, but
+    # once textures are sampled the liveries read backwards ("LOCTITE" as
+    # "ETITCOL"), which is how this was finally caught.
+    pts = [view(v.x, v.y, -v.z) for v in mesh.vertices]
     if not pts:
         raise CarShotError("mesh has no vertices")
     us = [p[0] for p in pts]
@@ -168,16 +221,18 @@ def render(
     wire: tuple[int, int, int] = WIRE,
     base: tuple[int, int, int] = BASE,
     colours: dict[str, tuple[int, int, int]] | None = None,
+    textures: dict | None = None,
 ) -> tuple[bytes, int, int]:
     """Render the mesh to raw RGB bytes. Returns (pixels, width, height)."""
-    if style not in ("wire", "shaded"):
-        raise ValueError(f"unknown style {style!r} (expected 'wire' or 'shaded')")
+    if style not in ("wire", "shaded", "textured"):
+        raise ValueError(f"unknown style {style!r} (expected 'wire', 'shaded' or 'textured')")
     view, screen = _project(mesh, width, height, yaw, pitch)
 
     buf = [list(background) * width for _ in range(height)]
     zbuf = [[-1e30] * width for _ in range(height)]
 
-    shading = style == "shaded"
+    textured = style == "textured"
+    shading = style in ("shaded", "textured")
     if shading:
         ln = math.sqrt(sum(c * c for c in LIGHT)) or 1.0
         light = tuple(c / ln for c in LIGHT)
@@ -190,6 +245,15 @@ def render(
                     continue
                 for fi in range(max(0, m.face_start), min(len(mesh.faces), m.face_end)):
                     face_colour[fi] = col
+        # Same contiguous-run trick for the texture each face samples.
+        face_tex = [None] * len(mesh.faces)
+        if textured and textures:
+            for m in mesh.materials:
+                t = textures.get(m.name)
+                if t is None:
+                    continue
+                for fi in range(max(0, m.face_start), min(len(mesh.faces), m.face_end)):
+                    face_tex[fi] = t
 
     # ---- pass 1: rasterise. Depth always; colour only when shading. --------
     for fi, (ia, ib, ic) in enumerate(mesh.faces):
@@ -200,11 +264,14 @@ def render(
         if shading:
             # Shade from the stored vertex normal, rotated into view space so
             # the lighting follows the rendered orientation, not model space.
-            nx, ny, nz = view(mesh.vertices[ia].nx, mesh.vertices[ia].ny, mesh.vertices[ia].nz)
+            nx, ny, nz = view(mesh.vertices[ia].nx, mesh.vertices[ia].ny, -mesh.vertices[ia].nz)
             nl = math.sqrt(nx * nx + ny * ny + nz * nz) or 1.0
             lam = max(0.0, (nx * light[0] + ny * light[1] + nz * light[2]) / nl)
             shade = AMBIENT + (1.0 - AMBIENT) * lam
             col = [min(255, int(ch * shade)) for ch in face_colour[fi]]
+            tinfo = face_tex[fi] if textured else None
+            if tinfo is not None:
+                va, vb, vc = mesh.vertices[ia], mesh.vertices[ib], mesh.vertices[ic]
 
         minx = max(0, int(min(a[0], b[0], c[0])))
         maxx = min(width - 1, int(max(a[0], b[0], c[0])) + 1)
@@ -224,6 +291,30 @@ def render(
                 # so faces wound either way still resolve correctly.
                 d = a[2] * w2 + b[2] * w1 + c[2] * w0
                 if d > zrow[px]:
+                    if tinfo is not None:
+                        # Affine is exact under this orthographic projection.
+                        # Weights map a->w2, b->w1, c->w0, matching the depth
+                        # interpolation directly above.
+                        tpx, tsize, tch, thas_key = tinfo
+                        u = va.u * w2 + vb.u * w1 + vc.u * w0
+                        v = va.v * w2 + vb.v * w1 + vc.v * w0
+                        # UVs routinely run outside 0..1 (they tile), so wrap.
+                        u -= math.floor(u)
+                        v -= math.floor(v)
+                        if FLIP_V:
+                            v = 1.0 - v
+                        tx = int(u * (tsize - 1))
+                        ty = int(v * (tsize - 1))
+                        o = (ty * tsize + tx) * tch
+                        if thas_key and tpx[o + 3] < 128:
+                            continue          # transparent texel: leave what is behind
+                        zrow[px] = d
+                        row[px * 3:px * 3 + 3] = [
+                            min(255, int(tpx[o] * shade)),
+                            min(255, int(tpx[o + 1] * shade)),
+                            min(255, int(tpx[o + 2] * shade)),
+                        ]
+                        continue
                     zrow[px] = d
                     if shading:
                         row[px * 3:px * 3 + 3] = col
@@ -268,8 +359,10 @@ def to_png(car_path: str | Path, style: str = "wire", wheels: bool = True,
     from . import viewer          # local import: viewer imports plenty, this module is small
     car_path = Path(car_path)
     mesh = car_mesh(car_path, wheels=wheels)
-    if style == "shaded":
+    if style in ("shaded", "textured"):
         kw.setdefault("colours", material_colours(car_path, mesh, paint_texture=paint_texture))
+    if style == "textured":
+        kw.setdefault("textures", material_textures(car_path, mesh, paint_texture=paint_texture))
     pixels, w, h = render(mesh, style=style, **kw)
     rows = [bytearray(pixels[y * w * 3:(y + 1) * w * 3]) for y in range(h)]
     return viewer._rgb_png(w, h, rows)
