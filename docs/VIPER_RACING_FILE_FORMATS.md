@@ -1326,11 +1326,57 @@ and its own readme plus its recovered UI specify it completely.
 in the UI — **Road, Wall, Side, Rumble1, Rumble2, Grass** — each with a *distance to centre* and a
 *height*, which is exactly the vocabulary the surface codes use (Road→0, Side/Rumble→16, Grass→10) and
 why the tool can only ever emit those three. Its own readme says so outright: it will "only create
-asphalt, wall, side, rumble and small part of grass." Other controls: banking multiplier, max banking in
-degrees, UV multiplier, wall type (`all` / `corner` / `corner outside` / `none`), and simplify, corner,
-wall and rumble thresholds. **AI path generation is built in** — with forward and backward lookup
-distances in metres — which is where `track-ai.ili` comes from; the readme notes that `trkaitweaker.exe`
-is no longer needed as a result.
+asphalt, wall, side, rumble and small part of grass." **AI path generation is built in** — with forward
+and backward lookup distances in metres — which is where `track-ai.ili` comes from; the readme notes that
+`trkaitweaker.exe` is no longer needed as a result.
+
+Its shipped defaults, read from the running application (a Delphi `TFmain`; the labels are `TLabel`s, so
+they are drawn rather than exposed as controls):
+
+| band | distance to centre | height | UV multiplier |
+|---|---|---|---|
+| Road | 6.000 | — | 1.000 |
+| Wall | 0.010 | 1.000 | 4.000 |
+| Side | 1.000 | −0.200 | 2.000 |
+| Rumble1 | 0.300 | 0.100 | — |
+| Rumble2 | 0.600 | −0.100 | 3.000 |
+| Grass | 20.000 | 0.000 | 1.000 |
+
+Banking multiplier `0.300`, max banking `5`°, "No banking" checked. Wall type is a four-way choice —
+`all` / `corner` / **`corner outside`** (the default) / `none`. Thresholds: simplify `0.00001`, corner
+`0.100`, wall `1`, rumble `1`. AI path: forward lookup `30` m, backward lookup `5` m, mult `0.15`, add
+`0.005`.
+
+*Process file* fills a grid whose columns are **x, y, z, dirangle, bankangle, length** — the simplified
+centreline with a per-segment heading, bank angle and run length. Comparing that grid against the input
+`.ase` shows the tool applies a coordinate change on the way in: a knot at
+`(−7.5317, 186.3278, 0.0000)` in the `.ase` appears as `(7.532, 0.000, −186.328)`, i.e.
+**x→−x, y→−z, z→y** — the 3DS Max Z-up frame converted to Viper's Y-up left-handed one. The
+`path(center)` verts in `foolandgraphic.txt` are in the *original* `.ase` frame, so this conversion
+happens for display and for the geometry it generates, not in the text it writes.
+
+⚠️ **Line endings matter, and this has already damaged an archived file.** The tool is a Delphi program
+that splits its input on CRLF. The copy of Sucahyo's own test spline `path10.ASE` held in the
+[legacy-tools archive](https://github.com/HerbFargus/viper-racing-legacy-modding-tools) has been
+**normalised to bare LF** somewhere in its archival history — 3,581 LF and zero CRLF — and in that state
+the tool reads several lines as one value and dies with
+
+```
+'0.0000
+    *SHAPE_VERTEX_KNOT  1  -6.4834  186.3442  0.0000
+    ...' is not a valid floating point value.
+```
+
+Converting back to CRLF makes it parse cleanly. This is a preservation defect rather than a tool defect,
+and it is a general hazard: **any text file in these archives that passed through a line-ending–normalising
+step may be unusable by the original tools** even though it looks correct in an editor. `.ase` splines,
+`fooland*.txt` sources, `reslist.txt` and the `.bat` files are all exposed to it.
+
+For the record, `path10.ASE` is a 3DS Max ASCII export dated 13 March 2008 from a scene named
+`kyalamimain.max`, holding one closed `*SHAPEOBJECT` named `linepath` with 3,759 knots. Its first knot is
+`(−7.5317, 186.3278, 0.0000)` — identical to the first `vert()` of the `foolandgraphic.txt` shown in the
+tutorial screenshots, so the archived test spline and the tutorial's worked example come from the same
+source track, decimated with different thresholds.
 
 **What it demands of the spline**, all of which will silently ruin a track if violated:
 
