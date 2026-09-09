@@ -302,6 +302,43 @@ utilities) that are recorded nowhere else here.
 > follows was re-derived from the binaries rather than read from a tutorial,
 > because the tutorials are no longer there to read.
 
+**How much was lost, precisely.** The forum's front page survives in the Wayback
+Machine (captured 20 May 2019, weeks before the site went dark), and it carried
+its own statistics — so the scale is not a guess:
+
+> *"Our users have posted **9,734 Posts** in **913 Topics** in 14 Forum(s)"* —
+> **311 forum members**. Running Web Wiz Forums 7.01.
+
+| Board | Topics | Posts | Last post |
+|---|---:|---:|---|
+| General | 420 | 3,356 | 31 Mar 2019 |
+| **Editing → Cars** | **175** | **2,344** | 5 Jan 2019 |
+| **Editing → Tracks** | **94** | **1,474** | 17 Dec 2015 |
+| Screenshots | 34 | 793 | 29 Dec 2011 |
+| Races | 64 | 494 | 17 Oct 2015 |
+| Best LapTimes | 14 | 465 | 16 Jan 2008 |
+| VRgt RaceFinder | 33 | 208 | 12 Jan 2011 |
+| Drifting Virtually | 7 | 111 | 29 Oct 2009 |
+| Drivers | 26 | 101 | 5 Jul 2011 |
+| Other programs | 9 | 41 | 8 Jan 2011 |
+| Drifting IRL | 7 | 28 | 19 Jul 2007 |
+
+The two **Editing** boards alone — the ones that held the car- and track-modding
+knowledge — account for **269 topics and 3,818 posts**, roughly **39% of
+everything ever posted there**. Not one of those threads is retrievable: the
+front page was captured, the threads behind it were not.
+
+Two further details the capture preserves. The board list shows 11 boards while
+the statistics count **14 forums**, and the page legend includes *"No Access"* —
+so three boards (the empty **Development** category among them) were private.
+And the last posts in **Cars** (Jan 2019) and **General** (Mar 2019) show the
+place was still *active* right up to the end; it didn't fade out, it simply
+stopped being hosted.
+
+The capture also quietly corroborates this document's attributions: the last
+posters include **sucahyo**, **val5662** (Val) and **Matt** — the same people
+credited above for the engine patch, the tracks, and the Tire Editor.
+
 One gap worth noting: those public archives are Val-centric. **Frank Wolf's ~155
 cars are not in them**, and his original site is long dead — so aggregated
 community collections may be their only surviving copy.
