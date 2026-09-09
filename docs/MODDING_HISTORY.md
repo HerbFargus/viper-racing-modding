@@ -99,7 +99,13 @@ by Frank P. Wolf, distributed from his own site (`members.aol.com/racingwolf999/
   (`.sol` / `.obt` / `.bsp` / `.grf` / `.bpp`) from a text scene description;
   **nhmkworld** ✓ — the graphic pass that adds objects to `.grf` / `.bpp`.
 - **MKSTAMP / Stp2Tga / tga2stp** ✓ — the `.stp` menu screenshot and `Trackmap`.
-- **MKTABLE / MKILI** ✓ — data tables / the AI racing line (`.ili`).
+- **MKTABLE / mkilicc** ✓ — data tables / the AI racing lines. `mkilicc -nolat`
+  is run three times: `track.ili`→`track.ild` (the track-map line),
+  `track-ai.ili`→`default.ili` (forward AI line) and
+  `track-ai-reverse.ili`→`rdefault.ili` (**reverse** AI line).
+- **make-track.bat + compile-track.bat** ✓ — the two batch files that drive the
+  whole build and then pack the `.tra` with `mkres @reslist.txt`. Reproduced
+  verbatim in [VIPER_RACING_FILE_FORMATS.md](VIPER_RACING_FILE_FORMATS.md#how-a-track-is-actually-built).
 - **trkaitweaker** ✓ — AI tuning. **jpg2sky / sky-tga2tex** — the four skybox tiles.
 
 ### Engine patches & `race.bin` versions

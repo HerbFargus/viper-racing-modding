@@ -1170,12 +1170,81 @@ text files in the first place — is documented under
 [The modern workflow, end to end](#the-modern-workflow-end-to-end) further down, and it is the part no
 recovered document describes.
 
-`make-track.bat` from the same archive gives the whole pipeline, and it corrects a natural assumption:
+The build is **two batch files**, not one: `make-track.bat` compiles, then hands off to
+`compile-track.bat` which packs. Both survive, and both are reproduced verbatim below — this is the
+critical link in the chain, and the step that determines whether a track works in Viper at all.
 
+```bat
+@echo off
+color 0a
+rmdir /s /q out
+rmdir /s /q tra
+del /s /q track.flt
+del  /s /q mtrack.flt
+ECHO PAUSING FOR 2 SECONDS
+PING 1.1.1.1 -n 1 -w 2000 >NUL
+md out
+md tra
+mkfltoa.exe foolandsurface.txt track.flt -viper
+MKWORLD.EXE
+echo IF YOU SEE NO ERRORS - CONTINUE
+echo IF YOU DO - CAREFULLY READ THE DETAILS CAUSING THE ERROR
+echo THEN "x" OUT OF THIS BATCH FILE UNTIL YOU FIX IT
+pause
+mkilicc -nolat track.ili            tra\track.ild
+mkilicc -nolat track-ai.ili         tra\default.ili
+mkilicc -nolat track-ai-reverse.ili tra\rdefault.ili
+copy out\track.sol tra\track.sol
+copy out\track.obt tra\track.obt
+copy out\track.bsp tra\track.bsp
+mkfltoa.exe foolandgraphic.txt mtrack.flt
+nhmkworld.exe mtrack.flt
+echo IF YOU SEE NO ERRORS - CONTINUE
+echo IF YOU DO - CAREFULLY READ THE DETAILS CAUSING THE ERROR
+echo THEN "x" OUT OF THIS BATCH FILE UNTIL YOU FIX IT
+pause
+copy out\track.bpp tra\track.bpp
+copy out\track.grf tra\track.grf
+copy camera.tab tra
+copy aidef.ccs tra
+copy trackmap.stp tra
+xcopy /e /y mkresfiles tra
+cd tra
+CALL  compile-track.bat
 ```
-mkfltoa.exe foolandsurface.txt track.flt -viper   ->  MKWORLD.EXE    ->  track.sol, track.obt, track.bsp
-mkfltoa.exe foolandgraphic.txt mtrack.flt         ->  nhmkworld.exe  ->  track.bpp, track.grf
+
+…and `mkresfiles\compile-track.bat`, which produces the shipping archive:
+
+```bat
+:: REPLACE THE "trackname" BELOW TO THE NAME OF THE TRACK YOU ARE PUTTING TOGETHER.
+mkres trackname.tra @reslist.txt
 ```
+
+Several things follow from this that were not visible in the summary form:
+
+- **The AI lines are compiled, and there are three of them.** `mkilicc -nolat` runs three times over three
+  separate hand-authored inputs — and this settles what `rdefault.ili` is: `track-ai-reverse.ili` is the
+  **reverse-direction racing line**. `track.ili` compiles to `track.ild` (the line the track map draws),
+  `track-ai.ili` to `default.ili` (the forward AI line).
+- **The surface pass must fully succeed before the graphic pass runs.** The two `pause` blocks are not
+  decoration — the author put a hard stop between the passes precisely because a silent failure in the
+  first produces a track that compiles and then misbehaves.
+- **`MKWORLD.EXE` takes no arguments** — it picks up `track.flt` implicitly, which is why the `mkfltoa`
+  output filename is fixed. `nhmkworld.exe` does take its `.flt` explicitly.
+- **Not everything is generated.** `camera.tab`, `aidef.ccs`, `trackmap.stp` and every `.tex` are authored
+  separately and copied in. Only `.sol/.obt/.bsp/.grf/.bpp` and the three `.ili`-derived files come out of
+  the compiler.
+- **The `.tra` is built by `mkres`, the same packer as `.car` and `.res`,** driven by a `reslist.txt` that
+  fixes the member order:
+
+  ```
+  aidef.ccs  camera.tab  default.ili  rdefault.ili  track.bpp  track.bsp
+  track.grf  track.ild   track.obt    track.sol     Trackmap.stp
+  sky1-4.tex  grass.tex  asphaltv.tex  pine3o15.tex  bboard01.tex
+  ```
+
+  Which matches what `vrmod list` reports for a real track, and confirms the archive format documented at
+  the top of this file is exactly what the original tools emit.
 
 **`.bpp` and `.grf` are generated together, from the same source file.** The collision BSP is derived from
 the visible geometry rather than authored separately — which is exactly why editing a compiled `.grf`
