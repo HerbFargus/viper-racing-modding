@@ -338,6 +338,12 @@ The game's mods are, remarkably, preserved several times over:
 - **A community "Complete CarPack / TrackPack" collection** on the Internet
   Archive (39 car-pack volumes + 6 track-pack volumes), sourced from Val's set.
 - The original tutorials, tool binaries, and readmes are inside those captures.
+- **[viper-racing-recovered](https://archive.org/details/viper-racing-recovered)** —
+  an Internet Archive item holding material recovered from Wayback captures of
+  the sites above: tools, patches, sky and texture packs, the track-making
+  toolchain, and the site images. It ships a `MANIFEST.json` giving every file's
+  original URL, byte count and SHA-256, so what came from where is checkable
+  rather than asserted.
 - **[viper-racing-legacy-modding-tools](https://github.com/HerbFargus/viper-racing-legacy-modding-tools)** —
   a curated republication of that material on GitHub, organised as *Car Tools*,
   *Car Mods*, *Track Tools* and *Track Mods*, sourced from Val via vnovak.com.
