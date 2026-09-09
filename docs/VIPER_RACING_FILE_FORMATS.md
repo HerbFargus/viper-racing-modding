@@ -1165,6 +1165,11 @@ no `.bpp` triangles because their collision is authored separately as `.sol` sol
 
 #### How a track is actually built
 
+The commands below are the *back half*. The front half — how geometry and a centreline become those two
+text files in the first place — is documented under
+[The modern workflow, end to end](#the-modern-workflow-end-to-end) further down, and it is the part no
+recovered document describes.
+
 `make-track.bat` from the same archive gives the whole pipeline, and it corrects a natural assumption:
 
 ```
@@ -1199,6 +1204,41 @@ code and the geometry: an author naming a mesh `water1pond.mod` and tagging it *
 confirmation that 14 is water, and the most direct kind. `path(center)` is also confirmed as the track
 centreline the rest of the build derives from — the annotation beside it reads "JUST A NOTE ABOUT THESE
 'PATH' VERTS… YOURS WILL BE A LOT LONGER THAN THIS EXAMPLE IS."
+
+#### The modern workflow, end to end
+
+Everything above was reconstructed from recovered 1990s–2000s material. The question it leaves open is
+whether a track can still be built *today*, on current tools — and it can. This is a working pipeline,
+[documented by HerbFargus](https://github.com/HerbFargus/viper-racing-legacy-modding-tools/wiki/Creating-a-Custom-Track)
+from tracks actually built with it:
+
+```
+Bob's Track Builder Pro   model the track                    ->  .dof
+  Zmodeler                import .dof, replace textures      ->  .mod  (the game meshes)
+                                                             ->  .3ds  (to carry into Max)
+  3DS Max                 import .3ds, generate the spline   ->  .ase
+  vrTrackMaker            import .ase                        ->  the MKWORLD source set
+  make-track.bat          mkfltoa -> MKWORLD / nhmkworld     ->  .sol .obt .bsp .grf .bpp
+```
+
+**The spline is generated in 3DS Max and handed to vrTrackMaker as `.ase`.** That is the join between the
+two halves, and it explains several things this document had recorded separately without connecting:
+
+- `path(center)`, the centreline block at the top of both source files, is that Max spline after
+  vrTrackMaker has written it out. The "yours will be a lot longer than this example" annotation is
+  describing a spline export, which is why the vert lists run to hundreds of entries.
+- vrTrackMaker emits **only surface codes 0, 10 and 16** (documented above). Now it is clear *why* authors
+  who wanted water or dirt had to hand-edit: those codes are not reachable from the generator, so the text
+  it produces has to be edited after the fact — and per the rule above, edited in **both** files, or the
+  track will look right and drive wrong.
+- Zmodeler produces the `.mod` meshes and the `.3ds` in the same pass, which is what keeps mesh names
+  consistent between the geometry and the `modobject()` lines that must reference them.
+
+Two of these steps are the same commercial tools the original community used — 3DS Max, and Zmodeler for
+the `.dof` import. `vrmod`'s `mod2obj` / `obj2mod` covers the mesh interchange step with free tools, but
+the spline generation and the vrTrackMaker stage have no counterpart here yet. That gap — `.ase` spline
+and mesh set in, MKWORLD source files out — is the concrete, bounded shape of any future track-authoring
+work, and it is now fully specified on both ends rather than being a research problem.
 
 #### The shipped tracks are codenamed
 

@@ -94,7 +94,7 @@ by Frank P. Wolf, distributed from his own site (`members.aol.com/racingwolf999/
 ### Tracks
 - **Bob's Track Builder (BTB)** — track authoring (with a BTB→Viper tutorial); the
   Pro edition is still sold on Steam, though the tutorial targets the original.
-- **vrTrackMaker** ✓ — turn a path/spline into a track block.
+- **vrTrackMaker** ✓ (Sucahyo) — turn a `.ase` spline from 3DS Max into the MKWORLD source set.
 - **MKWORLD / mkfltoa** ✓ — generate the surface + collision set
   (`.sol` / `.obt` / `.bsp` / `.grf` / `.bpp`) from a text scene description;
   **nhmkworld** ✓ — the graphic pass that adds objects to `.grf` / `.bpp`.
@@ -199,7 +199,7 @@ Two kinds of software are kept apart deliberately:
 |---|---|---|---|
 | **Trackman** | Frank P. Wolf | Install add-on tracks into the 8 game slots | Switcher track install/restore; `vrmod trk2tra` produces the `.tra` it consumes |
 | **Track Maker** | Sucahyo | Build a track from a 3DS Max ASE file | **none** — track *authoring* is out of scope so far |
-| **vrTrackMaker** | — | Turn a path/spline into a track block | **none** |
+| **vrTrackMaker** | Sucahyo | Consumes a **`.ase` spline exported from 3DS Max** and emits the MKWORLD source set. Emits only surface codes 0, 10 and 16, so water and dirt must be hand-edited into the generated text afterwards — in *both* source files | **none** — this stage, plus the spline generation feeding it, is the one real gap left in track authoring |
 | **MKWORLD / mkfltoa / nhmkworld** | — | Generate the surface + collision set (`.sol`/`.obt`/`.bsp`/`.grf`/`.bpp`) from a text scene | **none** — the hard part of track editing (see below) |
 | **BPP-2-Mod Converter** | Sucahyo | `.bpp` ⇄ `.mod`: fix holes, add surface, read surface types, merge verts | `vrmod bpp2obj`, `bppinfo`, `bppsurface` (read + surface retag; no `.mod` → `.bpp` rebuild) |
 | **Bad Poly Fix** | Sucahyo | Repair the "bad polys" that make holes after conversion | `vrmod collisioncheck` *detects*; no repair |
@@ -252,7 +252,7 @@ and only then pushed through the community converters in Part A.
 | **Blender** | The modern equivalent, and the practical target today | Free, current | Direct: the OBJ round-trip is designed so a mesh opens and re-imports cleanly |
 | **3DSimED** | Racing-sim model editor/converter. **Reads Viper Racing `.mod` files directly** (confirmed by loading a car mod), so it opens both ends of the old conversion pipeline: the sims cars were converted *from*, and Viper itself | Commercial, current | Overlapping, not dependent — 3DSimED imports `.mod` natively; `vrmod` goes via `mod2obj`/`obj2mod` so any modeller works. Either is a valid path onto the geometry |
 | **GIMP** | The image editor of choice for skins and track textures | Free, current | `vrmod tex2tga` / `tga2tex` produce/consume what it edits; the app does import/export in-place |
-| **Bob's Track Builder (BTB)** | Track authoring, with a community BTB→Viper tutorial. The tutorial screenshots show **v0.8.0.0**, the original line | Split three ways — see below. **Bob's Track Builder Pro is on Steam and current**; the tutorial-era line is not | **none** — track authoring remains out of scope, but the geometry half of it is no longer blocked on a dead tool |
+| **Bob's Track Builder (BTB)** | Where a modern track starts: model it here, export `.dof`. The tutorial screenshots show **v0.8.0.0**; the pipeline below uses **Pro** | Split three ways — see below. **Bob's Track Builder Pro is on Steam and current**; the tutorial-era line is not | **none** — but no longer a dead end: the route from here to a finished track still runs, see below |
 | **XVi32** | The hex editor behind nearly every non-geometry edit: the `<car>1.tab` spec sheet, texture-name strings inside a `.mod`, names in `english.lng` | Free, still available | Superseded — those three edits are now `cfset`/`carfork`/the switcher |
 
 #### Bob's Track Builder is three different products, and only one is still available
@@ -267,13 +267,22 @@ Worth spelling out, because "BTB" in a 2000s-era tutorial does not mean the BTB 
 
 The developer's current focus is Race Track Builder, which targets Assetto Corsa only.
 
-There was never an official Viper Racing exporter in any version. What BTB contributed to the Viper
-pipeline was the *geometry* — the centreline spline and the surface panels — which then had to be carried
-into `foolandsurface.txt` / `foolandgraphic.txt` for `mkfltoa`. So the modern position is better than the
-tool chart used to imply: **the mesh-authoring half of track building is a live, purchasable tool**, and
-what is actually missing is the converter between BTB's output and the two MKWORLD source files. That is a
-tractable piece of work rather than a dead end, and it is the concrete shape any future track-authoring
-scope would take.
+There was never an official Viper Racing exporter in any version. BTB contributes the *geometry*, which is
+then carried through Zmodeler and 3DS Max before reaching the MKWORLD source files. The full route is
+[documented by HerbFargus](https://github.com/HerbFargus/viper-racing-legacy-modding-tools/wiki/Creating-a-Custom-Track)
+from tracks built with it, and written up step by step in
+[VIPER_RACING_FILE_FORMATS.md](VIPER_RACING_FILE_FORMATS.md#the-modern-workflow-end-to-end):
+
+```
+BTB Pro  ->  .dof  ->  Zmodeler  ->  .mod + .3ds  ->  3DS Max (spline)  ->  .ase
+         ->  vrTrackMaker  ->  MKWORLD source set  ->  make-track.bat  ->  the track
+```
+
+So the position is much better than this chart used to imply. **Track authoring is not a dead end and not
+a research problem — it is a working pipeline that still runs**, with a purchasable modeller at the front
+and recovered tools at the back. What `vrmod` lacks is the middle: the spline-generation and vrTrackMaker
+stages, i.e. `.ase` spline plus mesh set in, MKWORLD source files out. That is a bounded piece of work with
+both ends specified, which is the concrete shape any future track-authoring scope would take.
 
 > **The honest summary of Part B:** the community's real "editor" was a
 > general-purpose 3D package plus a hex editor. Everything in Part A existed to
@@ -317,6 +326,13 @@ The game's mods are, remarkably, preserved several times over:
 - **A community "Complete CarPack / TrackPack" collection** on the Internet
   Archive (39 car-pack volumes + 6 track-pack volumes), sourced from Val's set.
 - The original tutorials, tool binaries, and readmes are inside those captures.
+- **[viper-racing-legacy-modding-tools](https://github.com/HerbFargus/viper-racing-legacy-modding-tools)** —
+  a curated republication of that material on GitHub, organised as *Car Tools*,
+  *Car Mods*, *Track Tools* and *Track Mods*, sourced from Val via vnovak.com.
+  Its wiki also carries the
+  [modern track-building workflow](https://github.com/HerbFargus/viper-racing-legacy-modding-tools/wiki/Creating-a-Custom-Track),
+  which is the only description of the front half of that pipeline anywhere —
+  it is not in Val's tutorials, the wrxds tutorial, or the tool readmes.
 
 ### vrgt.com — the other hub, mostly lost
 
