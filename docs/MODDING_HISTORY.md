@@ -44,6 +44,11 @@ knowledge into one programmatic library.
   Editor**, and the source of the finished tyre sets it could apply.
 - **Maurizio** — author of **VRDSC**, which advertised a dedicated server to the
   VRgt RaceFinder.
+- **BlasterMaster555** ("Impreza") — ran `wrxds.mine.nu`, from 2003 a Viper
+  Racing dedicated server, and wrote the community's most complete **car
+  creation / conversion tutorial** (19 pages). His machine also hosted the FTP
+  archive Val's site linked as "accumulated from 1998". Archived copy:
+  [`docs/tutorials/wrxds-car-tutorial/`](tutorials/wrxds-car-tutorial/).
 - **Max** — a car modder ("Add-on cars by Max").
 - …and the wider community of racers and converters who contributed cars,
   tracks, retextures, and testing over the years.
@@ -54,10 +59,18 @@ knowledge into one programmatic library.
 A capable but **entirely manual** set of tools. Where a binary survives in the
 preserved archives it's marked ✓.
 
-### Archive / packaging
+### Archive / packaging — Frank Wolf's **RESTools**
+
+Most of the converters below were not loose utilities but one suite, **RESTools**
+by Frank P. Wolf, distributed from his own site (`members.aol.com/racingwolf999/`)
+— the same address his cars and CarMan came from. The wrxds tutorial (see
+*Preservation & sources*) walks through using them and names the set.
+
 - **rescrack.exe** ✓ — unpack a `.car` / `.res` / `.trk` archive into its loose
   members, plus a `reslist.txt`.
 - **mkres.exe** ✓ — (re)pack an archive from a `reslist`.
+- **mkcar.exe** — build the `.car` itself. Named in the tutorial's step 4
+  alongside `mktex`/`mkres`/`mksfx`; no surviving binary located yet.
 - **extract.exe** ✓ — an alternate unpacker.
 
 ### Cars
@@ -154,8 +167,9 @@ Two kinds of software are kept apart deliberately:
 ### Archive / packaging
 | Tool | Creator | Purpose | `vrmod` |
 |---|---|---|---|
-| **rescrack.exe** | — | Unpack `.car`/`.res`/`.trk` to loose members + `reslist.txt` | `vrmod unpack` |
-| **mkres.exe** | — | Repack an archive from a `reslist` | `vrmod pack` |
+| **rescrack.exe** *(RESTools)* | Frank P. Wolf | Unpack `.car`/`.res`/`.trk` to loose members + `reslist.txt` | `vrmod unpack` |
+| **mkres.exe** *(RESTools)* | Frank P. Wolf | Repack an archive from a `reslist` | `vrmod pack` |
+| **mkcar.exe** *(RESTools)* | Frank P. Wolf | Build the `.car` itself | `vrmod pack` / `carfork` |
 | **extract.exe** | — | Alternate unpacker | `vrmod unpack` |
 
 ### Cars
@@ -174,10 +188,10 @@ Two kinds of software are kept apart deliberately:
 ### Textures & sound
 | Tool | Creator | Purpose | `vrmod` |
 |---|---|---|---|
-| **mktex / tex2tga / tga2tex** | — | `.tex` ⇄ `.tga` | `vrmod tex2tga` / `tga2tex`, plus in-app import/export |
+| **mktex / tex2tga / tga2tex** *(mktex: RESTools)* | Frank P. Wolf (mktex) | `.tex` ⇄ `.tga` | `vrmod tex2tga` / `tga2tex`, plus in-app import/export |
 | **jpg2sky ("JPG 2 SKY")** | Sucahyo | Split one image into the 4 sky tiles | `vrmod skyexport` / `skyimport` (one panoramic TGA, both ways) |
 | **MKSTAMP / Stp2Tga / tga2stp** | — | `.stp` menu screenshots and `Trackmap` | `stp.py`, `vrmod trackmap` |
-| **mksfx** | — | `.wav` → `.sfx` | `vrmod wav2sfx` / `sfx2wav` |
+| **mksfx** *(RESTools)* | Frank P. Wolf | `.wav` → `.sfx` | `vrmod wav2sfx` / `sfx2wav` |
 
 ### Tracks
 | Tool | Creator | Purpose | `vrmod` |
@@ -338,6 +352,30 @@ stopped being hosted.
 The capture also quietly corroborates this document's attributions: the last
 posters include **sucahyo**, **val5662** (Val) and **Matt** — the same people
 credited above for the engine patch, the tracks, and the Tire Editor.
+
+### wrxds.mine.nu — the tutorial that survived
+
+Where vrgt's forums are gone, one substantial piece of documentation came
+through intact: the **Car Creation / Conversion Tutorial** at
+`http://wrxds.mine.nu/tutorial/`, by **BlasterMaster555**. Nineteen pages
+covering the whole pipeline — meshes, dashboard, RESTools, textures, sounds,
+performance, the car's long name, packing, and a second pass of fixes down to
+the brake lights.
+
+The same host carried the FTP archive (`ftp://wrxds.mine.nu/vrmods/`) that Val's
+site pointed at as *"accumulated from 1998"*. That listing was **never captured**
+— the files and their names are gone. The tutorial pages were, and are now kept
+in [`docs/tutorials/wrxds-car-tutorial/`](tutorials/wrxds-car-tutorial/) with
+their images and the assets they offered for download.
+
+It matters twice over. It is the era's best surviving account of how a car was
+actually built; and it is **the missing citation** for parts of this very
+document. The tool list above — Zmodeler 1.07, XVi32, `vrzmodtemplate`, the
+`rescrack`/`mkres`/`mktex`/`mksfx` set — is documentation-derived knowledge, not
+anything recoverable from a binary, but no source was recorded for it. Reading
+the tutorial supplied what had been lost in the retelling: that those converters
+are **one suite** (Frank P. Wolf's **RESTools**), that it includes **`mkcar`**,
+and where it was distributed.
 
 One gap worth noting: those public archives are Val-centric. **Frank Wolf's ~155
 cars are not in them**, and his original site is long dead — so aggregated

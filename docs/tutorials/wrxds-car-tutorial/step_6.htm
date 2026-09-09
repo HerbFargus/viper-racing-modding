@@ -1,0 +1,88 @@
+
+ 
+
+<p align="center"><font size="6"><b>Step 6: Preparing Sounds</b></font></p>
+
+<p align="left"><font size="4">The sounds of the car are something else.</font></p>
+<p align="left"><font size="4">You have four to six files, carname0.sfx, 
+carname1.sfx, carname2.sfx, and carnamei.sfx</font></p>
+<p align="left"><font size="4">Optionally, you can have horn.sfx and shift1.sfx.</font></p>
+<p align="left"><font size="4">i.sfx is the idling sound, 0.sfx is the AI / 
+Other Player sounds (when this car is an AI or another player), from idle to 
+9000 RPM. 1.sfx is the sound from idle to 9000 RPM (at which it is fully faded 
+out), and 2.sfx is the sound from 4000 RPM to 9000 RPM. For a turbo hiss, you 
+can place the hiss as the 2.sfx</font></p>
+<p align="left"><font size="4">horn.sfx is the car's horn, and shift1.sfx is the 
+shifting sound.</font></p>
+<p align="left"><font size="4">You need samples of both 0 and 1 at 3000 RPM. and 
+2 at 4000 RPM.</font></p>
+<p align="left"><font size="4">You also need to make sure the audio sample loops 
+without popping.</font></p>
+<p align="left"><font size="4">I recommend you use Goldwave as your sound 
+editor, available at <a href="http://www.goldwave.com/">www.goldwave.com</a>.
+</font></p>
+<p align="left"><font size="4">To make sure the sound does not pop in Goldwave, 
+you need to set up the User Mode button.</font></p>
+<p align="left"><font size="4">In the Device controls window, click Properties.</font></p>
+<p align="left"><img border="0" src="images/soundproperties.jpg" width="116" height="74"></p>
+<p align="left"><font size="4">Then, set up the looping playback as seen in the 
+below animation.</font></p>
+<p align="left"><img border="0" src="images/loopingplayback.gif" width="386" height="383"></p>
+<p align="left"><font size="4">Open the unpacked wav file, using File... Open, 
+and play it using the user play button. If it pops, you need to find a place 
+where it won't. Use the left mouse button to drag the starting point, and the 
+right mouse button to drag the ending point, in the window that has the wave 
+file. Pick a place where the sound is at zero on both ends. Hit the user play 
+button again, and see if it doesn't pop. All is well that sounds well. </font>
+</p>
+<p align="left"><font size="4">Hit the trim button to get it right.</font></p>
+<p align="left"><img border="0" src="images/trimbutton.jpg" width="130" height="118"></p>
+<p align="left"><font size="4">Then, make sure the sound is 22 KHz by resampling 
+if you have to. Here's how.</font></p>
+<p align="left"><font size="4">Go to Effects... Resample...</font></p>
+<p align="left"><font size="4">and change the sampling rate, as seen in the 
+animation.</font></p>
+<p align="left"><img border="0" src="images/resample.gif" width="371" height="140"></p>
+<p align="left"><font size="4">Save your sound, and make sure it is 16-bit MONO. 
+If it is not, then use Save As... to save it with 16-bit MONO.</font></p>
+<p align="left"><font size="4">Do this for ALL the sounds you wish to use.</font></p>
+<p align="left"><font size="4">Once you are finished exporting the sounds, you 
+now need to convert them with mksfx.</font></p>
+<p align="left"><font size="4">You type mksfx yourfirstfile.wav yournewsfx.sfx</font></p>
+<p align="left"><font size="4">You MUST use your car's short name, then put the 
+i, 0, 1, or 2 at the end for the first four SFX's.</font></p>
+<p align="left"><font size="4">Example here:</font></p>
+<p align="left"><font size="4">mksfx sample12a.wav vanqsh0.sfx</font></p>
+<p align="left"><font size="4">Do this one at a time for all your Sounds.</font></p>
+
+<p align="left"><font size="4">Once you are done playing with your waves, you can move 
+ONWARD.</font></p>
+
+<p align="left">&nbsp;</p>
+
+<p align="left"><a href="step_5.htm">
+<img border="0" src="images/reverse.jpg" alt="REVERSE" align="left" width="80" height="30"></a><a href="step_7.htm"><img border="0" src="images/onward.jpg" alt="ONWARD" align="right" width="80" height="30"></a></p>
+
+</body>
+
+</html><!--
+     FILE ARCHIVED ON 22:48:16 Feb 06, 2012 AND RETRIEVED FROM THE
+     INTERNET ARCHIVE ON 06:46:01 Sep 09, 2026.
+     JAVASCRIPT APPENDED BY WAYBACK MACHINE, COPYRIGHT INTERNET ARCHIVE.
+
+     ALL OTHER CONTENT MAY ALSO BE PROTECTED BY COPYRIGHT (17 U.S.C.
+     SECTION 108(a)(3)).
+-->
+<!--
+playback timings (ms):
+  captures_list: 0.315
+  exclusion.robots: 0.031
+  exclusion.robots.policy: 0.024
+  esindex: 0.005
+  cdx.remote: 29.009
+  LoadShardBlock: 102.448 (3)
+  PetaboxLoader3.resolve: 82.841 (3)
+  PetaboxLoader3.datanode: 61.371 (4)
+  load_resource: 75.296
+  nav: 0.122 (6)
+-->

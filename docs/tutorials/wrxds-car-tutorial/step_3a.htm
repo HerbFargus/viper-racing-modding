@@ -1,0 +1,230 @@
+
+ 
+
+<p align="center"><font size="6"><b>Step 3a: Finalizing and Exporting the 3D Mesh(es)</b></font></p>
+
+<p align="left"><font size="4">You are now ready to export the 3D Mesh(es).</font></p>
+
+<p align="left"><font size="4">If you are converting from Need for Speed 1-6, 
+this is a LONG process!</font></p>
+
+<p align="left"><font size="4">Make sure the objects you are going to export are 
+selected in the Objects list, and hit Export.</font></p>
+
+<p align="left"><img border="0" src="images/clickexport.jpg" width="124" height="64"></p>
+
+<p align="left"><font size="4">A dialog box shows up asking you to save it. In 
+the Save as type menu, find and select Viper Racing &amp; Nascar Heat (*.mod).</font></p>
+
+<p align="left"><img border="0" src="images/saveasmod.jpg" width="431" height="394"></p>
+
+<p align="left"><font size="4">Type the short name of the car, but put an a 
+after the name, like vanqsha.mod</font></p>
+
+<p align="left"><font size="4">When you hit save, this will show up. Just select 
+the objects you want to show up at the highest LOD (if applicable).</font></p>
+
+<p align="left"><img border="0" src="images/pickyourobjects.jpg" width="227" height="396"></p>
+
+<p align="left"><font size="4">After that, the next dialog asks which game. 
+Obviously, you might want to select Viper Racing.</font></p>
+
+<p align="left"><font size="4">Hit New, and Import your exported MOD. </font></p>
+
+<p align="left"><font size="4">Your car will now have black windows. Do not 
+worry, this is not a problem.</font></p>
+
+<p align="left"><font size="4">If your car is NOT from Need for Speed 1-6, you 
+can skip this part and head down to the exporting.</font></p>
+
+<p align="left"><font size="4">If your car is from Need for Speed 1-6, you will 
+need to assign a window texture to tint the windows, since the texture has an 
+alpha mask for fast colorization in Need for Speed. You can make your own, or 
+get the tint pack at
+<a href="http://supra_twinturbo_r.tripod.com/imprezamain/id1.html">
+http://supra_twinturbo_r.tripod.com/imprezamain/id1.html</a>. </font></p>
+
+<p align="left"><font size="4">You will also need to change the texture's name 
+from carXXX (XXX is a number) to a UNIQUE name that is not the same as the car's 
+file or another car. Just remember it has to be no more than eight characters 
+long, as the packing file is a DOS program. Simply switch to explorer, browse to 
+the folder, copy the texture and rename the copy.</font></p>
+
+<p align="left"><font size="4">Once you finished that, switch back to ZModeler 
+and go to Material Editor.</font></p>
+
+<p align="left"><img border="0" src="images/clickmaterial.jpg" width="112" height="84"></p>
+
+<p align="left"><font size="4">You should have a window that looks like this.</font></p>
+
+<p align="left"><img border="0" src="images/materialeditor.jpg" width="353" height="442"></p>
+
+<p align="left"><font size="4">If you hit the pull down menu, you get a list of 
+materials. Unfortunately, they are all named Textured Material: carXXX.tga</font></p>
+
+<p align="left"><img border="0" src="images/materialeditorpulldownmenu.jpg" width="353" height="442"></p>
+
+<p align="left"><font size="4">Click on one of them, and next to Primary Texture 
+click the carXXX.</font></p>
+
+<p align="left"><font size="4">A window pops up asking for which texture. Select 
+carXXX.tga and hit Replace Texture...</font></p>
+
+<p align="left"><img border="0" src="images/texturewindow.jpg" width="509" height="293"></p>
+
+<p align="left"><font size="4">Select your renamed texture and hit OK. Now all 
+the materials that use carXXX will use your renamed texture. DO NOT close the 
+material editor yet. Remember the long list of carXXX.tga materials? You now 
+have to go one by one, uncheck Primary Texture, hit Apply, and see what turns 
+white. Then , recheck the Primary texture, hit apply. Go to the next material, 
+and keep at it until you find the material that has the windows and/or headlight 
+covers and/or driver's shades.</font></p>
+
+<p align="left"><font size="4">BINGO!</font></p>
+
+<p align="left"><img border="0" src="images/bingo.jpg" width="678" height="509"></p>
+
+<p align="left"><font size="4">Click on the Name: Box and rename this Material 
+to Windows.</font></p>
+
+<p align="left"><font size="4">If only the windows, headlight covers, and / or 
+driver's shades turn white, skip the next part.</font></p>
+
+<p align="left"><font size="4">If more than just the windows, headlight covers, 
+and Driver's shades turn white, rename it to something other than windows, like 
+stuff.</font></p>
+
+<p align="left"><font size="4">Hit Copy, go to the bottom texture, and rename it 
+to Windows, then </font></p>
+
+<p align="left"><font size="4">This is the hard way of reassigning textures.</font></p>
+
+<p align="left"><font size="4">Go to the Faces level, and click on the Exterior 
+model.</font></p>
+
+<p align="left"><font size="4">Go to Select... By Material</font></p>
+
+<p align="left"><img border="0" src="images/selectbymaterial.jpg" width="187" height="285"></p>
+
+<p align="left"><font size="4">and in the window that shows up select the 
+material and hit the big button that says select by this material. Hover your 
+mouse over the exterior model, and the selection shows up.</font></p>
+
+<p align="left"><font size="4">Now, go back to Select... Invert. Right-click and 
+the selection inverts.</font></p>
+
+<p align="left"><font size="4">Go to Display... Hide</font></p>
+
+<p align="left"><img border="0" src="images/displayhide.jpg" width="214" height="268"></p>
+
+<p align="left"><font size="4">Make sure SEL is on, then click, and the unneeded 
+faces hide for a while.</font></p>
+
+<p align="left"><font size="4">From here, just select the windows with the 
+Square Selection tool, using SHIFT to Add to the selection and CTRL to subtract 
+from the selection.</font></p>
+
+<p align="left"><font size="4">Then, Right-Click the Exterior object name in the 
+object list, go to Faces... Properties</font></p>
+
+<p align="left"><img border="0" src="images/facesproperties.jpg" width="231" height="208"></p>
+
+<p align="left"><font size="4">A window shows up. Go to the Material: window and 
+select Windows. Hit OK.</font></p>
+
+<p align="left"><img border="0" src="images/faceswindow.jpg" width="364" height="359"></p>
+
+<p align="left"><font size="4">Now, you can go to Display... UnHide, click, and 
+everything returns.</font></p>
+
+<p align="left"><font size="4">That's it for the long way. Go make yourself a 
+sandwich or drink a tall glass of water. That was the hard part.</font></p>
+
+<p align="left"><font size="4">Now, go to the Material Editor, go to Windows, 
+click on the Primary Texture and Add the texture you want for the windows. Hit 
+OK.</font></p>
+
+<p align="left"><font size="4">You're not done yet, so go ahead and put the 
+chicken in the oven.</font></p>
+
+<p align="left"><font size="4">Right-Click the exterior model in the list, hit 
+Order... Move Down. Repeat until it is at the bottom.</font></p>
+
+<p align="left"><font size="4">Go back to the Material Editor, select Windows, 
+and under the sphere (or cylinder or box), click on the Drop down menu that says 
+Type, and switch to Glowing.</font></p>
+
+<p align="left"><font size="4">Below to the Type there should be the Alpha type 
+set to &quot;Standard Alpha Glow transparency.&quot; If this is right, you will see the 
+windows and whatever that's see-thru see-thru. Repeat if you have to for the 
+other stuff.</font></p>
+
+<p align="left"><font size="4">If you see the interior roof and pillars inside 
+the windows, you can skip the next part.</font></p>
+
+<p align="left"><font size="4">Make sure only the exterior is showing, and 
+right-click the exterior object in the list, hit Create Copy</font></p>
+
+<p align="left"><font size="4">A window shows up. In the window, change the [0] 
+to a [2] or whatever you can.</font></p>
+
+<p align="left"><font size="4">Make sure only the [2] or whatever model is 
+showing.</font></p>
+
+<p align="left"><font size="4">Go to the faces level, turn on your trusty square 
+selector, hit Modify... Delete, and delete everything but the roof and the roof 
+support pillars, all the way to where they meet the body. Then, go to Objects 
+level, hit Modify... Reorient. This will make the pillars and roof switch the 
+direction they are showing, so you will see them on the inside.</font></p>
+
+<p align="left"><font size="4">Finally, you can get this exported!</font></p>
+
+<p align="left"><font size="4">Make sure all the models are selected, and hit 
+export. Export this as your car's short name with a 0 at the end. Then, repeat 
+the exporting all the way to 7, unless you have an LOD, in which case you would 
+open the next LOD, repeat all of the above that is applicable, and export it.</font></p>
+
+<p align="left"><font size="4">In terms of the LOD, 0 is the UI model, 1 is the 
+closest in-game model, and 7 is the furthest away. You may only have two or 
+three LOD models, so you will be repeating LODs for a few numbers, like 0-3 is 
+the highest, 4-5 is the medium, and 6-7 is the furthest away.</font></p>
+
+<p align="left"><font size="4">Once you have completed this laborious task, and 
+downed a snack, you can move ONWARD.</font></p>
+
+<p align="left"></p>
+
+<p align="left"></p>
+
+<p align="left"></p>
+
+<p align="left"></p>
+
+<p align="left">
+<font size="4">
+<a href="step_2.htm">
+<img border="0" src="images/reverse.jpg" alt="REVERSE" align="left" width="80" height="30"></a><a href="step_3b.htm"><img border="0" src="images/onward.jpg" alt="ONWARD" align="right" width="80" height="30"></a></font></p>
+
+</body>
+
+</html><!--
+     FILE ARCHIVED ON 18:52:29 Feb 11, 2012 AND RETRIEVED FROM THE
+     INTERNET ARCHIVE ON 06:45:56 Sep 09, 2026.
+     JAVASCRIPT APPENDED BY WAYBACK MACHINE, COPYRIGHT INTERNET ARCHIVE.
+
+     ALL OTHER CONTENT MAY ALSO BE PROTECTED BY COPYRIGHT (17 U.S.C.
+     SECTION 108(a)(3)).
+-->
+<!--
+playback timings (ms):
+  captures_list: 0.386
+  exclusion.robots: 0.036
+  exclusion.robots.policy: 0.028
+  esindex: 0.006
+  cdx.remote: 5.545
+  LoadShardBlock: 116.615 (3)
+  PetaboxLoader3.resolve: 95.845 (3)
+  PetaboxLoader3.datanode: 70.908 (4)
+  load_resource: 71.597
+  nav: 0.155 (6)
+-->
