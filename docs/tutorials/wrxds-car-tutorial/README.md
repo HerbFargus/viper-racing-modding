@@ -67,13 +67,21 @@ That text is invisible to search and to every earlier survey of this material,
 so the archived images were run through OCR (upscaled 300% and normalised
 first, which is what turns garbled digits into exact coordinates).
 
-It paid for itself on the track-authoring source files. `foolandsurface.jpg`
-recovered the MKWORLD scene format verbatim — `marker(check1)`,
-`vert(-2.5187, -325.5298, 0.0000)`, `modobject(sider.mod, 0, 0, 16, 0)` — and a
-second capture recovered the rule that every driveable object must be declared
-in **both** source files, in the author's own annotation. Both findings are
-written up in [VIPER_RACING_FILE_FORMATS.md](../../VIPER_RACING_FILE_FORMATS.md)
-under "How a track is actually built".
+It paid for itself on Sucahyo's **vrTrackMaker**, whose UI exists only as
+screenshots: the cross-section bands it sweeps along a spline (Road, Wall, Side,
+Rumble1, Rumble2, Grass), its banking and threshold controls, and its built-in
+AI-path lookup distances. That is what specified the one stage of track
+authoring this project had recorded as a gap — see
+[VIPER_RACING_FILE_FORMATS.md](../../VIPER_RACING_FILE_FORMATS.md) under
+"vrTrackMaker, the stage in the middle".
+
+`foolandsurface.jpg` also recovered the MKWORLD scene format verbatim —
+`marker(check1)`, `vert(-2.5187, -325.5298, 0.0000)`,
+`modobject(sider.mod, 0, 0, 16, 0)`. One caution against over-crediting this
+technique, though: the rule that driveable objects must appear in *both* source
+files was noticed here first in a screenshot annotation, but it turned out to be
+a plain-text comment in `eg-foolandsurface.txt`, a file already held and already
+cited. OCR corroborated it; it did not discover it.
 
 The rest was corroboration rather than discovery: the `tut02x` series is Hex
 Workshop over `tf550f.mod` (a format this toolkit already reads in full), and

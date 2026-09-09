@@ -1253,15 +1253,23 @@ example contains a commented-out `;Walls` block, consistent with it holding the 
 `mkfltoa` converts to **OpenFlight** (`.flt`), a standard interchange format, so track authoring goes
 through ordinary 3D tools rather than anything bespoke.
 
-⚠️ **Every driveable object must be declared in BOTH source files, with the same name and the same surface
-code.** This is the constraint that makes the two-file split workable, and it is stated outright in the
-tutorial — recovered by OCR from a screenshot of the author's Notepad window, annotated in red over the
-text:
+⚠️ **Every driveable object must be declared in BOTH source files, under the same name.** This is the
+constraint that makes the two-file split workable, and it is stated in the shipped example source itself —
+`eg-foolandsurface.txt`, lines 10–11, the same file this document already quotes for its `modobject`
+examples:
 
-> "FOR EXAMPLE IF THESE MODS WERE YOURS, MAKE SURE YOU ALSO PUT […] IN YOUR foolandgraphic.txt"
-> — annotation on `foolandsurface.txt`, beside `modobject(road1.mod, 0, 0, 0, 0)` … `modobject(water1pond.mod, 0, 0, 14, 0)`
+```
+;NOTE- ONLY DRIVEABLE SURFACE mod FILES ARE LISTED IN THE modobject LINES
+;THEY MUST BE THE SAME AS THE DRIVEABLE NAMES IN THE foolandgraphic.txt
+```
 
-The screenshots confirm the two files are the *same* format, not a source and a manifest: both open with a
+The tutorial says the same thing in a red annotation over a screenshot of the author's Notepad window,
+which is where this was first noticed here — "MAKE SURE YOU ALSO PUT […] IN YOUR foolandgraphic.txt",
+beside `modobject(road1.mod, 0, 0, 0, 0)` … `modobject(water1pond.mod, 0, 0, 14, 0)`, whose matching codes
+in both files are what extends the rule from names to surface codes. But the comment above is the
+authoritative source and was always in plain text; the screenshot only corroborates it.
+
+The two files are the *same* format, not a source and a manifest: both open with a
 `path(center)` block of `vert(x, y, z)` lines, both carry `marker(checkN)` blocks, and both list
 `modobject()` entries. They differ only in which objects they name — the surface file adds the driveable
 and collidable ones, the graphic file adds scenery — so anything that is *both* seen and driven on has to
