@@ -635,14 +635,14 @@ def main(argv: list[str] | None = None) -> int:
         help="Summarise a track's collision BSP (.bpp): triangle and node counts, "
              "surface flags, and how much of the tree is reachable",
     )
-    p_bppinfo.add_argument("trk_file", type=Path, help="a .trk archive, or a loose .bpp")
+    p_bppinfo.add_argument("trk_file", type=Path, help="a .trk/.tra archive, or a loose .bpp")
 
     p_bpp2obj = sub.add_parser(
         "bpp2obj",
         help="Export a track's COLLISION mesh as OBJ. Compare it against the render "
              "mesh (trk2tra/trackview) to find geometry you can hit but cannot see",
     )
-    p_bpp2obj.add_argument("trk_file", type=Path, help="a .trk archive, or a loose .bpp")
+    p_bpp2obj.add_argument("trk_file", type=Path, help="a .trk/.tra archive, or a loose .bpp")
     p_bpp2obj.add_argument("obj_file", type=Path)
 
     p_retag = sub.add_parser(
@@ -1217,14 +1217,17 @@ def main(argv: list[str] | None = None) -> int:
                   "use --against <original> to catch an edit of any size.")
     elif args.command in ("bppinfo", "bpp2obj"):
         raw = args.trk_file.read_bytes()
-        if args.trk_file.suffix.lower() == ".trk":
-            entry = next((e for e in archive.read(args.trk_file)
-                          if e.name.lower().endswith(".bpp")), None)
-            if entry is None:
-                raise SystemExit(f"no .bpp inside {args.trk_file.name}")
-            raw = entry.payload
-        elif raw[:4] == b"0SER":
-            raw = envelope.parse(raw).payload
+        # A track archive (.trk retail, .tra repacked) carries the .bpp as one
+        # member; an unpacked loose .bpp is a single-member envelope. Both open
+        # with the same magic, so decide by what the container actually holds --
+        # keying off the extension silently fed a whole .tra to the .bpp parser.
+        if raw[:4] == archive.MAGIC:
+            try:
+                entries = archive.read_bytes(raw)
+            except ValueError:
+                entries = []
+            entry = next((e for e in entries if e.name.lower().endswith(".bpp")), None)
+            raw = entry.payload if entry is not None else envelope.parse(raw).payload
         b = bppmod.parse(raw)
         if args.command == "bpp2obj":
             args.obj_file.write_text(bppmod.to_obj(b, args.trk_file.stem))
