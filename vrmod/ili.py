@@ -41,11 +41,14 @@ from __future__ import annotations
 
 import math
 import struct
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
+from pathlib import Path
 
 from . import envelope
 
-TAG = b"ILIN"          # on-disk form of NILI
+TAG = b"ILIN"          # the logical name
+ENVELOPE_TAG = b"NILI"  # what the envelope and archive directory actually carry
+                        # (these formats store 4CCs byte-reversed)
 HEADER_SIZE = 12
 RECORD_SIZE = 68
 FIELD_COUNT = 17
@@ -333,3 +336,117 @@ def densify(points: list[Waypoint], factor: int = DENSIFY_FACTOR) -> list[Waypoi
         wp.distance = run
         run += math.hypot(nxt.x - wp.x, nxt.z - wp.z)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Full-fidelity read/write
+#
+# parse() above surfaces the four fields callers actually reason about. Writing
+# a line back needs all seventeen, plus the header, so `Line` keeps the records
+# whole and `build()` puts them back byte for byte.
+#
+# What the seventeen floats hold, surveyed across every line in every track on
+# hand (min/max over bemidji's forward AI line shown for scale):
+#
+#    [0]  always 0.0
+#    [1]  X position                                   -216 .. 227
+#    [2]  Z position                                   -405 .. 505
+#    [3]  direction / tangent term                      -30 .. 30
+#    [4]  direction / tangent term                      -41 .. 35
+#    [5]  constant -20000.0 in every record of every track
+#    [6]  target speed                                   59 .. 71
+#    [7]  curvature-shaped, very small                    0 .. 0.006
+#    [8]  segment length to the next waypoint            30 .. 46
+#    [9]  cumulative distance around the lap              0 .. 2268
+#   [10]  ~-1.7e38 sentinel, drifting slightly per record
+#   [11]  always 0.0
+#   [12]  distance-shaped lookahead                      30 .. 962
+#   [13]  distance-shaped lookbehind                   -184 .. 747
+#   [14]  small monotonic accumulator                     0 .. 36
+#   [15]  lateral / offset term                          -12 .. 14
+#   [16]  constant -1.58e38 sentinel
+#
+# Field 8 is confirmed as the step: it equals distance[i+1] - distance[i]. Fields
+# 12 and 13 carry distances from neighbouring records rather than this one, so
+# they are precomputed lookahead tables -- which is why generating a line from
+# scratch needs more than filling in positions and speeds.
+
+HEADER_FORMAT = "<3i"
+HEADER_MAGIC = -2
+
+# One file that is NOT this format, and is easy to mistake for it: nhmkworld
+# writes an out/track.ild of its own, under envelope version 16 and with a
+# different header shape. make-track.bat never copies it -- the track.ild that
+# ships comes from `mkilicc -nolat track.ili tra	rack.ild`. So the intermediate
+# is discarded, and parse_line() rejecting it is correct rather than a gap.
+
+
+@dataclass
+class Line:
+    """A complete racing line: the header plus every field of every record."""
+
+    records: list[tuple[float, ...]] = dataclass_field(default_factory=list)
+    magic: int = HEADER_MAGIC
+    record_size: int = RECORD_SIZE
+    version: int = 3
+
+    @property
+    def waypoints(self) -> list[Waypoint]:
+        """The friendly view -- the same four fields parse() returns."""
+        return [Waypoint(x=r[FIELD_X], z=r[FIELD_Z],
+                         speed=r[FIELD_SPEED], distance=r[FIELD_DISTANCE])
+                for r in self.records]
+
+    def set_field(self, index: int, values: list[float]) -> None:
+        """Replace one field across every record, leaving the other sixteen."""
+        if len(values) != len(self.records):
+            raise ValueError(f"need {len(self.records)} values, got {len(values)}")
+        self.records = [
+            tuple(v if k == index else r[k] for k in range(FIELD_COUNT))
+            for r, v in zip(self.records, values)
+        ]
+
+
+def parse_line(data: bytes) -> Line:
+    """Parse a line keeping every field, from a complete file or a payload."""
+    version = 3
+    if data[:4] == envelope.MAGIC:
+        env = envelope.parse(data)
+        if env.tag != ENVELOPE_TAG:
+            raise ValueError(f"expected tag {ENVELOPE_TAG!r}, got {env.tag!r}")
+        version, payload = env.version, env.payload
+    else:
+        payload = data
+
+    if len(payload) < HEADER_SIZE:
+        raise ValueError(f"payload too short to be a line: {len(payload)} bytes")
+    magic, record_size, count = struct.unpack_from(HEADER_FORMAT, payload, 0)
+    need = HEADER_SIZE + count * record_size
+    if need != len(payload):
+        raise ValueError(
+            f"header says {count} records of {record_size} bytes, needing "
+            f"{need:,}, but the payload is {len(payload):,}")
+
+    records = [struct.unpack_from(f"<{FIELD_COUNT}f", payload, HEADER_SIZE + i * record_size)
+               for i in range(count)]
+    return Line(records=records, magic=magic, record_size=record_size, version=version)
+
+
+def build(line: Line) -> bytes:
+    """Serialise a Line to complete file bytes. Round-trips byte for byte."""
+    body = bytearray(struct.pack(HEADER_FORMAT, line.magic, line.record_size, len(line.records)))
+    for r in line.records:
+        if len(r) != FIELD_COUNT:
+            raise ValueError(f"record must have {FIELD_COUNT} fields, got {len(r)}")
+        body += struct.pack(f"<{FIELD_COUNT}f", *r)
+    return envelope.build(ENVELOPE_TAG, line.version, bytes(body))
+
+
+def parse_line_file(path) -> Line:
+    return parse_line(Path(path).read_bytes())
+
+
+def write_line_file(path, line: Line):
+    p = Path(path)
+    p.write_bytes(build(line))
+    return p
