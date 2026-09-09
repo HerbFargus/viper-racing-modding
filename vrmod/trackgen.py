@@ -291,6 +291,23 @@ def _ribbon(
         faces.append((a, b, b + 1))
         faces.append((a, b + 1, a + 1))
 
+    # Orient every ribbon the same way up.
+    #
+    # The winding a quad strip comes out with depends on whether its two lateral
+    # offsets ascend or descend, so bands swept to the left of the centreline and
+    # bands swept to the right end up facing opposite ways -- which is how the
+    # first version of this shipped: asphalt and the left bands inside-out, the
+    # right bands correct. Rather than reason about the sign (easy to get wrong,
+    # and invisible until a compiler rejects the mesh), measure the result and
+    # flip it if it faces down. Every mesh vrTrackMaker emits faces up.
+    if faces:
+        a, b, c = faces[0]
+        va, vb, vc = verts[a], verts[b], verts[c]
+        ux, uz = vb.x - va.x, vb.z - va.z
+        wx, wz = vc.x - va.x, vc.z - va.z
+        if uz * wx - ux * wz < 0:
+            faces = [(f[0], f[2], f[1]) for f in faces]
+
     material = mod.Material(texture, 0, len(verts), 0, len(faces))
     return mod.Mesh(vertices=verts, materials=[material], faces=faces)
 

@@ -94,6 +94,23 @@ def check_invariants() -> None:
     width = math.dist((a.x, a.z), (b.x, b.z))
     check("road width matches road_half_width * 2", abs(width - 12.0) < 1e-6, f"{width:.4f} m")
 
+    # Orientation. Bands swept left of the centreline and bands swept right come
+    # out with opposite winding unless the ribbon builder corrects for it, and the
+    # first version of this shipped with asphalt and the left bands inside-out.
+    # Every mesh vrTrackMaker emits faces up, so ours must too.
+    for name, mesh in scene.meshes.items():
+        up = 0
+        sample = mesh.faces[:200]
+        for a, b, c in sample:
+            va, vb, vc = mesh.vertices[a], mesh.vertices[b], mesh.vertices[c]
+            if (vb.z - va.z) * (vc.x - va.x) - (vb.x - va.x) * (vc.z - va.z) > 0:
+                up += 1
+        if up != len(sample):
+            check(f"{name} faces up", False, f"{up}/{len(sample)}")
+            break
+    else:
+        check(f"all {len(scene.meshes)} meshes face up (no inside-out bands)", True)
+
     # Every emitted mesh must survive our own reader.
     with tempfile.TemporaryDirectory() as tmp:
         for name, mesh in scene.meshes.items():
