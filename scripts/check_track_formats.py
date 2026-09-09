@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from vrmod import archive, bsp, envelope, obt, sol  # noqa: E402
+from vrmod import archive, bsp, envelope, ili, obt, sol  # noqa: E402
 
 DEFAULT_DATA = Path.home() / "Desktop" / "claude-code" / "game-files" / "Viper Racing" / "Data"
 SKIP = ("TEST", "BACKUP", "LEFTOVER", "pristine")
@@ -154,12 +154,49 @@ def check_obt(data: Path, compiled: Path | None) -> None:
               f"{len(diffs)} differing bytes, all in padding: {all(i in padding for i in diffs)}")
 
 
+def check_ili(data: Path) -> None:
+    print()
+    print("default.ili / rdefault.ili / track.ild -- AI racing lines")
+    names = ("default.ili", "rdefault.ili", "track.ild")
+    seen = exact = 0
+    counts: list[int] = []
+    for p, members in tracks(data):
+        for name in names:
+            e = members.get(name)
+            if e is None:
+                continue
+            seen += 1
+            line = ili.parse_line(e.payload)
+            counts.append(len(line.records))
+            if envelope.parse(ili.build(line)).payload == e.payload:
+                exact += 1
+            else:
+                check(f"{p.name}/{name} round-trips byte-exact", False)
+                return
+    check(f"all {seen} AI lines round-trip byte-exact", seen and exact == seen,
+          f"{exact}/{seen}, {min(counts)}-{max(counts)} waypoints")
+
+    # The friendly four-field view must survive the full-fidelity path.
+    for p, members in tracks(data):
+        e = members.get("default.ili")
+        if e is None:
+            continue
+        full = ili.parse_line(e.payload).waypoints
+        plain = ili.parse_payload(e.payload)
+        check("waypoints view matches the original parser",
+              [(w.x, w.z, w.speed, w.distance) for w in full]
+              == [(w.x, w.z, w.speed, w.distance) for w in plain],
+              f"{len(full)} waypoints")
+        break
+
+
 if __name__ == "__main__":
     data = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_DATA
     compiled = Path(sys.argv[2]) if len(sys.argv) > 2 else None
     check_bsp(data, compiled)
     check_sol(data, compiled)
     check_obt(data, compiled)
+    check_ili(data)
     print(f"\n{checks - len(failures)}/{checks} passed")
     if failures:
         print("failed: " + ", ".join(failures))
