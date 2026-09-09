@@ -1302,16 +1302,25 @@ whether a track can still be built *today*, on current tools — and it can. Thi
 from tracks actually built with it:
 
 ```
-Bob's Track Builder Pro   model the track                    ->  .dof
-  Zmodeler                import .dof, replace textures      ->  .mod  (the game meshes)
-                                                             ->  .3ds  (to carry into Max)
-  3DS Max                 import .3ds, generate the spline   ->  .ase
-  vrTrackMaker            import .ase                        ->  the MKWORLD source set
-  make-track.bat          mkfltoa -> MKWORLD / nhmkworld     ->  .sol .obt .bsp .grf .bpp
+Bob's Track Builder Pro   model the track                   ->  .dof
+  Zmodeler                import .dof, replace textures     ->  .mod + .tex   the LOOKS
+                                                            ->  .3ds          (on to Max)
+  3DS Max                 import .3ds, draw the centreline  ->  .ase
+  vrTrackMaker            import .ase                       ->  fooland*.txt  the DRIVING
+                                                                .ili x4, aispeed.txt
+  make-track.bat          mkfltoa -> MKWORLD / nhmkworld    ->  .sol .obt .bsp .grf .bpp
+  compile-track.bat       mkres @reslist.txt                ->  <track>.tra
 ```
 
-**The spline is generated in 3DS Max and handed to vrTrackMaker as `.ase`.** That is the join between the
-two halves, and it explains several things this document had recorded separately without connecting:
+**This is a hybrid, and that is the thing to understand about it.** Two branches run from the same BTB
+geometry and converge at `make-track.bat`: Zmodeler produces what the track *looks* like, and
+vrTrackMaker — fed only a centreline — produces how it *drives*. Neither tool can do the other's job.
+BTB knows nothing about Viper's surface codes, `.sol` walls or `.ili` racing lines; vrTrackMaker sweeps a
+single fixed six-band cross-section and calculates no normals, so it can make a passable oval and nothing
+resembling a real circuit.
+
+The join is the `.ase` centreline, and it explains several things this document had recorded separately
+without connecting:
 
 - `path(center)`, the centreline block at the top of both source files, is that Max spline after
   vrTrackMaker has written it out. The "yours will be a lot longer than this example" annotation is
@@ -1324,15 +1333,38 @@ two halves, and it explains several things this document had recorded separately
   consistent between the geometry and the `modobject()` lines that must reference them.
 
 Two of these steps are the same commercial tools the original community used — 3DS Max, and Zmodeler for
-the `.dof` import. `vrmod`'s `mod2obj` / `obj2mod` covers the mesh interchange step with free tools, but
-the spline generation and the vrTrackMaker stage have no counterpart here yet. That gap — `.ase` spline
-and mesh set in, MKWORLD source files out — is the concrete, bounded shape of any future track-authoring
-work, and it is now fully specified on both ends rather than being a research problem.
+the `.dof` import. `vrmod`'s `mod2obj` / `obj2mod` already covers the *looks* branch with free tools: any
+modeller that can export OBJ can produce the meshes. What has no counterpart here is the **driving**
+branch — centreline in, `fooland*.txt` plus the `.ili` set out. That is the concrete, bounded shape of any
+future track-authoring work, and it is now specified on both ends: the input is an ordinary polyline, and
+the output is a text format this document describes in full, with a reference implementation's exact
+output to check against.
 
-#### vrTrackMaker, the stage in the middle
+#### vrTrackMaker — the driving model, not the track
 
-Sucahyo's **"VR simple Track Maker"** is the piece that turns a bare spline into the MKWORLD source set,
-and its own readme plus its recovered UI specify it completely.
+Sucahyo's **"VR simple Track Maker"** turns a bare spline into the MKWORLD source set. Read in isolation
+it looks like a track generator, and it *can* be used as one — but that is not its role in the modern
+pipeline, and mistaking the one for the other misreads the whole workflow.
+
+**It is used as a hybrid.** The visible track is built in BTB and carried through Zmodeler into `.mod`
+meshes and textures. That same geometry then goes to 3DS Max, where the centreline is drawn and exported
+as `.ase`, and *that* is what vrTrackMaker consumes — so what it is really being asked to produce is the
+**driving model**: the collision surfaces with their material codes, the walls, the checkpoint gates, the
+AI racing lines and the speed profile. The wiki workflow makes this explicit by structure rather than by
+statement: Zmodeler emits the game meshes **and** the `.3ds` for Max. If vrTrackMaker were generating the
+track, those Zmodeler meshes would have nothing to do.
+
+Its own design says the same. It sweeps one fixed six-band cross-section, calculates no normals, and by
+its readme will "only create asphalt, wall, side, rumble and small part of grass" — adequate for a simple
+oval, nowhere near a BTB-quality circuit. What it *is* good at is the part BTB knows nothing about: Viper
+Racing's surface codes, `.sol` walls, and `.ili` racing lines.
+
+The practical consequence is that its generated meshes are a **fallback, not the deliverable**. In a
+hybrid build the author keeps its `foolandsurface.txt` / `foolandgraphic.txt`, the `.ili` set and
+`aispeed.txt`, and points the `modobject()` lines at their own BTB-derived meshes — at which point the
+both-files rule above stops being trivia and becomes the thing that makes or breaks the track, since the
+names now have to be edited consistently across two files that the generator wrote for different meshes
+entirely.
 
 **What it does.** It sweeps a parameterised cross-section along the spline. The bands are fixed and named
 in the UI — **Road, Wall, Side, Rumble1, Rumble2, Grass** — each with a *distance to centre* and a
@@ -1453,9 +1485,11 @@ they generate no collision geometry**, exactly as documented above; their collis
 `object(wall.tga)` quads in the surface file instead. Only codes **0, 10 and 16** appear, confirming from
 the generator itself why water and dirt tracks required hand-editing.
 
-⚠️ The meshes reference `side.tex`, `rumble.tex` and `wall.tex`, but the shipped `mkresfiles`/`reslist.txt`
-provide only `asphalt`, `grass`, `sky1-4`, `bboard01` and `pine3o15`. Those three textures have to be
-supplied by the author or the packed track will be missing them.
+The meshes reference `side.tex`, `rumble.tex` and `wall.tex`, which the shipped `mkresfiles` does not
+contain — but that is not a gap. **`reslist.txt` is a per-track artifact, not a fixed manifest**:
+`rescrack.exe` writes one out when it unpacks an archive, `ResClean.exe` maintains it, and `mkres` packs
+from whatever it lists. The copy in `mkresfiles` is the demo track's. An author brings their own textures
+and their `reslist` names them.
 
 **Five AI/racing-line outputs** — `track.ili`, `track-ai.ili`, `track-ai-reverse.ili`, `track-reverse.ili`
 (15,864 bytes each, all four with *different* hashes, so four genuinely distinct lines) plus

@@ -94,11 +94,13 @@ by Frank P. Wolf, distributed from his own site (`members.aol.com/racingwolf999/
 ### Tracks
 - **Bob's Track Builder (BTB)** — track authoring (with a BTB→Viper tutorial); the
   Pro edition is still sold on Steam, though the tutorial targets the original.
-- **vrTrackMaker** ✓ (Sucahyo, "VR simple Track Maker") — sweeps a parameterised
-  cross-section (Road / Wall / Side / Rumble1 / Rumble2 / Grass) along a `.ase`
-  spline from 3DS Max to produce the MKWORLD source set, and generates the AI
-  path too. Fully specified in
-  [VIPER_RACING_FILE_FORMATS.md](VIPER_RACING_FILE_FORMATS.md#vrtrackmaker-the-stage-in-the-middle).
+- **vrTrackMaker** ✓ (Sucahyo, "VR simple Track Maker") — consumes a `.ase`
+  centreline from 3DS Max and produces the **driving model**: collision surfaces
+  with their material codes, walls, checkpoint gates, the four `.ili` racing
+  lines and a speed profile. It also emits simple swept meshes, but in a modern
+  BTB-based build those are a fallback — the visible track comes from BTB via
+  Zmodeler. Fully specified in
+  [VIPER_RACING_FILE_FORMATS.md](VIPER_RACING_FILE_FORMATS.md#vrtrackmaker--the-driving-model-not-the-track).
 - **MKWORLD / mkfltoa** ✓ — generate the surface + collision set
   (`.sol` / `.obt` / `.bsp` / `.grf` / `.bpp`) from a text scene description;
   **nhmkworld** ✓ — the graphic pass that adds objects to `.grf` / `.bpp`.
