@@ -1309,6 +1309,58 @@ the spline generation and the vrTrackMaker stage have no counterpart here yet. T
 and mesh set in, MKWORLD source files out — is the concrete, bounded shape of any future track-authoring
 work, and it is now fully specified on both ends rather than being a research problem.
 
+#### vrTrackMaker, the stage in the middle
+
+Sucahyo's **"VR simple Track Maker"** is the piece that turns a bare spline into the MKWORLD source set,
+and its own readme plus its recovered UI specify it completely.
+
+**What it does.** It sweeps a parameterised cross-section along the spline. The bands are fixed and named
+in the UI — **Road, Wall, Side, Rumble1, Rumble2, Grass** — each with a *distance to centre* and a
+*height*, which is exactly the vocabulary the surface codes use (Road→0, Side/Rumble→16, Grass→10) and
+why the tool can only ever emit those three. Its own readme says so outright: it will "only create
+asphalt, wall, side, rumble and small part of grass." Other controls: banking multiplier, max banking in
+degrees, UV multiplier, wall type (`all` / `corner` / `corner outside` / `none`), and simplify, corner,
+wall and rumble thresholds. **AI path generation is built in** — with forward and backward lookup
+distances in metres — which is where `track-ai.ili` comes from; the readme notes that `trkaitweaker.exe`
+is no longer needed as a result.
+
+**What it demands of the spline**, all of which will silently ruin a track if violated:
+
+- the path must run **clockwise**, or polygons come out reversed;
+- it must go in **one direction only** — a backward segment punches a hole, fixed by deleting vertex lines
+  from the end of the `.ase`;
+- it must be **dense**: normalise to 50.0 if needed, then to **1.0**;
+- the **start/finish line must be straight**;
+- the path must **never cross or overlap itself**; there is no overlap detection, and an overlap becomes a
+  hole;
+- export with **4-decimal precision and `.` as the decimal separator** — the readme warns to change
+  regional settings first, since a comma separator makes the tool error out.
+
+**The two-button workflow.** *Process file* reads the `.ase` and builds the path and its bank-angle table
+— "by all means, DO NOT DELETE THE TABLE RECORD", since only the bank-angle column feeds the next stage.
+*Write model* emits `foolandsurface.txt`. If the wall count exceeds 2,000, the readme's instruction is to
+redo with a higher simplify threshold, keep *that* `foolandsurface.txt`, and re-run normally for
+everything else.
+
+⚠️ **Engine limits this readme records, which appear nowhere else:**
+
+| Limit | Value |
+|---|---|
+| walls per track | **2,000** |
+| vertices per track | **65,000** |
+| polygons per track | **65,000** |
+
+The 65,000-polygon ceiling is worth reading against the `race.bin` table in
+[MODDING_HISTORY.md](MODDING_HISTORY.md): Sucahyo — who wrote both this tool and the 1.2.4-beta engine
+patch — raised track support to **95,000 polygons** in that patch. These figures are stated without a
+version, so read them as the constraint the tool was written against rather than a measurement of any
+particular binary.
+
+Two smaller notes from the same readme: normals are **not** calculated by the tool, and wall compilation
+draws on `foolandsurface.txt` plus any `.mod` whose name carries a `wall` suffix. Its output track is
+always named `generic.tra` — renaming happens afterwards, which is consistent with `compile-track.bat`
+shipping with `trackname` as a literal placeholder to be edited.
+
 #### The shipped tracks are codenamed
 
 The filenames inside `Data/` are not the names players see. Confirmed by matching `.bpp` payload hashes
