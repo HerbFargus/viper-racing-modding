@@ -4,7 +4,9 @@
 comes from* — the containment tree (`.car`/`.trk` → members → textures → pixels) plus the shared `.res`
 bundles an asset reaches into at runtime. This is the companion to
 [VIPER_RACING_FILE_FORMATS.md](VIPER_RACING_FILE_FORMATS.md) (which documents the byte layout of each
-format); this document is about **structure and resolution**, not byte offsets. Everything below was walked
+format) and [VIPER_RACING_RUNTIME.md](VIPER_RACING_RUNTIME.md) (which LOD each camera view actually
+shows, and the game's command-line flags); this document is about **structure and resolution**, not
+byte offsets. Everything below was walked
 directly out of a pristine retail `Data/` folder with `vrmod`.
 
 - **Part I — Cars** (§§1–7): the 5 stock cars.
