@@ -44,6 +44,11 @@ knowledge into one programmatic library.
   Editor**, and the source of the finished tyre sets it could apply.
 - **Maurizio** — author of **VRDSC**, which advertised a dedicated server to the
   VRgt RaceFinder.
+- **BlasterMaster555** ("Impreza") — ran `wrxds.mine.nu`, from 2003 a Viper
+  Racing dedicated server, and wrote the community's most complete **car
+  creation / conversion tutorial** (19 pages). His machine also hosted the FTP
+  archive Val's site linked as "accumulated from 1998". Archived copy:
+  [`docs/tutorials/wrxds-car-tutorial/`](tutorials/wrxds-car-tutorial/).
 - **Max** — a car modder ("Add-on cars by Max").
 - …and the wider community of racers and converters who contributed cars,
   tracks, retextures, and testing over the years.
@@ -54,10 +59,18 @@ knowledge into one programmatic library.
 A capable but **entirely manual** set of tools. Where a binary survives in the
 preserved archives it's marked ✓.
 
-### Archive / packaging
+### Archive / packaging — Frank Wolf's **RESTools**
+
+Most of the converters below were not loose utilities but one suite, **RESTools**
+by Frank P. Wolf, distributed from his own site (`members.aol.com/racingwolf999/`)
+— the same address his cars and CarMan came from. The wrxds tutorial (see
+*Preservation & sources*) walks through using them and names the set.
+
 - **rescrack.exe** ✓ — unpack a `.car` / `.res` / `.trk` archive into its loose
   members, plus a `reslist.txt`.
 - **mkres.exe** ✓ — (re)pack an archive from a `reslist`.
+- **mkcar.exe** — build the `.car` itself. Named in the tutorial's step 4
+  alongside `mktex`/`mkres`/`mksfx`; no surviving binary located yet.
 - **extract.exe** ✓ — an alternate unpacker.
 
 ### Cars
@@ -79,13 +92,24 @@ preserved archives it's marked ✓.
 - **mksfx** ✓ — convert a `.wav` to the game's `.sfx`.
 
 ### Tracks
-- **Bob's Track Builder (BTB)** — track authoring (with a BTB→Viper tutorial).
-- **vrTrackMaker** ✓ — turn a path/spline into a track block.
+- **Bob's Track Builder (BTB)** — track authoring (with a BTB→Viper tutorial); the
+  Pro edition is still sold on Steam, though the tutorial targets the original.
+- **vrTrackMaker** ✓ (Sucahyo, "VR simple Track Maker") — sweeps a parameterised
+  cross-section (Road / Wall / Side / Rumble1 / Rumble2 / Grass) along a `.ase`
+  spline from 3DS Max to produce the MKWORLD source set, and generates the AI
+  path too. Fully specified in
+  [VIPER_RACING_FILE_FORMATS.md](VIPER_RACING_FILE_FORMATS.md#vrtrackmaker-the-stage-in-the-middle).
 - **MKWORLD / mkfltoa** ✓ — generate the surface + collision set
   (`.sol` / `.obt` / `.bsp` / `.grf` / `.bpp`) from a text scene description;
   **nhmkworld** ✓ — the graphic pass that adds objects to `.grf` / `.bpp`.
 - **MKSTAMP / Stp2Tga / tga2stp** ✓ — the `.stp` menu screenshot and `Trackmap`.
-- **MKTABLE / MKILI** ✓ — data tables / the AI racing line (`.ili`).
+- **MKTABLE / mkilicc** ✓ — data tables / the AI racing lines. `mkilicc -nolat`
+  is run three times: `track.ili`→`track.ild` (the track-map line),
+  `track-ai.ili`→`default.ili` (forward AI line) and
+  `track-ai-reverse.ili`→`rdefault.ili` (**reverse** AI line).
+- **make-track.bat + compile-track.bat** ✓ — the two batch files that drive the
+  whole build and then pack the `.tra` with `mkres @reslist.txt`. Reproduced
+  verbatim in [VIPER_RACING_FILE_FORMATS.md](VIPER_RACING_FILE_FORMATS.md#how-a-track-is-actually-built).
 - **trkaitweaker** ✓ — AI tuning. **jpg2sky / sky-tga2tex** — the four skybox tiles.
 
 ### Engine patches & `race.bin` versions
@@ -154,8 +178,9 @@ Two kinds of software are kept apart deliberately:
 ### Archive / packaging
 | Tool | Creator | Purpose | `vrmod` |
 |---|---|---|---|
-| **rescrack.exe** | — | Unpack `.car`/`.res`/`.trk` to loose members + `reslist.txt` | `vrmod unpack` |
-| **mkres.exe** | — | Repack an archive from a `reslist` | `vrmod pack` |
+| **rescrack.exe** *(RESTools)* | Frank P. Wolf | Unpack `.car`/`.res`/`.trk` to loose members + `reslist.txt` | `vrmod unpack` |
+| **mkres.exe** *(RESTools)* | Frank P. Wolf | Repack an archive from a `reslist` | `vrmod pack` |
+| **mkcar.exe** *(RESTools)* | Frank P. Wolf | Build the `.car` itself | `vrmod pack` / `carfork` |
 | **extract.exe** | — | Alternate unpacker | `vrmod unpack` |
 
 ### Cars
@@ -174,17 +199,17 @@ Two kinds of software are kept apart deliberately:
 ### Textures & sound
 | Tool | Creator | Purpose | `vrmod` |
 |---|---|---|---|
-| **mktex / tex2tga / tga2tex** | — | `.tex` ⇄ `.tga` | `vrmod tex2tga` / `tga2tex`, plus in-app import/export |
+| **mktex / tex2tga / tga2tex** *(mktex: RESTools)* | Frank P. Wolf (mktex) | `.tex` ⇄ `.tga` | `vrmod tex2tga` / `tga2tex`, plus in-app import/export |
 | **jpg2sky ("JPG 2 SKY")** | Sucahyo | Split one image into the 4 sky tiles | `vrmod skyexport` / `skyimport` (one panoramic TGA, both ways) |
 | **MKSTAMP / Stp2Tga / tga2stp** | — | `.stp` menu screenshots and `Trackmap` | `stp.py`, `vrmod trackmap` |
-| **mksfx** | — | `.wav` → `.sfx` | `vrmod wav2sfx` / `sfx2wav` |
+| **mksfx** *(RESTools)* | Frank P. Wolf | `.wav` → `.sfx` | `vrmod wav2sfx` / `sfx2wav` |
 
 ### Tracks
 | Tool | Creator | Purpose | `vrmod` |
 |---|---|---|---|
 | **Trackman** | Frank P. Wolf | Install add-on tracks into the 8 game slots | Switcher track install/restore; `vrmod trk2tra` produces the `.tra` it consumes |
 | **Track Maker** | Sucahyo | Build a track from a 3DS Max ASE file | **none** — track *authoring* is out of scope so far |
-| **vrTrackMaker** | — | Turn a path/spline into a track block | **none** |
+| **vrTrackMaker** | Sucahyo | Consumes a **`.ase` spline exported from 3DS Max** and emits the MKWORLD source set. Emits only surface codes 0, 10 and 16, so water and dirt must be hand-edited into the generated text afterwards — in *both* source files | **none** — this stage, plus the spline generation feeding it, is the one real gap left in track authoring |
 | **MKWORLD / mkfltoa / nhmkworld** | — | Generate the surface + collision set (`.sol`/`.obt`/`.bsp`/`.grf`/`.bpp`) from a text scene | **none** — the hard part of track editing (see below) |
 | **BPP-2-Mod Converter** | Sucahyo | `.bpp` ⇄ `.mod`: fix holes, add surface, read surface types, merge verts | `vrmod bpp2obj`, `bppinfo`, `bppsurface` (read + surface retag; no `.mod` → `.bpp` rebuild) |
 | **Bad Poly Fix** | Sucahyo | Repair the "bad polys" that make holes after conversion | `vrmod collisioncheck` *detects*; no repair |
@@ -237,8 +262,37 @@ and only then pushed through the community converters in Part A.
 | **Blender** | The modern equivalent, and the practical target today | Free, current | Direct: the OBJ round-trip is designed so a mesh opens and re-imports cleanly |
 | **3DSimED** | Racing-sim model editor/converter. **Reads Viper Racing `.mod` files directly** (confirmed by loading a car mod), so it opens both ends of the old conversion pipeline: the sims cars were converted *from*, and Viper itself | Commercial, current | Overlapping, not dependent — 3DSimED imports `.mod` natively; `vrmod` goes via `mod2obj`/`obj2mod` so any modeller works. Either is a valid path onto the geometry |
 | **GIMP** | The image editor of choice for skins and track textures | Free, current | `vrmod tex2tga` / `tga2tex` produce/consume what it edits; the app does import/export in-place |
-| **Bob's Track Builder (BTB)** | Track authoring, with a community BTB→Viper tutorial | Commercial, discontinued | **none** — track authoring remains out of scope |
+| **Bob's Track Builder (BTB)** | Where a modern track starts: model it here, export `.dof`. The tutorial screenshots show **v0.8.0.0**; the pipeline below uses **Pro** | Split three ways — see below. **Bob's Track Builder Pro is on Steam and current**; the tutorial-era line is not | **none** — but no longer a dead end: the route from here to a finished track still runs, see below |
 | **XVi32** | The hex editor behind nearly every non-geometry edit: the `<car>1.tab` spec sheet, texture-name strings inside a `.mod`, names in `english.lng` | Free, still available | Superseded — those three edits are now `cfset`/`carfork`/the switcher |
+
+#### Bob's Track Builder is three different products, and only one is still available
+
+Worth spelling out, because "BTB" in a 2000s-era tutorial does not mean the BTB you can buy today:
+
+| Version | Exports to | Status |
+|---|---|---|
+| **BTB** (the original, `0.8.0.0` in the tutorial screenshots) | generic mesh; the Viper path was community-built on top | superseded |
+| **BTB Evo** | GTR2, GTL, Race07 | **lost** — never reached Steam, the vendor disabled purchase, no working download is known to exist anywhere. Last updated 2014, XP-era |
+| **[Bob's Track Builder Pro](https://store.steampowered.com/app/993270/Bobs_Track_Builder_Pro/)** | current sims | **available now, on Steam** |
+
+The developer's current focus is Race Track Builder, which targets Assetto Corsa only.
+
+There was never an official Viper Racing exporter in any version. BTB contributes the *geometry*, which is
+then carried through Zmodeler and 3DS Max before reaching the MKWORLD source files. The full route is
+[documented by HerbFargus](https://github.com/HerbFargus/viper-racing-legacy-modding-tools/wiki/Creating-a-Custom-Track)
+from tracks built with it, and written up step by step in
+[VIPER_RACING_FILE_FORMATS.md](VIPER_RACING_FILE_FORMATS.md#the-modern-workflow-end-to-end):
+
+```
+BTB Pro  ->  .dof  ->  Zmodeler  ->  .mod + .3ds  ->  3DS Max (spline)  ->  .ase
+         ->  vrTrackMaker  ->  MKWORLD source set  ->  make-track.bat  ->  the track
+```
+
+So the position is much better than this chart used to imply. **Track authoring is not a dead end and not
+a research problem — it is a working pipeline that still runs**, with a purchasable modeller at the front
+and recovered tools at the back. What `vrmod` lacks is the middle: the spline-generation and vrTrackMaker
+stages, i.e. `.ase` spline plus mesh set in, MKWORLD source files out. That is a bounded piece of work with
+both ends specified, which is the concrete shape any future track-authoring scope would take.
 
 > **The honest summary of Part B:** the community's real "editor" was a
 > general-purpose 3D package plus a hex editor. Everything in Part A existed to
@@ -282,6 +336,13 @@ The game's mods are, remarkably, preserved several times over:
 - **A community "Complete CarPack / TrackPack" collection** on the Internet
   Archive (39 car-pack volumes + 6 track-pack volumes), sourced from Val's set.
 - The original tutorials, tool binaries, and readmes are inside those captures.
+- **[viper-racing-legacy-modding-tools](https://github.com/HerbFargus/viper-racing-legacy-modding-tools)** —
+  a curated republication of that material on GitHub, organised as *Car Tools*,
+  *Car Mods*, *Track Tools* and *Track Mods*, sourced from Val via vnovak.com.
+  Its wiki also carries the
+  [modern track-building workflow](https://github.com/HerbFargus/viper-racing-legacy-modding-tools/wiki/Creating-a-Custom-Track),
+  which is the only description of the front half of that pipeline anywhere —
+  it is not in Val's tutorials, the wrxds tutorial, or the tool readmes.
 
 ### vrgt.com — the other hub, mostly lost
 
@@ -338,6 +399,30 @@ stopped being hosted.
 The capture also quietly corroborates this document's attributions: the last
 posters include **sucahyo**, **val5662** (Val) and **Matt** — the same people
 credited above for the engine patch, the tracks, and the Tire Editor.
+
+### wrxds.mine.nu — the tutorial that survived
+
+Where vrgt's forums are gone, one substantial piece of documentation came
+through intact: the **Car Creation / Conversion Tutorial** at
+`http://wrxds.mine.nu/tutorial/`, by **BlasterMaster555**. Nineteen pages
+covering the whole pipeline — meshes, dashboard, RESTools, textures, sounds,
+performance, the car's long name, packing, and a second pass of fixes down to
+the brake lights.
+
+The same host carried the FTP archive (`ftp://wrxds.mine.nu/vrmods/`) that Val's
+site pointed at as *"accumulated from 1998"*. That listing was **never captured**
+— the files and their names are gone. The tutorial pages were, and are now kept
+in [`docs/tutorials/wrxds-car-tutorial/`](tutorials/wrxds-car-tutorial/) with
+their images and the assets they offered for download.
+
+It matters twice over. It is the era's best surviving account of how a car was
+actually built; and it is **the missing citation** for parts of this very
+document. The tool list above — Zmodeler 1.07, XVi32, `vrzmodtemplate`, the
+`rescrack`/`mkres`/`mktex`/`mksfx` set — is documentation-derived knowledge, not
+anything recoverable from a binary, but no source was recorded for it. Reading
+the tutorial supplied what had been lost in the retelling: that those converters
+are **one suite** (Frank P. Wolf's **RESTools**), that it includes **`mkcar`**,
+and where it was distributed.
 
 One gap worth noting: those public archives are Val-centric. **Frank Wolf's ~155
 cars are not in them**, and his original site is long dead — so aggregated

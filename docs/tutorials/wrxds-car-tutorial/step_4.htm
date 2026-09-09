@@ -1,0 +1,145 @@
+
+ 
+
+<p align="center"><font size="6"><b>Step 4: FP Wolf's RESTools Overview</b></font></p>
+
+<p align="left"><font size="4">The RESTools are a collection of DOS and windows 
+programs that pack, unpack, and convert file formats to and from Viper Racing. 
+If you don't have these tools, go to
+<a href="http://members.aol.com/racingwolf999/">
+http://members.aol.com/racingwolf999/</a> and download the RESTools. Extract the 
+ZIP to a folder, like C:\tools.</font></p>
+
+<p align="left"><font size="4">All ready?</font></p>
+
+<p align="left"><font size="4">First things first, activate the sedan.car, and 
+copy it to the tools folder.</font></p>
+
+<p align="left"><font size="4">Open a DOS prompt, browse into the tools folder 
+(using the DOS Prompt of course), and type, rescrack sedan.car</font></p>
+
+<p align="left"><img border="0" src="images/rescrack.gif" width="668" height="335"></p>
+
+<p align="left"><font size="4">You will see a bunch of files listed, then it 
+will say X files extracted. Type exit to get out of the DOS prompt.</font></p>
+
+<p align="left"><font size="4">There should be a bunch of files that all start 
+with the name &quot;sedan&quot;. You will be needing a few files from here for your car. 
+First, make a new folder, naming it the same as your car's short name.</font></p>
+
+<p align="left"><font size="4">COPY mktex, mkres, mkcar, and mksfx into this 
+folder.</font></p>
+
+<p align="left"><font size="4">Move the car's 3D Files you exported AND the 
+textures into this folder as well.</font></p>
+
+<p align="left"><font size="4">COPY sedan.ccs, sedan.cf, sedane.ens, sedan1.tab, 
+and sedanL.tab into the car's folder.</font></p>
+
+<p align="left"><font size="4">If you are feeling lazy, you can download the 
+above files <a href="files/basicfiles.zip">here</a>.</font></p>
+
+<p align="left"><font size="4">RENAME the files by replacing sedan with your 
+car's short name. Don't get rid of the e in ens, nor the 1 and L in the tabs.</font></p>
+
+<p align="left"><font size="4">Now you are almost ready to start conversion, but 
+first, an overview of the tools.</font></p>
+
+<p align="left"><font size="4">rescrack opens any packed kind of file in Viper 
+Racing. These can be the *.res files, the *.car files, or the *.trk files. 
+Similar to a ZIP file. To use, you type rescrack filename.ext and it will 
+extract the file you typed in. Rescrack will not work on locked files.</font></p>
+
+<p align="left"><font size="4">mkres packs up a list of files into a res file of 
+your choice. It uses a text file that has a bunch of files listed, each file on 
+one line, as shown in the below image.</font></p>
+
+<p align="left"><img border="0" src="images/reslistinnotepad.jpg" width="253" height="317"></p>
+
+<p align="left"><font size="4">You type mkres filename.ext @reslist.txt</font></p>
+
+<p align="left"><font size="4">filename.ext is the name of the res file, and @reslist.txt 
+says what text file is the list, for example,</font></p>
+
+<p align="left"><font size="4">mkres vanqsh.car @vanqsh.txt</font></p>
+
+<p align="left"><font size="4">Tells mkres to pack a RES file, using vanqsh.txt 
+as a file list, and to name it vanqsh.car</font></p>
+
+<p align="left"><font size="4">mktex converts TGA images into *.tex files for 
+use in Viper Racing. </font></p>
+
+<p align="left"><font size="4">The syntax is:</font></p>
+
+<p align="left"><font size="4">mktex texture.tga texture.tex /a</font></p>
+
+<p align="left"><font size="4">texture.tga is the source tga file, texture.tex 
+is the tex file you want, and /a is an optional switch.</font></p>
+
+<p align="left"><font size="4">mktex has multiple switches. /a preserves the 
+alpha channel, more or less transparency is applied to all depending on the 
+greyscale of the alpha channel. /t makes transparency, all with low or no alpha 
+channel is opaque. /m# defines the mipmapping: 0 = never mip, 1 = can mip, 2 = 
+always mip. /w# stands for wrap, 0= wrap uv, 1 = wrap u, 2 = wrap v, 3 = wrap 
+none</font></p>
+
+<p align="left"><font size="4">mksfx takes a wav file and converts it to the sfx 
+file Viper Racing uses. The input file MUST be 22 KHz 16-bit MONO!</font></p>
+
+<p align="left"><font size="4">There are very few sitches in mksfx. -L tells 
+mksfx this file is a looping file (like engine sounds), and -a says its 
+converting an ADPCM-encoded wav file.</font></p>
+
+<p align="left"><font size="4">mkcar converts a txt file to a cf file. The 
+syntax is:</font></p>
+
+<p align="left"><font size="4">mkcar textfile.txt cffile.cf</font></p>
+
+<p align="left"><font size="4">textfile.txt is the txt conversion, and cffile.cf 
+is the cf file you want to make.</font></p>
+
+<p align="left"><font size="4">convert converts tex files into tga files, but 
+has two problems. One, it has the image mirrored horizontally, and Two, it does 
+not convert the alpha channel.</font></p>
+
+<p align="left"><font size="4">Syntax is:</font></p>
+
+<p align="left"><font size="4">convert filename.tex</font></p>
+
+<p align="left"><font size="4">filename.tex is the file you want to convert.</font></p>
+
+<p align="left"><font size="4">cf2txt is a windows program (woohoo) that 
+converts a cf file into a txt. Just open it, browse to the folder, click on the 
+CF, and hit Save.</font></p>
+
+<p align="left"><font size="4">Once you are done reading all this, you can move 
+ONWARD.</font></p>
+
+<p align="left">&nbsp;</p>
+
+<p align="left"><a href="step_3b.htm">
+<img border="0" src="images/reverse.jpg" alt="REVERSE" align="left" width="80" height="30"></a><a href="step_5.htm"><img border="0" src="images/onward.jpg" alt="ONWARD" align="right" width="80" height="30"></a></p>
+
+</body>
+
+</html><!--
+     FILE ARCHIVED ON 22:44:49 Feb 06, 2012 AND RETRIEVED FROM THE
+     INTERNET ARCHIVE ON 06:45:58 Sep 09, 2026.
+     JAVASCRIPT APPENDED BY WAYBACK MACHINE, COPYRIGHT INTERNET ARCHIVE.
+
+     ALL OTHER CONTENT MAY ALSO BE PROTECTED BY COPYRIGHT (17 U.S.C.
+     SECTION 108(a)(3)).
+-->
+<!--
+playback timings (ms):
+  captures_list: 4.776
+  exclusion.robots: 0.068
+  exclusion.robots.policy: 0.05
+  esindex: 0.009
+  cdx.remote: 46.731
+  LoadShardBlock: 213.877 (3)
+  PetaboxLoader3.resolve: 177.838 (4)
+  PetaboxLoader3.datanode: 118.889 (4)
+  load_resource: 96.984
+  nav: 0.313 (6)
+-->

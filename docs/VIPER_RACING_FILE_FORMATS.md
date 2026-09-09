@@ -1165,12 +1165,86 @@ no `.bpp` triangles because their collision is authored separately as `.sol` sol
 
 #### How a track is actually built
 
-`make-track.bat` from the same archive gives the whole pipeline, and it corrects a natural assumption:
+The commands below are the *back half*. The front half — how geometry and a centreline become those two
+text files in the first place — is documented under
+[The modern workflow, end to end](#the-modern-workflow-end-to-end) further down, and it is the part no
+recovered document describes.
 
+The build is **two batch files**, not one: `make-track.bat` compiles, then hands off to
+`compile-track.bat` which packs. Both survive, and both are reproduced verbatim below — this is the
+critical link in the chain, and the step that determines whether a track works in Viper at all.
+
+```bat
+@echo off
+color 0a
+rmdir /s /q out
+rmdir /s /q tra
+del /s /q track.flt
+del  /s /q mtrack.flt
+ECHO PAUSING FOR 2 SECONDS
+PING 1.1.1.1 -n 1 -w 2000 >NUL
+md out
+md tra
+mkfltoa.exe foolandsurface.txt track.flt -viper
+MKWORLD.EXE
+echo IF YOU SEE NO ERRORS - CONTINUE
+echo IF YOU DO - CAREFULLY READ THE DETAILS CAUSING THE ERROR
+echo THEN "x" OUT OF THIS BATCH FILE UNTIL YOU FIX IT
+pause
+mkilicc -nolat track.ili            tra\track.ild
+mkilicc -nolat track-ai.ili         tra\default.ili
+mkilicc -nolat track-ai-reverse.ili tra\rdefault.ili
+copy out\track.sol tra\track.sol
+copy out\track.obt tra\track.obt
+copy out\track.bsp tra\track.bsp
+mkfltoa.exe foolandgraphic.txt mtrack.flt
+nhmkworld.exe mtrack.flt
+echo IF YOU SEE NO ERRORS - CONTINUE
+echo IF YOU DO - CAREFULLY READ THE DETAILS CAUSING THE ERROR
+echo THEN "x" OUT OF THIS BATCH FILE UNTIL YOU FIX IT
+pause
+copy out\track.bpp tra\track.bpp
+copy out\track.grf tra\track.grf
+copy camera.tab tra
+copy aidef.ccs tra
+copy trackmap.stp tra
+xcopy /e /y mkresfiles tra
+cd tra
+CALL  compile-track.bat
 ```
-mkfltoa.exe foolandsurface.txt track.flt -viper   ->  MKWORLD.EXE    ->  track.sol, track.obt, track.bsp
-mkfltoa.exe foolandgraphic.txt mtrack.flt         ->  nhmkworld.exe  ->  track.bpp, track.grf
+
+…and `mkresfiles\compile-track.bat`, which produces the shipping archive:
+
+```bat
+:: REPLACE THE "trackname" BELOW TO THE NAME OF THE TRACK YOU ARE PUTTING TOGETHER.
+mkres trackname.tra @reslist.txt
 ```
+
+Several things follow from this that were not visible in the summary form:
+
+- **The AI lines are compiled, and there are three of them.** `mkilicc -nolat` runs three times over three
+  separate hand-authored inputs — and this settles what `rdefault.ili` is: `track-ai-reverse.ili` is the
+  **reverse-direction racing line**. `track.ili` compiles to `track.ild` (the line the track map draws),
+  `track-ai.ili` to `default.ili` (the forward AI line).
+- **The surface pass must fully succeed before the graphic pass runs.** The two `pause` blocks are not
+  decoration — the author put a hard stop between the passes precisely because a silent failure in the
+  first produces a track that compiles and then misbehaves.
+- **`MKWORLD.EXE` takes no arguments** — it picks up `track.flt` implicitly, which is why the `mkfltoa`
+  output filename is fixed. `nhmkworld.exe` does take its `.flt` explicitly.
+- **Not everything is generated.** `camera.tab`, `aidef.ccs`, `trackmap.stp` and every `.tex` are authored
+  separately and copied in. Only `.sol/.obt/.bsp/.grf/.bpp` and the three `.ili`-derived files come out of
+  the compiler.
+- **The `.tra` is built by `mkres`, the same packer as `.car` and `.res`,** driven by a `reslist.txt` that
+  fixes the member order:
+
+  ```
+  aidef.ccs  camera.tab  default.ili  rdefault.ili  track.bpp  track.bsp
+  track.grf  track.ild   track.obt    track.sol     Trackmap.stp
+  sky1-4.tex  grass.tex  asphaltv.tex  pine3o15.tex  bboard01.tex
+  ```
+
+  Which matches what `vrmod list` reports for a real track, and confirms the archive format documented at
+  the top of this file is exactly what the original tools emit.
 
 **`.bpp` and `.grf` are generated together, from the same source file.** The collision BSP is derived from
 the visible geometry rather than authored separately — which is exactly why editing a compiled `.grf`
@@ -1178,6 +1252,122 @@ without regenerating `.bpp` leaves collision behind. `.sol` comes from the *surf
 example contains a commented-out `;Walls` block, consistent with it holding the BOX/SPHR/TUBE solids.
 `mkfltoa` converts to **OpenFlight** (`.flt`), a standard interchange format, so track authoring goes
 through ordinary 3D tools rather than anything bespoke.
+
+⚠️ **Every driveable object must be declared in BOTH source files, under the same name.** This is the
+constraint that makes the two-file split workable, and it is stated in the shipped example source itself —
+`eg-foolandsurface.txt`, lines 10–11, the same file this document already quotes for its `modobject`
+examples:
+
+```
+;NOTE- ONLY DRIVEABLE SURFACE mod FILES ARE LISTED IN THE modobject LINES
+;THEY MUST BE THE SAME AS THE DRIVEABLE NAMES IN THE foolandgraphic.txt
+```
+
+The tutorial says the same thing in a red annotation over a screenshot of the author's Notepad window,
+which is where this was first noticed here — "MAKE SURE YOU ALSO PUT […] IN YOUR foolandgraphic.txt",
+beside `modobject(road1.mod, 0, 0, 0, 0)` … `modobject(water1pond.mod, 0, 0, 14, 0)`, whose matching codes
+in both files are what extends the rule from names to surface codes. But the comment above is the
+authoritative source and was always in plain text; the screenshot only corroborates it.
+
+The two files are the *same* format, not a source and a manifest: both open with a
+`path(center)` block of `vert(x, y, z)` lines, both carry `marker(checkN)` blocks, and both list
+`modobject()` entries. They differ only in which objects they name — the surface file adds the driveable
+and collidable ones, the graphic file adds scenery — so anything that is *both* seen and driven on has to
+appear twice. Divergence between the two copies is the likely cause of the classic authoring failure where
+a track looks right but the car drives through or over the wrong thing.
+
+The same screenshots corroborate the surface-code table from a direction independent of both the engine
+code and the geometry: an author naming a mesh `water1pond.mod` and tagging it **14** is the third
+confirmation that 14 is water, and the most direct kind. `path(center)` is also confirmed as the track
+centreline the rest of the build derives from — the annotation beside it reads "JUST A NOTE ABOUT THESE
+'PATH' VERTS… YOURS WILL BE A LOT LONGER THAN THIS EXAMPLE IS."
+
+#### The modern workflow, end to end
+
+Everything above was reconstructed from recovered 1990s–2000s material. The question it leaves open is
+whether a track can still be built *today*, on current tools — and it can. This is a working pipeline,
+[documented by HerbFargus](https://github.com/HerbFargus/viper-racing-legacy-modding-tools/wiki/Creating-a-Custom-Track)
+from tracks actually built with it:
+
+```
+Bob's Track Builder Pro   model the track                    ->  .dof
+  Zmodeler                import .dof, replace textures      ->  .mod  (the game meshes)
+                                                             ->  .3ds  (to carry into Max)
+  3DS Max                 import .3ds, generate the spline   ->  .ase
+  vrTrackMaker            import .ase                        ->  the MKWORLD source set
+  make-track.bat          mkfltoa -> MKWORLD / nhmkworld     ->  .sol .obt .bsp .grf .bpp
+```
+
+**The spline is generated in 3DS Max and handed to vrTrackMaker as `.ase`.** That is the join between the
+two halves, and it explains several things this document had recorded separately without connecting:
+
+- `path(center)`, the centreline block at the top of both source files, is that Max spline after
+  vrTrackMaker has written it out. The "yours will be a lot longer than this example" annotation is
+  describing a spline export, which is why the vert lists run to hundreds of entries.
+- vrTrackMaker emits **only surface codes 0, 10 and 16** (documented above). Now it is clear *why* authors
+  who wanted water or dirt had to hand-edit: those codes are not reachable from the generator, so the text
+  it produces has to be edited after the fact — and per the rule above, edited in **both** files, or the
+  track will look right and drive wrong.
+- Zmodeler produces the `.mod` meshes and the `.3ds` in the same pass, which is what keeps mesh names
+  consistent between the geometry and the `modobject()` lines that must reference them.
+
+Two of these steps are the same commercial tools the original community used — 3DS Max, and Zmodeler for
+the `.dof` import. `vrmod`'s `mod2obj` / `obj2mod` covers the mesh interchange step with free tools, but
+the spline generation and the vrTrackMaker stage have no counterpart here yet. That gap — `.ase` spline
+and mesh set in, MKWORLD source files out — is the concrete, bounded shape of any future track-authoring
+work, and it is now fully specified on both ends rather than being a research problem.
+
+#### vrTrackMaker, the stage in the middle
+
+Sucahyo's **"VR simple Track Maker"** is the piece that turns a bare spline into the MKWORLD source set,
+and its own readme plus its recovered UI specify it completely.
+
+**What it does.** It sweeps a parameterised cross-section along the spline. The bands are fixed and named
+in the UI — **Road, Wall, Side, Rumble1, Rumble2, Grass** — each with a *distance to centre* and a
+*height*, which is exactly the vocabulary the surface codes use (Road→0, Side/Rumble→16, Grass→10) and
+why the tool can only ever emit those three. Its own readme says so outright: it will "only create
+asphalt, wall, side, rumble and small part of grass." Other controls: banking multiplier, max banking in
+degrees, UV multiplier, wall type (`all` / `corner` / `corner outside` / `none`), and simplify, corner,
+wall and rumble thresholds. **AI path generation is built in** — with forward and backward lookup
+distances in metres — which is where `track-ai.ili` comes from; the readme notes that `trkaitweaker.exe`
+is no longer needed as a result.
+
+**What it demands of the spline**, all of which will silently ruin a track if violated:
+
+- the path must run **clockwise**, or polygons come out reversed;
+- it must go in **one direction only** — a backward segment punches a hole, fixed by deleting vertex lines
+  from the end of the `.ase`;
+- it must be **dense**: normalise to 50.0 if needed, then to **1.0**;
+- the **start/finish line must be straight**;
+- the path must **never cross or overlap itself**; there is no overlap detection, and an overlap becomes a
+  hole;
+- export with **4-decimal precision and `.` as the decimal separator** — the readme warns to change
+  regional settings first, since a comma separator makes the tool error out.
+
+**The two-button workflow.** *Process file* reads the `.ase` and builds the path and its bank-angle table
+— "by all means, DO NOT DELETE THE TABLE RECORD", since only the bank-angle column feeds the next stage.
+*Write model* emits `foolandsurface.txt`. If the wall count exceeds 2,000, the readme's instruction is to
+redo with a higher simplify threshold, keep *that* `foolandsurface.txt`, and re-run normally for
+everything else.
+
+⚠️ **Engine limits this readme records, which appear nowhere else:**
+
+| Limit | Value |
+|---|---|
+| walls per track | **2,000** |
+| vertices per track | **65,000** |
+| polygons per track | **65,000** |
+
+The 65,000-polygon ceiling is worth reading against the `race.bin` table in
+[MODDING_HISTORY.md](MODDING_HISTORY.md): Sucahyo — who wrote both this tool and the 1.2.4-beta engine
+patch — raised track support to **95,000 polygons** in that patch. These figures are stated without a
+version, so read them as the constraint the tool was written against rather than a measurement of any
+particular binary.
+
+Two smaller notes from the same readme: normals are **not** calculated by the tool, and wall compilation
+draws on `foolandsurface.txt` plus any `.mod` whose name carries a `wall` suffix. Its output track is
+always named `generic.tra` — renaming happens afterwards, which is consistent with `compile-track.bat`
+shipping with `trackname` as a literal placeholder to be edited.
 
 #### The shipped tracks are codenamed
 

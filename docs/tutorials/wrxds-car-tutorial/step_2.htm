@@ -1,0 +1,206 @@
+
+ 
+
+<p align="center"><font size="6"><b>Step 2: Preparing the 3D Mesh(es)</b></font></p>
+
+<p align="left"><font size="4">Importing into ZModeler (if the car model is already in 
+ZModeler, skip this part and go down)</font></p>
+
+<p align="left"><font size="4">Before you can import the car mesh into the game, 
+you must first import it into ZModeler. </font></p>
+
+<p align="left"><font size="4">To do that, you need to get:</font></p>
+
+<p align="left"><font size="4">The Car's 3D Mesh(es)</font></p>
+
+<p align="left"><font size="4">The Car's Texture(s)</font></p>
+
+<p align="left"><font size="4">Unpacked from the game, using whatever program is 
+necessary, if needed.</font></p>
+
+<p align="left"><font size="4">Some games, like Racer, have the car's files in a 
+folder, unpacked and ripe for the conversion.</font></p>
+
+<p align="left"><font size="4">Now, open ZModeler. If you don't have ZModeler, 
+or need to upgrade to the last release of ZModeler, v1.07, go to
+<a href="http://www.zmodeler2.com/">www.zmodeler2.com</a>.</font></p>
+
+<p align="left"><font size="4">Click Import</font></p>
+
+<p align="left"><img border="0" src="images/clickimport.jpg" width="248" height="120"></p>
+
+<p align="left"><font size="4">Browse to the 3D Mesh you need to import. If 
+there is more than one repeat the procedure.</font></p>
+
+<p align="left"><img border="0" src="images/importing.gif" width="428" height="296"></p>
+
+<p align="left"><font size="4">The car model should show up in ZModeler if 
+successful.</font></p>
+
+<p align="left"><font size="4"><img border="0" src="images/imported.jpg" width="386" height="322"></font></p>
+
+<p align="left"><font size="4">At this time, you need to determine if the 
+windows are supposed to be transparent or not.</font></p>
+
+<p align="left"><font size="4">If there is a mesh of an interior that fits 
+inside the model perfectly, or if you can see through the windows, then assume 
+the windows are see-through. This may be true of the headlights as well, as seen 
+in this car model. In some instances, the driver might be wearing shades, which 
+will be see-thru as well (although barely see-thru)</font></p>
+
+<p align="left"><font size="4">First, determine what objects are needed. These 
+will be:</font></p>
+
+<p align="left"><font size="4">The main body</font></p>
+
+<p align="left"><font size="4">The Interior</font></p>
+
+<p align="left"><font size="4">Any mirrors</font></p>
+
+<p align="left"><font size="4">Any Spoilers</font></p>
+
+<p align="left"><font size="4">Any extra attachments</font></p>
+
+<p align="left"><font size="4">You can discard the rest. That may be:</font></p>
+
+<p align="left"><font size="4">The brake discs</font></p>
+
+<p align="left"><font size="4">Any Dummies, nulls, nurbs, etc.</font></p>
+
+<p align="left"><font size="4">Lit-up models</font></p>
+
+<p align="left"><font size="4">The Wheels</font></p>
+
+<p align="left"><font size="4">First, take the EXTERIOR models of the highest 
+detail, and Go to Create... Objects... UniteSelect</font></p>
+
+<p align="left"><img border="0" src="images/uniteselect.jpg" width="216" height="324"></p>
+
+<p align="left"><font size="4">Pick the Square Selection tool</font></p>
+
+<p align="left"><img border="0" src="images/squareselection.jpg" width="172" height="74"></p>
+
+<p align="left"><font size="4">Hide all the other meshes by clicking on their 
+name in the Objects List</font></p>
+
+<p align="left"><img border="0" src="images/hideobjectslist.jpg" width="118" height="231"></p>
+
+<p align="left"><font size="4">Only the Exterior body parts should now be 
+showing.</font></p>
+
+<p align="left"><font size="4">Take the selector, and drag a box around the 
+entire body mesh.</font></p>
+
+<p align="left"><img border="0" src="images/selectedbody.jpg" width="371" height="164"></p>
+
+<p align="left"><font size="4">Now, click on the body, and a dialog box shows up 
+asking you to name the new object.</font></p>
+
+<p align="left"><img border="0" src="images/firstnameunited.jpg" width="285" height="171"></p>
+
+<p align="left"><font size="4">Give a short name, maximum 7 characters, and put 
+a [0] after it. This will make this object the top layer, so you will be able to 
+see through the windows and see the cockpit.</font></p>
+
+<p align="left"><font size="4">Repeat for the interior, giving the same object 
+name, but put a [1] after the name instead of a [0].</font></p>
+
+<p align="left"><font size="4">If you wish to have an LOD (level of detail) on 
+the car, you can take the lower detail models, if any, and unite them with a 
+different name. Remember to put the exterior number as [0] and the interior 
+number as [1].</font></p>
+
+<p align="left"><font size="4">Now, look over the car's mesh. In some cars, 
+there may be a set of brakes that are part of the Exterior, you need to delete 
+these, as they will just get in the way. Go to Modify... Delete</font></p>
+
+<p align="left"><img border="0" src="images/modifydelete.jpg" width="162" height="339"></p>
+
+<p align="left"><font size="4">Switch to Faces level</font></p>
+
+<p align="left"><img border="0" src="images/clickfaces.jpg" width="188" height="70"></p>
+
+<p align="left"><font size="4">&nbsp;and start hacking!</font></p>
+
+<p align="left"><font size="4">After you have had your fun deleting faces, its 
+now time to line up the model. Return to Objects level, Select both the Exterior 
+and Interior models, and hit Modify... Move.</font></p>
+
+<p align="left"><font size="4">Make sure only the Y axis is selected</font></p>
+
+<p align="left"><img border="0" src="images/onlyvertical.jpg" width="150" height="72"></p>
+
+<p align="left"><font size="4">and that SEL mode is on, or you might have bad 
+results.</font></p>
+
+<p align="left"><img border="0" src="images/SELon.jpg" width="218" height="68"></p>
+
+<p align="left"><font size="4">Find the side, front, or rear view, and drag the 
+model up or down until the BOTTOM of the car touches the X or Z axis.</font></p>
+
+<p align="left"><img border="0" src="images/lineduponx.jpg" width="427" height="287"></p>
+
+<p align="left"><font size="4">Now, go to the side view, switch on the X axis 
+and switch OFF the Y axis (H on, V off), and with the whole model still 
+selected, line up the wheel wells so the MIDDLE of both wheel wells are the SAME 
+DISTANCE apart from the Y axis.</font></p>
+
+<p align="left"><img border="0" src="images/linedupwheelwells.jpg" width="569" height="274"></p>
+
+<p align="left"><font size="4">Now is the time to see if you need to chop off 
+anything else.</font></p>
+
+<p align="left"><font size="4">Highlight ALL the objects you are going to export 
+for the HIGHEST LOD.</font></p>
+
+<p align="left"><font size="4">Click on Edit... Attributes</font></p>
+
+<p align="left"><img border="0" src="images/editattributes.jpg" width="254" height="132"></p>
+
+<p align="left"><font size="4">Then, a window shows up.</font></p>
+
+<p align="left"><img border="0" src="images/attributeswindow.jpg" width="365" height="361"></p>
+
+<p align="left"><font size="4">Look near the top, where an un-writable box is 
+next to Vertices:</font></p>
+
+<p align="left"><font size="4">It is just below 5000! This means this car mesh 
+will fit into Viper Racing!</font></p>
+
+<p align="left"><font size="4">You will see more of this GT-R later.</font></p>
+
+<p align="left"><font size="4">Once you are finished here move ONWARD.</font></p>
+
+<p align="left"></p>
+
+<p align="left"></p>
+
+<p align="left"></p>
+
+<p align="left"><a href="step_1.htm">
+<font size="4">
+<img border="0" src="images/reverse.jpg" alt="REVERSE" align="left" width="80" height="30"></font></a><a href="step_3a.htm"><font size="4"><img border="0" src="images/onward.jpg" alt="ONWARD" align="right" width="80" height="30"></font></a></p>
+
+</body>
+
+</html><!--
+     FILE ARCHIVED ON 22:49:02 Feb 06, 2012 AND RETRIEVED FROM THE
+     INTERNET ARCHIVE ON 06:45:55 Sep 09, 2026.
+     JAVASCRIPT APPENDED BY WAYBACK MACHINE, COPYRIGHT INTERNET ARCHIVE.
+
+     ALL OTHER CONTENT MAY ALSO BE PROTECTED BY COPYRIGHT (17 U.S.C.
+     SECTION 108(a)(3)).
+-->
+<!--
+playback timings (ms):
+  captures_list: 0.424
+  exclusion.robots: 0.034
+  exclusion.robots.policy: 0.025
+  esindex: 0.006
+  cdx.remote: 4.378
+  LoadShardBlock: 70.258 (3)
+  PetaboxLoader3.resolve: 88.716 (3)
+  PetaboxLoader3.datanode: 44.256 (4)
+  load_resource: 84.441
+  nav: 0.138 (6)
+-->

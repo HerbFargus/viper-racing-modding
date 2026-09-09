@@ -1,0 +1,270 @@
+
+ 
+
+<p align="center"><font size="6"><b>Step 7: Preparing Performance</b></font></p>
+
+<p align="left"><font size="4">This is the lengthy part. You first need to open 
+cf2txt.</font></p>
+
+<p align="left"><font size="4">Where the RED arrow is, you browse to the folder 
+your working in.</font></p>
+
+<p align="left"><font size="4">Where the BLUE arrow is, you click the .cf file.</font></p>
+
+<p align="left"><img border="0" src="images/cf2txtarrows.jpg" width="736" height="539"></p>
+
+<p align="left"><font size="4">A list of variable show up on the right side. 
+Click the Gigantic Save button to save it as a txt.</font></p>
+
+<p align="left"><font size="4">Close out cf2txt, and open your text file in 
+notepad.</font></p>
+
+<p align="left"><font size="4">You will see a bunch of variables (there will be 
+a LOT!)</font></p>
+
+<p align="left"><font size="4">Each one of these sets up the car. Matt has a 
+LONG detailed explanation for every variable in the CF file (or the txt in this 
+case) and a couple tips on making the torque/HP curve right. So here's matt.</font></p>
+
+<p align="left"><font size="4">The torque 
+curve might tend to look a bit flat but one need to remember that the whole 
+diagram is pretty flat itself and that it is you that has to move things around 
+(unfortunally) to get a more realistic result. When it comes to theese curves I 
+personally think the most important thing it to get the curves to look realistic 
+since looking at them this is what you will get in the game no matter what 
+numbers are there... <br>
+<br>
+When it comes to the power curves... I'm not sure. Since it IS a game a car 
+might have 20.000 Hp at 0 rpm which would be impossible IRL because of the 
+reason you mentioned. <br>
+<br>
+I would prefer:<br>
+<br>
+1. Realistic performance no matter what curves or numbers.<br>
+2. Similar curves instead of exact peaks (however it is not very hard to get 
+both most of the times)<br>
+3. Exact peaks as a third priority, after all, you can't see if it is exact or 
+not. <br>
+<br>
+When it comes to the weight issue, fuel consumption and re-fueling was never 
+implemented ( ) so you need to add weight for fuel aswell. A standard Viper GTS 
+carry 19 gallons of fuel fully loaded which means about 70 kilos? You have to 
+decide for yourself if you want to drive the car with a full, average or low 
+fuel load. A driver could weigh anything between... uhm... well he or she could 
+weigh anything really. <br>
+<br>
+The inertias can be calculated in the following way: <br>
+<br>
+mx = weight/12*((length^2)+(height-((wheel width/12)/2+(wheel height%*((wheel 
+widht/1000)*3,280851))))^2)<br>
+<br>
+my = weight/12*(length^2+width^2)<br>
+<br>
+mz = weight/12*((width^2)+(height-((wheel width/12)/2+(wheel 
+height%*((weight/1000)*3,280851))))^2)<br>
+<br>
+And here are some hex explainations (I will only explain a few of them):<br>
+<br>
+14 Total weight (avoir pounds)<br>
+18 inertia mx<br>
+1c inertia my <br>
+20 inertia mz <br>
+<br>
+24 overall width (inches)<br>
+28 overall height (inches)<br>
+2c front track (inches)<br>
+30 rear track (inches)<br>
+44 wheelbase (inches)<br>
+<br>
+48 <br>
+<br>
+front weight distribution (%) More weight in the rear end will give the car more 
+grip but will make the rear end brake out more easily and faster. If the car 
+isn't correct setup otherwise, too much rear weight will give the car erratic 
+handling and very dangerous handling at higher speeds.<br>
+<br>
+34 front ground clearance, minimum (inches)<br>
+38 front ground clearance, maximum (inches)<br>
+3c rear ground clearance, minimum (inches)<br>
+40 rear ground clearance, maximum (inches)<br>
+<br>
+5c idle speed (rpm)<br>
+54 maximum torque (lbs/ft)<br>
+58 torque peak (rpm)<br>
+4c maximum engine power (hp)<br>
+50 power peak (rpm)<br>
+60 rpm limiter kicks in at (rpm)<br>
+<br>
+64 engine inertia (milliseconds) This feature affect the engine response but 
+also the time it takes for the engine to start. <br>
+<br>
+68 engine drag coefficient. For an example, if this value is too high you will 
+encounter a wheel lock if you release the throttle. This has to be set until you 
+feel the engine drag is realistic for that specific car. <br>
+<br>
+6c fuel consumption (US gallons/100 km?)<br>
+70 fuel capacity (US gallons)<br>
+<br>
+e4 front/ rear torque balance (1.0 = 100% rear, 0,0 = 100% front)<br>
+<br>
+e8 front diffrential stiffness. I set this value high if I want a FWD car spin 
+on both tires instead of just one.<br>
+<br>
+ec rear diffrential stiffness. I set this value high if I want a RWD car to spin 
+on both rear tires instead of just one.<br>
+<br>
+f0 central diffrential stiff. I set this value high if I want a 4WD car spin on 
+all four tires.<br>
+<br>
+11c number of gears (3-6)<br>
+<br>
+dc rear end final drive ratio, minimum <br>
+e0 rear end final drive ratio, maximum<br>
+<br>
+f4 transmission inertia. This value can be useful to set exact acceleration.<br>
+<br>
+f8 transmission drag. This is VERY useful to set exact acceleration to a car 
+since it affects the acceleration over a wide register. <br>
+<br>
+120 front springs stiffness, minimum<br>
+124 rear springs stiffness, minimum<br>
+150 front springs stiffness, maximum<br>
+154 rear springs stiffness, maximum<br>
+128 front bump, minimum<br>
+12c rear bump, minimum<br>
+158 front bump, maximum<br>
+15c rear bump, maximum<br>
+130 front rebound, minimum<br>
+134 rear rebound, minimum<br>
+160 front rebound, maximum<br>
+164 rear rebound, maximum<br>
+138 front sway, minimum<br>
+13c rear sway, minimum<br>
+168 front sway, maximum<br>
+16c rear sway, maximum<br>
+140 front camber angle, minimum <br>
+144 rear camber angle, minimum<br>
+170 front camber angle, maximum <br>
+174 rear camber angle, maximum<br>
+148 front toe-in angle, minimum <br>
+14c rear toe-in angle, minimum <br>
+178 front toe-in angle, maximum <br>
+17c rear toe-in angle, maximum<br>
+180 caster<br>
+184 anti dive<br>
+188 anti squat<br>
+<br>
+18c front bump camber angle<br>
+190 rear bump camber angle<br>
+194 front bump toe-in angle<br>
+198 rear bump toe-in angle<br>
+1ac height (cm)<br>
+1b0 wheel lock angle<br>
+<br>
+1b4 front average tire width (mm)<br>
+1b8 front tire height procent (% of above width)<br>
+1bc front rim diameter (inches)<br>
+<br>
+1c0 rear average tire width (mm)<br>
+1c4 rear tire height procent (% of above width)<br>
+1c8 rear rim diameter (inches)<br>
+<br>
+1dc front brake effect, minimum<br>
+1e0 rear brake effect, minimum<br>
+1e4 front brake effect, maximum<br>
+1e8 rear brake effect, maximum<br>
+<br>
+1ec rolling resistance (this can be used to give the car realistic rolling 
+resistance but most of all you can use it to cut the topspeed if needed)<br>
+<br>
+1f4 frontal area (square feet). You will have to search for real life figures 
+for this one. A standard Viper GTS = 19,3 a Viper GTS-R = 20,5 a Porsche GT2 = 
+21 etc etc.... Higher value will create more drag resistance but will also 
+create more downforce.<br>
+<br>
+200 drag coefficient (search for real life figures for this one. Higher value 
+means more drag ofcourse.)<br>
+<br>
+1f8 drag center point height. Higher value will generate more pressure but at a 
+certain point will **** up the cars aerodynamics making it fly up in the air 
+(the air under the car will lift it up in the air)<br>
+<br>
+1fc drag center point longitudal. A higher value will give the same result as 
+yaw control. I best kept between let's say 50-53 maximum to keep the handling 
+realistic<br>
+<br>
+204 lateral drag (sides of the car)<br>
+208 vertical drag (under/over the car)<br>
+<br>
+214 front spoiler, minimum (lift coefficient)<br>
+21c front spoiler, maximum (lift coefficient)<br>
+218 rear spoiler, minimum (lift coefficient)<br>
+220 rear spoiler, maximum (lift coefficient)<br>
+20c front lift coefficient (at 200 Kph)<br>
+210 rear lift coefficient (at 200 Kph)<br>
+224 front spoiler drag coefficient (how much drag will be generated by the front 
+spoiler)<br>
+228 rear spoiler drag coefficient (how much drag will be generated by the rear 
+spoiler)<br>
+<br>
+Well, that's all for now. It is better to contact me with problems you're 
+encountering, then I will be able to explain exactly what need to be changed. It 
+is a drag to explain what all this stuff do to the performances... even if you 
+know it by heart. Good luck and keep up the work! <br>
+<br>
+/Matt<br>
+&nbsp;</font></p>
+
+<p align="left"><font size="4">Now that you have read his sermon, you are ready 
+to start the TXT edits.</font></p>
+
+<p align="left"><font size="4">Take the specs of your car, and get them up. You 
+are going to replace every variable in the CF that you can with the information 
+you have. Try to remain realistic when creating your car (that includes tuned 
+cars).</font></p>
+
+<p align="left"><font size="4">If you need to convert any measurements from 
+Metric to Imperial, go to <a href="http://www.onlineconversion.com/">
+http://www.onlineconversion.com/</a>. </font></p>
+
+<p align="left"><font size="4">For the mx, my, and mz, you can either use the 
+formula provided by Matt, or the Excel spreadsheet created by Bloodyludy, which 
+you can get <a href="inertias.xls">here</a>.</font></p>
+
+<p align="left"><font size="4">Once you are done, click Save, and close Notepad.</font></p>
+
+<p align="left"><font size="4">Go to your command prompt (perhaps by now you 
+have a shortcut to it in your working folder), and type in, mkcar yourfile.txt 
+yourcar.cf (obviously replace yourfile and yourcar with the actual file names).</font></p>
+
+<p align="left"><font size="4">Once you are done setting up the CF, you can move 
+ONWARD.</font></p>
+
+<p align="left">&nbsp;</p>
+
+<p align="left"><a href="step_6.htm">
+<img border="0" src="images/reverse.jpg" alt="REVERSE" align="left" width="80" height="30"></a><a href="step_8.htm"><img border="0" src="images/onward.jpg" alt="ONWARD" align="right" width="80" height="30"></a></p>
+
+</body>
+
+</html><!--
+     FILE ARCHIVED ON 22:51:26 Feb 06, 2012 AND RETRIEVED FROM THE
+     INTERNET ARCHIVE ON 06:46:02 Sep 09, 2026.
+     JAVASCRIPT APPENDED BY WAYBACK MACHINE, COPYRIGHT INTERNET ARCHIVE.
+
+     ALL OTHER CONTENT MAY ALSO BE PROTECTED BY COPYRIGHT (17 U.S.C.
+     SECTION 108(a)(3)).
+-->
+<!--
+playback timings (ms):
+  captures_list: 0.594
+  exclusion.robots: 0.052
+  exclusion.robots.policy: 0.039
+  esindex: 0.009
+  cdx.remote: 11.368
+  LoadShardBlock: 231.018 (3)
+  PetaboxLoader3.datanode: 93.788 (4)
+  PetaboxLoader3.resolve: 80.268 (2)
+  load_resource: 98.876
+  nav: 0.44 (6)
+-->
