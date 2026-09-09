@@ -89,23 +89,36 @@ def car_mesh(car_path: str | Path, wheels: bool = True) -> mod.Mesh:
     return body_mesh(car_path)
 
 
-def material_colours(car_path: str | Path, mesh: mod.Mesh) -> dict[str, tuple[int, int, int]]:
+def material_colours(car_path: str | Path, mesh: mod.Mesh,
+                     paint_texture: str | Path | None = None) -> dict[str, tuple[int, int, int]]:
     """Average colour of each material's texture, keyed by material name.
     Only used by the "shaded" style.
+
+    Resolves names the way the game does -- the car's own archive, then the
+    shared .res bundles beside it, then the runtime paint slot (see
+    car.resolve_textures). Looking only inside the .car, as this used to, missed
+    every shared material (wheels, glass, effects come from race.res) and missed
+    the body paint entirely on the many community cars whose own textures are
+    just white shading overlays: their colour lives in the paint the player
+    supplies, so without one they really are grey shells.
 
     Transparent pixels are skipped: a colorkeyed texture is mostly hole for
     things like grilles and wings, and averaging the key colour in drags every
     result toward it.
     """
-    entries = archive.read(Path(car_path))
-    by_name = {e.name.lower(): e for e in entries}
+    from . import car as car_mod        # local: car imports this module's siblings
+    names = {(m.name or "") for m in mesh.materials if m.name}
+    try:
+        raw_by_name = car_mod.resolve_textures(car_path, names, paint_texture=paint_texture)
+    except Exception:
+        raw_by_name = {}
     out: dict[str, tuple[int, int, int]] = {}
     for m in mesh.materials:
-        entry = by_name.get((m.name or "").lower())
-        if entry is None:
+        raw = raw_by_name.get(m.name)
+        if raw is None:
             continue
         try:
-            info = tex.parse(envelope.build(entry.tag, entry.version, entry.payload))
+            info = tex.parse(raw)
             px = tex.decode_base_level(info)
         except Exception:
             continue
@@ -244,13 +257,19 @@ def render(
     return b"".join(bytes(row) for row in buf), width, height
 
 
-def to_png(car_path: str | Path, style: str = "wire", wheels: bool = True, **kw) -> bytes:
-    """Render a car straight to PNG bytes."""
+def to_png(car_path: str | Path, style: str = "wire", wheels: bool = True,
+           paint_texture: str | Path | None = None, **kw) -> bytes:
+    """Render a car straight to PNG bytes.
+
+    paint_texture supplies the runtime paint (a Config/paint*.tex), which is
+    where most community cars actually keep their colour -- without it they
+    render as the grey shells they literally are.
+    """
     from . import viewer          # local import: viewer imports plenty, this module is small
     car_path = Path(car_path)
     mesh = car_mesh(car_path, wheels=wheels)
     if style == "shaded":
-        kw.setdefault("colours", material_colours(car_path, mesh))
+        kw.setdefault("colours", material_colours(car_path, mesh, paint_texture=paint_texture))
     pixels, w, h = render(mesh, style=style, **kw)
     rows = [bytearray(pixels[y * w * 3:(y + 1) * w * 3]) for y in range(h)]
     return viewer._rgb_png(w, h, rows)
