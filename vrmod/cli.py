@@ -632,6 +632,22 @@ def main(argv: list[str] | None = None) -> int:
     p_rb.add_argument("--install", type=Path, default=None, metavar="FILE",
                       help="install this race.bin, replacing the one in the Data folder")
 
+    p_trackgen = sub.add_parser(
+        "trackgen",
+        help="Generate a track's MKWORLD source set (fooland*.txt + swept meshes) "
+             "from a centreline -- the driving half of the track pipeline",
+    )
+    p_trackgen.add_argument("centreline", type=Path, help="a .ase or .obj centreline")
+    p_trackgen.add_argument("out_dir", type=Path, help="directory to write into")
+    p_trackgen.add_argument("--spacing", type=float, default=10.0,
+                            help="resample the centreline to this station spacing (m)")
+    p_trackgen.add_argument("--road-width", type=float, default=12.0,
+                            help="full road width in metres (default 12)")
+    p_trackgen.add_argument("--open", action="store_true",
+                            help="treat the centreline as open rather than a closed loop")
+    p_trackgen.add_argument("--no-gate", action="store_true",
+                            help="skip the start/finish checkpoint gate")
+
     p_bppinfo = sub.add_parser(
         "bppinfo",
         help="Summarise a track's collision BSP (.bpp): triangle and node counts, "
@@ -1137,6 +1153,28 @@ def main(argv: list[str] | None = None) -> int:
                 print("  revert with: vrmod primarycar <Data> --revert")
         except primarycar.PrimaryCarError as e:
             raise SystemExit(f"error: {e}")
+    elif args.command == "trackgen":
+        from . import trackgen as _tg
+        line = _tg.read_centreline(args.centreline)
+        raw = len(line)
+        if args.spacing > 0:
+            line = _tg.resample(line, args.spacing)
+        scene = _tg.sweep(
+            line,
+            road_half_width=args.road_width / 2.0,
+            closed=not args.open,
+        )
+        if not args.no_gate:
+            _tg.add_start_gate(scene, args.road_width / 2.0)
+        written = _tg.write_scene(scene, args.out_dir)
+        print(f"{args.centreline.name}: {raw:,} points -> {len(scene.centreline):,} stations")
+        for w in written:
+            print(f"  {w.stat().st_size:>9,}  {w.name}")
+        print()
+        print(f"{len(scene.driveables)} driveable objects, written identically "
+              f"to both scene files.")
+        print(f"Next: run make-track.bat in {args.out_dir} to compile.")
+
     elif args.command == "trackmap":
         opts = {"line_width": args.line_width}
         if args.markers is not None:
