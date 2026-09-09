@@ -92,7 +92,8 @@ by Frank P. Wolf, distributed from his own site (`members.aol.com/racingwolf999/
 - **mksfx** ✓ — convert a `.wav` to the game's `.sfx`.
 
 ### Tracks
-- **Bob's Track Builder (BTB)** — track authoring (with a BTB→Viper tutorial).
+- **Bob's Track Builder (BTB)** — track authoring (with a BTB→Viper tutorial); the
+  Pro edition is still sold on Steam, though the tutorial targets the original.
 - **vrTrackMaker** ✓ — turn a path/spline into a track block.
 - **MKWORLD / mkfltoa** ✓ — generate the surface + collision set
   (`.sol` / `.obt` / `.bsp` / `.grf` / `.bpp`) from a text scene description;
@@ -251,8 +252,28 @@ and only then pushed through the community converters in Part A.
 | **Blender** | The modern equivalent, and the practical target today | Free, current | Direct: the OBJ round-trip is designed so a mesh opens and re-imports cleanly |
 | **3DSimED** | Racing-sim model editor/converter. **Reads Viper Racing `.mod` files directly** (confirmed by loading a car mod), so it opens both ends of the old conversion pipeline: the sims cars were converted *from*, and Viper itself | Commercial, current | Overlapping, not dependent — 3DSimED imports `.mod` natively; `vrmod` goes via `mod2obj`/`obj2mod` so any modeller works. Either is a valid path onto the geometry |
 | **GIMP** | The image editor of choice for skins and track textures | Free, current | `vrmod tex2tga` / `tga2tex` produce/consume what it edits; the app does import/export in-place |
-| **Bob's Track Builder (BTB)** | Track authoring, with a community BTB→Viper tutorial | Commercial, discontinued | **none** — track authoring remains out of scope |
+| **Bob's Track Builder (BTB)** | Track authoring, with a community BTB→Viper tutorial. The tutorial screenshots show **v0.8.0.0**, the original line | Split three ways — see below. **Bob's Track Builder Pro is on Steam and current**; the tutorial-era line is not | **none** — track authoring remains out of scope, but the geometry half of it is no longer blocked on a dead tool |
 | **XVi32** | The hex editor behind nearly every non-geometry edit: the `<car>1.tab` spec sheet, texture-name strings inside a `.mod`, names in `english.lng` | Free, still available | Superseded — those three edits are now `cfset`/`carfork`/the switcher |
+
+#### Bob's Track Builder is three different products, and only one is still available
+
+Worth spelling out, because "BTB" in a 2000s-era tutorial does not mean the BTB you can buy today:
+
+| Version | Exports to | Status |
+|---|---|---|
+| **BTB** (the original, `0.8.0.0` in the tutorial screenshots) | generic mesh; the Viper path was community-built on top | superseded |
+| **BTB Evo** | GTR2, GTL, Race07 | **lost** — never reached Steam, the vendor disabled purchase, no working download is known to exist anywhere. Last updated 2014, XP-era |
+| **[Bob's Track Builder Pro](https://store.steampowered.com/app/993270/Bobs_Track_Builder_Pro/)** | current sims | **available now, on Steam** |
+
+The developer's current focus is Race Track Builder, which targets Assetto Corsa only.
+
+There was never an official Viper Racing exporter in any version. What BTB contributed to the Viper
+pipeline was the *geometry* — the centreline spline and the surface panels — which then had to be carried
+into `foolandsurface.txt` / `foolandgraphic.txt` for `mkfltoa`. So the modern position is better than the
+tool chart used to imply: **the mesh-authoring half of track building is a live, purchasable tool**, and
+what is actually missing is the converter between BTB's output and the two MKWORLD source files. That is a
+tractable piece of work rather than a dead end, and it is the concrete shape any future track-authoring
+scope would take.
 
 > **The honest summary of Part B:** the community's real "editor" was a
 > general-purpose 3D package plus a hex editor. Everything in Part A existed to
