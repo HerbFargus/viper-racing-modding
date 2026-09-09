@@ -83,6 +83,21 @@ def check_invariants() -> None:
     check("surface file negates the ground axes; graphic file does not", flipped,
           f"scene {gate[0][0]:.2f},{gate[0][1]:.2f} -> written {s_pts[0][0]:.2f},{s_pts[0][1]:.2f}")
 
+    # An empty marker block is rejected by nhmkworld, and writing one is exactly
+    # the bug this emitter shipped with: the reference was first read through a
+    # filter that hid the gate verts, and the artifact was mistaken for the
+    # format itself. Both files must carry the gate.
+    def gate_verts(text):
+        head, _, rest = text.partition("marker(check1)")
+        if not rest:
+            return 0
+        block, _, _ = rest.partition("end")
+        return block.count("vert(")
+
+    check("both files carry the gate verts (empty marker breaks nhmkworld)",
+          gate_verts(surface) == 2 and gate_verts(graphic) == 2,
+          f"surface={gate_verts(surface)} graphic={gate_verts(graphic)}")
+
     # CRLF is not cosmetic -- the original reader splits on it.
     check("both files use CRLF", surface.count("\r\n") > 0 and graphic.count("\r\n") > 0)
     check("no bare LF in output",

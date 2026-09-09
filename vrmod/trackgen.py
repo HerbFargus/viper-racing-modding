@@ -362,9 +362,8 @@ def sweep(
 def add_start_gate(scene: "TrackScene", half_width: float | None = None) -> None:
     """Put a checkpoint gate across the centreline at its first point.
 
-    A gate is two points spanning the road, and the surface file carries the
-    verts while the graphic file carries only the empty marker -- which is what
-    the reference output does.
+    A gate is two points spanning the road. Both scene files carry the verts;
+    the surface file writes them negated, the graphic file as-is.
     """
     pts = scene.centreline
     if len(pts) < 2:
@@ -405,14 +404,20 @@ def _modobject(o: SceneObject) -> str:
 
 
 def write_graphic(scene: "TrackScene") -> str:
-    """The visual scene source: the centreline, an empty gate, and every object."""
+    """The visual scene source: the centreline, the gate, and every object."""
     out = [""]
     out.append("path(center)")
     out.extend(_vert(p) for p in scene.centreline)
     out.append("end")
     out.append("")
-    for name in scene.markers:
+    for name, gate in scene.markers.items():
+        # The gate verts belong in BOTH files -- unflipped here, negated in the
+        # surface file. An empty marker block is rejected by nhmkworld, which is
+        # exactly what this emitter used to write: the reference was first read
+        # through a `grep -v vert(` that hid the gate, and the artifact got
+        # encoded as a format rule.
         out.append(f"marker({name})")
+        out.extend(_vert(p) for p in gate)
         out.append("end")
     out.append("begin")
     out.extend(_modobject(o) for o in scene.driveables)
