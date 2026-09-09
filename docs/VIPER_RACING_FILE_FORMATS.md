@@ -927,46 +927,27 @@ per-record loop advances by `add ebx, 0xe0` — 224, confirmed from the loop its
 `[0, n_primitives)`, all primitives referenced, many-to-one — bemidji has 382 entries over 135 primitives).
 This is the broadphase reference list: the spatial cells name the solids they contain by index here.
 
-**Section 3 — the tail, measured.** It was previously recorded only as "spatial index (partially
-mapped)". Compiling controlled wall layouts through MKWORLD pins down its shape, if not yet its meaning.
+**Confirmed against a freshly compiled `.sol`, not just shipped ones.** Running MKWORLD over a scene
+with 1,210 inline wall quads produced 1,201 BOX primitives — very nearly one per quad, so the compiler is
+not merging colinear walls the way one might assume. Every field above read correctly at the documented
+offsets, which is the strongest available check on §4.8: the layout was derived from the loader, and it
+holds for a file written today rather than in 1998.
 
-The tail opens with a constant 16-byte header — `0, 1, 0, 5` as int32 in every file produced — followed by
-**three records** of `(u16 count, u16 count-again, u32 offset)`, then zeros. The rest is one array of
-8-byte records, each also `(u16, u16, u32)`, where the paired u16s are a monotonically increasing counter
-and the u32 is zero except at scattered points where it holds a forward value — a linked or skip structure
-rather than a flat table.
+The same run says something new about the **tail spatial index**, and it rules out the obvious guess:
 
-Its size follows an exact law. Writing L3 for the third record's offset field:
-
-```
-tail_bytes = 8 * L3 + 608
-```
-
-That holds precisely for every layout compiled — tails of 2,472 / 2,600 / 3,240 / 3,432 / 5,928 bytes from
-L3 values of 233 / 249 / 329 / 353 / 665. So the tail is an array of 8-byte entries over a fixed 608-byte
-base, and L3 gives its extent.
-
-What the three head records track is spatial spread, not primitive count:
-
-| layout | prims | head records | tail |
+| track | primitives | `n1` | tail bytes |
 |---|---|---|---|
-| 1 wall | 1 | (1,1,81) (2,2,157) (3,3,233) | 2,472 |
-| 2 walls adjacent | 2 | (2,2,81) (4,4,157) (6,6,233) | 2,472 |
-| 10 walls in a line | 10 | (10,10,81) (12,12,157) (22,22,233) | 2,472 |
-| 2 walls 100 m apart | 2 | (2,2,89) (3,3,165) (5,5,249) | 2,600 |
-| 2 walls 5 km apart | 2 | (3,3,129) (4,4,205) (7,7,329) | 3,240 |
-| 4 walls in a 1 km square | 4 | (4,4,153) (6,6,253) (8,8,353) | 3,432 |
-| 10 walls over 500 m | 10 | (12,12,297) (13,13,373) (25,25,665) | 5,928 |
+| bemidji | 135 | 382 | 10,248 |
+| kenyon | 170 | 403 | 12,808 |
+| heaven | 440 | 1,838 | **32,648** |
+| dundas | 602 | 1,498 | 26,984 |
+| **fresh compile** | **1,201** | 1,899 | **10,952** |
 
-One solid and ten solids in a line produce **identical offsets** and an identical tail; moving two solids
-apart grows both. The counts exceed the primitive count when solids are spread (10 solids report 12 and
-22), which is the signature of an occupancy structure listing a solid in every cell it touches.
-
-⚠️ **Not yet enough to generate one.** `vrmod/sol.py` reads and rebuilds any `.sol` byte-exactly and can
-write the empty case, but refuses to synthesise a populated one rather than emit an index that does not
-describe its contents — a wrong spatial index gives solids that are present and never collided with, which
-looks correct until a car drives through a wall. The faster route to the rest is the loader: §4.8's
-primitive layout came from `0x42FEE0`, and the same routine must consume this tail.
+The freshly compiled track has **more primitives than any shipped track and nearly the smallest tail**.
+So the tail is not sized by primitive count — it is sized by how the solids are *distributed*. That fits a
+spatial subdivision: our walls run in a thin ribbon along a single path and occupy few cells, while
+heaven's are spread across the map. Anyone finishing this section should treat it as an occupancy
+structure over space, not an array over primitives.
 
 **These are serialised C++ objects.** The file contains live vtable pointers from the machine that built it,
 which is why the loader re-establishes them per type: it dispatches on the FourCC to `0x42D9D0` (BOX),
