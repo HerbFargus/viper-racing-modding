@@ -183,11 +183,22 @@ def check_invariants() -> None:
     ids = [_struct.unpack("<i", _struct.pack("<f", r[10]))[0] & 0xFFFFFFFF for r in line.records]
     check("racing-line records carry an incrementing index",
           ids == [0xFF000000 + i for i in range(8)], f"{[hex(v) for v in ids[:3]]}...")
-    ild = _ili.generate([(i * 10.0, 0.0, 0.0) for i in range(4)], speed=50,
-                        closed=False, kind=_ili.KIND_ILD)
-    kinds = {(_struct.unpack("<i", _struct.pack("<f", r[10]))[0] >> 16) & 0xFF for r in ild.records}
-    check("track.ild is tagged as a different kind of line", kinds == {_ili.KIND_ILD},
-          f"kind byte {kinds}")
+    # track.ild is not one line: every shipped track splits it into three
+    # sub-lines tagged 0x01/0x02/0x03, changing where the lap crosses a
+    # checkpoint, with the index running continuously across all three. Written
+    # as a single line, the game cannot place the car -- "press space to reset"
+    # appears within seconds and reset teleports off the map.
+    ild = _ili.generate([(i * 10.0, 0.0, 0.0) for i in range(90)], speed=50,
+                        closed=True, kind=_ili.KIND_ILD, sectors=True,
+                        gates=[0.0, 300.0, 600.0])
+    ik = [_struct.unpack("<i", _struct.pack("<f", r[10]))[0] & 0xFFFFFFFF for r in ild.records]
+    kinds = sorted({(v >> 16) & 0xFF for v in ik})
+    check("track.ild carries three sector tags", kinds == [1, 2, 3], f"{[hex(k) for k in kinds]}")
+    check("track.ild's index runs continuously across sectors",
+          [v & 0xFFFF for v in ik] == list(range(len(ik))), "0..n-1")
+    plain = _ili.generate([(i * 10.0, 0.0, 0.0) for i in range(20)], speed=50, closed=True)
+    pk = {(_struct.unpack("<i", _struct.pack("<f", r[10]))[0] >> 16) & 0xFF for r in plain.records}
+    check("default.ili stays a single kind-0 line", pk == {0}, f"{[hex(k) for k in pk]}")
 
     # Geometry: the road comes out the width it was asked for.
     # segments are named asphalt000.mod, asphalt001.mod, ...

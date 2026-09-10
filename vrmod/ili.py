@@ -503,8 +503,19 @@ MARK_VALUE = -20000.0
 # "which waypoint am I at" gets nonsense, and resetting the car teleports it
 # off the track.
 INDEX_TAG = 0xFF000000
-KIND_ILI = 0x00           # default.ili / rdefault.ili
-KIND_ILD = 0x01           # track.ild
+KIND_ILI = 0x00           # default.ili
+KIND_ILD = 0x01           # track.ild -- the FIRST of its three sector tags
+#
+# track.ild is not one line. Every shipped track splits it into three sub-lines
+# tagged 0x01, 0x02 and 0x03, with the record index running continuously across
+# all three, and the tag changing where the lap crosses a checkpoint (measured
+# 6-19 m from a gate centre on bemidji and dundas -- inside the gate). Every one
+# of those tracks has exactly three checkpoints.
+#
+# Writing it as a single 0x01 line leaves the game unable to place the car on the
+# track: "press space to reset" appears within seconds of the green flag, and
+# resetting then teleports the car off the map.
+ILD_SECTORS = 3
 MAGIC = 0xFEEDBEEF
 
 
@@ -517,12 +528,13 @@ SENTINEL_B = _as_float(MAGIC)
 
 
 def generate(points, *, speed: float = 60.0, gates=None, closed: bool = True,
-             kind: int = KIND_ILI, version: int = 3) -> Line:
+             kind: int = KIND_ILI, sectors: bool = False, version: int = 3) -> Line:
     """Build a racing line from a centreline.
 
-    `kind` tags the record index in field 10: KIND_ILI for default.ili and
-    rdefault.ili, KIND_ILD for track.ild. Getting it wrong, or leaving the index
-    constant, breaks anything that asks which waypoint the car is at.
+    `kind` tags the record index in field 10, and `sectors` splits that tag at
+    each gate -- which is what track.ild needs, and what default.ili must not
+    have. Getting either wrong breaks the game's idea of where the car is on the
+    track, whatever the positions say.
 
     `points` are (x, z) or (x, y, z) in the game's frame -- the same frame the
     meshes and the object table use. `speed` is the target in metres per second
@@ -558,7 +570,11 @@ def generate(points, *, speed: float = 60.0, gates=None, closed: bool = True,
         x, z = pts[i]
         ax, az = pts[nxt(i)]
         bx, bz = pts[prv(i)]
-        dx, dz = ax - x, az - z
+        # Fields 3 and 4 are the CENTRAL difference, halved -- a smoothed tangent
+        # across the neighbouring waypoints, not the delta to the next one.
+        # Checked against bemidji to zero error; the delta-to-next reading this
+        # first shipped with was out by up to 5.7 m.
+        dx, dz = (ax - bx) / 2.0, (az - bz) / 2.0
 
         # turn rate: how much the heading swings here, per metre travelled
         h0 = math.atan2(z - bz, x - bx)
@@ -579,7 +595,12 @@ def generate(points, *, speed: float = 60.0, gates=None, closed: bool = True,
         r[FIELD_CURVE] = curve
         r[FIELD_STEP] = step[i]
         r[FIELD_DISTANCE] = dist[i]
-        r[FIELD_SENTINEL_A] = _as_float(INDEX_TAG | ((kind & 0xFF) << 16) | (i & 0xFFFF))
+        tag = kind
+        if sectors:
+            # the sector this record falls in, counted from the first gate
+            tag = kind + sum(1 for m in marks if m <= dist[i]) - 1
+            tag = max(kind, min(kind + len(marks) - 1, tag))
+        r[FIELD_SENTINEL_A] = _as_float(INDEX_TAG | ((tag & 0xFF) << 16) | (i & 0xFFFF))
         r[FIELD_AHEAD] = ahead - dist[i]
         r[FIELD_BEHIND] = behind - dist[i]
         r[FIELD_TIME] = time[i]
