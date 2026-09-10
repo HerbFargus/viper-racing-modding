@@ -173,6 +173,22 @@ def check_invariants() -> None:
     check("the sweep follows the centreline's elevation",
           max(ys) - min(ys) > 50.0, f"mesh spans {min(ys):.1f}..{max(ys):.1f} m")
 
+    # Field 10 of a racing line is a record INDEX with a kind tag, stored in a
+    # float slot. Writing it as a constant leaves every waypoint claiming to be
+    # waypoint zero: the AI still drives, because it follows positions, but
+    # resetting the car teleports it off the track.
+    import struct as _struct
+    from vrmod import ili as _ili
+    line = _ili.generate([(i * 10.0, 0.0, 0.0) for i in range(8)], speed=50, closed=False)
+    ids = [_struct.unpack("<i", _struct.pack("<f", r[10]))[0] & 0xFFFFFFFF for r in line.records]
+    check("racing-line records carry an incrementing index",
+          ids == [0xFF000000 + i for i in range(8)], f"{[hex(v) for v in ids[:3]]}...")
+    ild = _ili.generate([(i * 10.0, 0.0, 0.0) for i in range(4)], speed=50,
+                        closed=False, kind=_ili.KIND_ILD)
+    kinds = {(_struct.unpack("<i", _struct.pack("<f", r[10]))[0] >> 16) & 0xFF for r in ild.records}
+    check("track.ild is tagged as a different kind of line", kinds == {_ili.KIND_ILD},
+          f"kind byte {kinds}")
+
     # Geometry: the road comes out the width it was asked for.
     # segments are named asphalt000.mod, asphalt001.mod, ...
     road = next(m for n, m in scene.meshes.items() if n.startswith("asphalt"))

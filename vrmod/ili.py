@@ -489,13 +489,40 @@ FIELD_LATERAL = 15
 FIELD_SENTINEL_B = 16    # ~-1.58e38
 
 MARK_VALUE = -20000.0
-SENTINEL_A = -1.7014118346046923e38
-SENTINEL_B = -1.5800920945002098e38
+# Fields 10 and 16 are not floats. Read their bits as int32 and they are
+# perfectly ordinary integers that a float reader was never meant to see:
+#
+#   [10]  0xFF<kind><index16> -- a RECORD INDEX, incrementing by one down the
+#         line, tagged with which kind of line it is: 0x00 for default.ili and
+#         rdefault.ili, 0x01 for track.ild.
+#   [16]  0xFEEDBEEF -- a magic marker, the same in every record of every line.
+#
+# Writing [10] as a constant (which is what the float value looks like if you
+# only ever print it) makes every waypoint claim to be waypoint zero. The line
+# still drives, because the AI follows positions -- but anything that asks
+# "which waypoint am I at" gets nonsense, and resetting the car teleports it
+# off the track.
+INDEX_TAG = 0xFF000000
+KIND_ILI = 0x00           # default.ili / rdefault.ili
+KIND_ILD = 0x01           # track.ild
+MAGIC = 0xFEEDBEEF
 
 
-def generate(points, *, speed: float = 60.0, gates=None,
-             closed: bool = True, version: int = 3) -> Line:
+def _as_float(bits: int) -> float:
+    """Reinterpret an int32's bits as the float32 that occupies the slot."""
+    return struct.unpack("<f", struct.pack("<I", bits & 0xFFFFFFFF))[0]
+
+
+SENTINEL_B = _as_float(MAGIC)
+
+
+def generate(points, *, speed: float = 60.0, gates=None, closed: bool = True,
+             kind: int = KIND_ILI, version: int = 3) -> Line:
     """Build a racing line from a centreline.
+
+    `kind` tags the record index in field 10: KIND_ILI for default.ili and
+    rdefault.ili, KIND_ILD for track.ild. Getting it wrong, or leaving the index
+    constant, breaks anything that asks which waypoint the car is at.
 
     `points` are (x, z) or (x, y, z) in the game's frame -- the same frame the
     meshes and the object table use. `speed` is the target in metres per second
@@ -552,7 +579,7 @@ def generate(points, *, speed: float = 60.0, gates=None,
         r[FIELD_CURVE] = curve
         r[FIELD_STEP] = step[i]
         r[FIELD_DISTANCE] = dist[i]
-        r[FIELD_SENTINEL_A] = SENTINEL_A
+        r[FIELD_SENTINEL_A] = _as_float(INDEX_TAG | ((kind & 0xFF) << 16) | (i & 0xFFFF))
         r[FIELD_AHEAD] = ahead - dist[i]
         r[FIELD_BEHIND] = behind - dist[i]
         r[FIELD_TIME] = time[i]
