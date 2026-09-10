@@ -1109,6 +1109,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         self._send(code, "application/json", json.dumps(obj).encode("utf-8"))
 
     def do_GET(self):
+        # Routing below is exact-match, so a cache-busting "?t=..." would miss
+        # every route and the page would render nothing. Strip the query once,
+        # here, rather than teaching each route about it.
+        self.path = self.path.split("?", 1)[0]
         d = self.data_dir
         if self.path in ("/", "/index.html"):
             return self._send(200, "text/html; charset=utf-8", _PAGE.encode("utf-8"))
