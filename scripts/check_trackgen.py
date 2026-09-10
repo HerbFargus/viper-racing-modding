@@ -140,7 +140,8 @@ def check_invariants() -> None:
           f"{len(scene.meshes)} meshes, median footprint {median:.0f} m")
 
     # Geometry: the road comes out the width it was asked for.
-    road = scene.meshes["asphalt.mod"]
+    # segments are named asphalt000.mod, asphalt001.mod, ...
+    road = next(m for n, m in scene.meshes.items() if n.startswith("asphalt"))
     a, b = road.vertices[0], road.vertices[1]
     width = math.dist((a.x, a.z), (b.x, b.z))
     check("road width matches road_half_width * 2", abs(width - 12.0) < 1e-6, f"{width:.4f} m")
