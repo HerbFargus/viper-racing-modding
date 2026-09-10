@@ -986,15 +986,21 @@ def scene_from_meshes(
     return scene
 
 
-# A .tra directory entry has a 16-byte name field, and the shipped tracks never
-# come close to it -- the longest name in any of them is 12 characters
-# ("Trackmap.stp", "asphalth.tex"). A modeller's texture names do exceed it:
-# BTB ships "road_tarmac001.tga" and "ground_grass001.tga", 18 and 19.
+# Texture names are 8.3. A .tra directory entry has a 16-byte name field, which
+# is what this first fitted names to -- and 16 is wrong. Surveying every texture
+# in a full install gives 244 distinct names, and the longest is 12 characters:
+# eight plus ".tex" ("asphalth.tex", "pine3o15.tex", "bboard01.tex"). Not one of
+# the 244 contains an underscore.
 #
-# They have to be shortened, and the mesh materials have to be shortened the
-# same way, because Viper resolves textures by NAME -- a mesh asking for a
-# texture the archive does not contain is a crash, not a missing texture.
-TEX_NAME_LIMIT = 16
+# A name that fits the archive but not 8.3 is accepted by the packer, listed in
+# the directory, and read back correctly by every tool here -- and the surface
+# using it renders as flat untextured colour in game. It does not crash, warn or
+# fall back to a placeholder, which is what makes it expensive to find.
+#
+# Names are therefore cut to eight alphanumeric characters, and the mesh
+# materials cut identically: Viper resolves textures by NAME, so the two must
+# agree exactly.
+TEX_NAME_LIMIT = 12
 _TEX_STEM_LIMIT = TEX_NAME_LIMIT - len(".tex")
 
 # The game never ships a texture larger than 256. Across all 46 archives in a
@@ -1021,7 +1027,7 @@ def fit_texture_names(names) -> dict[str, str]:
     out: dict[str, str] = {}
     taken: set[str] = set()
     for name in sorted(set(names)):
-        stem = "".join(c for c in Path(name).stem if c.isalnum() or c in "_-")
+        stem = "".join(c for c in Path(name).stem if c.isalnum())
         stem = stem[:_TEX_STEM_LIMIT] or "tex"
         if stem in taken:
             for n in range(1, 1000):

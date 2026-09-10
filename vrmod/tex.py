@@ -6,7 +6,14 @@ Header (0SER payload, offsets relative to start of payload i.e. after the
 full-file offsets 0x14-0x24 minus 0x14):
 
     0x00  byte   flags: bit0=colorkey transparency, bit1=full alpha channel
-    0x01  byte   (unconfirmed)
+    0x01  byte   1 for a texture drawn on 3D geometry, 0 for sky and 2D
+                  overlays. Surveying every texture in a full install splits
+                  cleanly: of 880, the only ones carrying 0 are sky1-4 across
+                  every track plus uptown's 2dtele.tex and oo1-4.tex. Every
+                  road, kerb, grass and prop texture carries 1. It is not about
+                  mipmapping -- both groups ship full mip chains. Written as 0
+                  here originally, which leaves an imported track's surfaces
+                  rendering as flat untextured colour.
     0x02  byte   (unconfirmed)
     0x03  byte   wrap flag (tileable vs. decal)
     0x04  int32  for colorkey/alpha textures: the 1x1 mip level's own pixel
@@ -481,6 +488,7 @@ def encode_to_tex(
     mode: str,
     wrap: int = 0,
     flags: int | None = None,
+    on_geometry: bool = True,
 ) -> bytes:
     """Encode raw row-major pixel bytes into a standalone .tex file's bytes
     (0SER envelope included).
@@ -540,7 +548,7 @@ def encode_to_tex(
 
     header = struct.pack(
         "<BBBBiii",
-        flags, 0, 0, wrap,
+        flags, 1 if on_geometry else 0, 0, wrap,
         onepix_value if (flags & 0x03) else 0,
         mip_count,
         onepix_value,

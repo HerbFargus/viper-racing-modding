@@ -258,6 +258,10 @@ def check_invariants() -> None:
     check("texture names are shortened to fit the archive name field",
           all(len(v) <= tg.TEX_NAME_LIMIT for v in fitted.values()),
           f"{sorted(fitted.values())}")
+    check("texture names are 8.3, as every shipped texture is",
+          tg.TEX_NAME_LIMIT == 12 and all(len(v) <= 12 and v[:-4].isalnum()
+                                          for v in fitted.values()),
+          f"{sorted(fitted.values())}")
     check("the texture size ceiling matches what the game ships",
           tg.TEX_MAX_SIZE == 256, f"{tg.TEX_MAX_SIZE} (no shipped texture exceeds 256)")
     check("shortened texture names stay unique",
