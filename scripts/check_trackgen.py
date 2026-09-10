@@ -123,6 +123,22 @@ def check_invariants() -> None:
     check("no bare LF in output",
           "\n" not in surface.replace("\r\n", "") and "\n" not in graphic.replace("\r\n", ""))
 
+    # Chunking. The renderer culls per chunk, so a chunk spanning the whole map
+    # is always "visible" and never usefully culled. Shipped tracks subdivide
+    # heavily -- bemidji 446 chunks over ~60 m, dundas 1,117 over ~40 m. Sweeping
+    # each band as one track-length ribbon gave 7 chunks with a 1,632 m footprint
+    # and the track did not draw at all.
+    import statistics as _stats
+    foot = []
+    for mesh in scene.meshes.values():
+        xs = [v.x for v in mesh.vertices]
+        zs = [v.z for v in mesh.vertices]
+        foot.append(max(max(xs) - min(xs), max(zs) - min(zs)))
+    median = _stats.median(foot)
+    check("geometry is cut into many small chunks, as shipped tracks are",
+          len(scene.meshes) > 50 and median < 200,
+          f"{len(scene.meshes)} meshes, median footprint {median:.0f} m")
+
     # Geometry: the road comes out the width it was asked for.
     road = scene.meshes["asphalt.mod"]
     a, b = road.vertices[0], road.vertices[1]

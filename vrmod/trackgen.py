@@ -313,6 +313,15 @@ def _ribbon(
     return mod.Mesh(vertices=verts, materials=[material], faces=faces)
 
 
+# How long a piece of one band becomes a single mesh. Shipped tracks subdivide
+# heavily -- bemidji is 446 chunks averaging 12 vertices over a ~60 m footprint,
+# dundas 1,117 chunks over ~40 m -- because the renderer culls per chunk, so a
+# chunk spanning the whole map is always "visible" and never usefully culled.
+# Sweeping each band as one track-length ribbon produced 7 chunks of 2,822
+# vertices with a 1,632 m footprint, and the track did not draw at all.
+DEFAULT_SEGMENT_LENGTH = 50.0
+
+
 def sweep(
     centreline: list[Point],
     *,
@@ -321,6 +330,7 @@ def sweep(
     road_texture: str = "asphalt.tex",
     closed: bool = True,
     uv_scale: float = 10.0,
+    segment_length: float = DEFAULT_SEGMENT_LENGTH,
 ) -> "TrackScene":
     """Sweep a cross-section along the centreline into a complete TrackScene.
 
@@ -338,24 +348,37 @@ def sweep(
 
     scene = TrackScene(centreline=pts)
 
-    scene.meshes["asphalt.mod"] = _ribbon(
-        pts, normals, -road_half_width, road_half_width, 0.0, 0.0,
-        road_texture, closed, uv_scale,
-    )
-    scene.driveables.append(SceneObject("asphalt.mod", ROAD))
+    # Stations per segment, from the requested segment length.
+    total = sum(_dist(a, b) for a, b in zip(pts, pts[1:])) or 1.0
+    per_station = total / max(len(pts) - 1, 1)
+    stride = max(2, int(round(segment_length / per_station))) if segment_length > 0 else len(pts)
 
+    def emit(base: str, inner: float, outer: float, y_in: float, y_out: float,
+             texture: str, code: int) -> None:
+        """Sweep one band, cut into segments, each its own mesh."""
+        starts = range(0, len(pts) - 1, stride) if stride < len(pts) else (0,)
+        for n, s in enumerate(starts):
+            e = min(s + stride + 1, len(pts))
+            if e - s < 2:
+                continue
+            # segments share their boundary station, so the surfaces meet
+            sub = pts[s:e]
+            sub_n = normals[s:e]
+            name = f"{base}{n:03d}.mod" if stride < len(pts) else f"{base}.mod"
+            scene.meshes[name] = _ribbon(
+                sub, sub_n, inner, outer, y_in, y_out, texture, False, uv_scale,
+            )
+            scene.driveables.append(SceneObject(name, code))
+
+    emit("asphalt", -road_half_width, road_half_width, 0.0, 0.0, road_texture, ROAD)
     for side, sign in (("l", 1.0), ("r", -1.0)):
         offset, height = road_half_width, 0.0
         for band in bands:
             inner, outer = offset, offset + band.width
-            y_inner, y_outer = height, height + band.rise
-            name = f"{band.base}{side}.mod" if band.paired else f"{band.base}.mod"
-            scene.meshes[name] = _ribbon(
-                pts, normals, sign * inner, sign * outer, y_inner, y_outer,
-                band.texture, closed, uv_scale,
-            )
-            scene.driveables.append(SceneObject(name, band.code))
-            offset, height = outer, y_outer
+            base = f"{band.base}{side}" if band.paired else band.base
+            emit(base, sign * inner, sign * outer, height, height + band.rise,
+                 band.texture, band.code)
+            offset, height = outer, height + band.rise
 
     return scene
 
