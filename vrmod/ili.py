@@ -450,3 +450,114 @@ def write_line_file(path, line: Line):
     p = Path(path)
     p.write_bytes(build(line))
     return p
+
+
+# ---------------------------------------------------------------------------
+# Generating a racing line
+#
+# What each of the seventeen fields holds was surveyed when the reader was
+# written; this fills them for a line built from a centreline. Most are derived
+# from the geometry and are exact. Three are not, and are marked below, because
+# the shipped data does not make them obvious:
+#
+#   [12] and [13] are distances to the boundaries of a segmentation of the lap
+#        whose rule is not known. They are piecewise "constant minus cumulative
+#        distance", resetting at irregular intervals (bemidji's blocks run 9, 6,
+#        21, 2, 2, 5, 4, 3 records). Here they are filled with distance to the
+#        next and previous CHECKPOINT, which has the same shape and is the most
+#        plausible reading.
+#   [7]  is curvature-shaped and tiny (0 .. 0.006 across a whole track). Filled
+#        with a turn-rate estimate.
+#   [15] is a lateral or banking term in the range +-13. Filled with zero.
+#
+# CONFIRMED IN GAME: a track carrying lines generated this way loads and drives,
+# so the three approximations above are tolerated by the engine rather than
+# merely plausible. That does not make them right -- if the AI is ever seen
+# braking early, weaving, or cutting where it should not, field 12/13's block
+# rule is the first thing to finish properly.
+
+FIELD_DIR_X = 3
+FIELD_DIR_Z = 4
+FIELD_MARK = 5           # -20000.0 in every record of every track
+FIELD_CURVE = 7
+FIELD_STEP = 8           # distance to the next waypoint
+FIELD_SENTINEL_A = 10    # ~-1.7e38
+FIELD_AHEAD = 12
+FIELD_BEHIND = 13
+FIELD_TIME = 14          # cumulative lap time, seconds
+FIELD_LATERAL = 15
+FIELD_SENTINEL_B = 16    # ~-1.58e38
+
+MARK_VALUE = -20000.0
+SENTINEL_A = -1.7014118346046923e38
+SENTINEL_B = -1.5800920945002098e38
+
+
+def generate(points, *, speed: float = 60.0, gates=None,
+             closed: bool = True, version: int = 3) -> Line:
+    """Build a racing line from a centreline.
+
+    `points` are (x, z) or (x, y, z) in the game's frame -- the same frame the
+    meshes and the object table use. `speed` is the target in metres per second
+    (60 m/s is about 134 mph, close to what the shipped lines carry). `gates` is
+    the cumulative distance of each checkpoint, used for fields 12 and 13.
+    """
+    pts = [(p[0], p[2] if len(p) > 2 else p[1]) for p in points]
+    if len(pts) < 3:
+        raise ValueError("a racing line needs at least three points")
+
+    n = len(pts)
+    nxt = lambda i: (i + 1) % n if closed else min(i + 1, n - 1)
+    prv = lambda i: (i - 1) % n if closed else max(i - 1, 0)
+
+    step = [math.dist(pts[i], pts[nxt(i)]) for i in range(n)]
+    dist, run = [], 0.0
+    for i in range(n):
+        dist.append(run)
+        run += step[i]
+    total = run
+
+    # Cumulative time, which is what field 14 holds -- confirmed against bemidji,
+    # where 286.85 m at 4.708 s gives 60.9 m/s against a speed field of ~61.
+    time, t = [], 0.0
+    for i in range(n):
+        time.append(t)
+        t += step[i] / max(speed, 1e-6)
+
+    marks = sorted(gates) if gates else [0.0, total / 2.0]
+
+    records = []
+    for i in range(n):
+        x, z = pts[i]
+        ax, az = pts[nxt(i)]
+        bx, bz = pts[prv(i)]
+        dx, dz = ax - x, az - z
+
+        # turn rate: how much the heading swings here, per metre travelled
+        h0 = math.atan2(z - bz, x - bx)
+        h1 = math.atan2(az - z, ax - x)
+        turn = (h1 - h0 + math.pi) % (2 * math.pi) - math.pi
+        curve = abs(turn) / max(step[i], 1e-6)
+
+        ahead = next((m for m in marks if m > dist[i]), marks[0] + total)
+        behind = next((m for m in reversed(marks) if m <= dist[i]), marks[-1] - total)
+
+        r = [0.0] * FIELD_COUNT
+        r[FIELD_X] = x
+        r[FIELD_Z] = z
+        r[FIELD_DIR_X] = dx
+        r[FIELD_DIR_Z] = dz
+        r[FIELD_MARK] = MARK_VALUE
+        r[FIELD_SPEED] = speed
+        r[FIELD_CURVE] = curve
+        r[FIELD_STEP] = step[i]
+        r[FIELD_DISTANCE] = dist[i]
+        r[FIELD_SENTINEL_A] = SENTINEL_A
+        r[FIELD_AHEAD] = ahead - dist[i]
+        r[FIELD_BEHIND] = behind - dist[i]
+        r[FIELD_TIME] = time[i]
+        r[FIELD_LATERAL] = 0.0
+        r[FIELD_SENTINEL_B] = SENTINEL_B
+        records.append(tuple(r))
+
+    return Line(records=records, version=version)
