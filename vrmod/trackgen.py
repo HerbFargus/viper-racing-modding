@@ -377,17 +377,26 @@ def sweep(
     per_station = total / max(len(pts) - 1, 1)
     stride = max(2, int(round(segment_length / per_station))) if segment_length > 0 else len(pts)
 
+    # Segmentation and closure interact: every segment is swept as an open strip,
+    # so on a ring the last one has to reach back to station 0 or the seam is
+    # left open. Repeating the first station at the end makes that fall out of
+    # the ordinary segmentation -- the closing stretch becomes a segment like any
+    # other. Without this a closed track still had a drivable-over gap at the
+    # start line, which is exactly where it is most visible.
+    ring = pts + [pts[0]] if closed else pts
+    ring_normals = normals + [normals[0]] if closed else normals
+
     def emit(base: str, inner: float, outer: float, y_in: float, y_out: float,
              texture: str, code: int) -> None:
         """Sweep one band, cut into segments, each its own mesh."""
-        starts = range(0, len(pts) - 1, stride) if stride < len(pts) else (0,)
+        starts = range(0, len(ring) - 1, stride) if stride < len(ring) else (0,)
         for n, s in enumerate(starts):
-            e = min(s + stride + 1, len(pts))
+            e = min(s + stride + 1, len(ring))
             if e - s < 2:
                 continue
             # segments share their boundary station, so the surfaces meet
-            sub = pts[s:e]
-            sub_n = normals[s:e]
+            sub = ring[s:e]
+            sub_n = ring_normals[s:e]
             name = f"{base}{n:03d}.mod" if stride < len(pts) else f"{base}.mod"
             scene.meshes[name] = _ribbon(
                 sub, sub_n, inner, outer, y_in, y_out, texture, False, uv_scale,
