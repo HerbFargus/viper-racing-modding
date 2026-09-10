@@ -798,7 +798,13 @@ archive, provided it is **truncated so the file begins at `!IGM`** — i.e. the 
 its last 4 bytes. A loose 180×120 screenshot is therefore 24,400 bytes (`4 + 24,396`). Add-on tracks use
 this to supply a menu screenshot (§9).
 
-### 4.7 `GRAF` — `.grf` track/world geometry — ✅ CONFIRMED (mesh records byte-exact; scene-graph header ❓ UNKNOWN)
+### 4.7 `GRAF` — `.grf` track/world geometry — ✅ CONFIRMED (99.95% of the payload accounted for)
+
+> **Revised.** This section previously called the scene-graph header ❓ UNKNOWN and treated `.grf` as the
+> one format whose structure was opaque — the reason the writer is a patcher rather than a builder. That
+> was too pessimistic. Measuring a freshly compiled `.grf` accounts for **790,272 of 790,676 payload
+> bytes**, and what remains is 404 bytes of per-chunk header that reads cleanly. The detail is under
+> *The payload is almost entirely accounted for* below.
 
 The main track mesh + material file, and one of the largest per-track resources (259 KB–749 KB in the
 sample set). Envelope is `0SER`/`FARG`/version=3/`!IGM`.
@@ -868,6 +874,57 @@ same archive that must also be drawn (dundas has a `ground.mod`; four tracks car
 `checkpt1.mod` references `.stp` materials rather than `.tex`, and dundas's `ground.mod` has junk in the
 head of its face array — since `.mod` face indices are read as **signed** int16, junk values above 32767
 come back negative and sail past an upper-bound-only range check.
+
+#### The payload is almost entirely accounted for
+
+Measured against a track compiled today, so these are current numbers rather than 1998 ones:
+
+| region | bytes | share |
+|---|---|---|
+| corners — 19,754 × 32 | 632,128 | 79.9% |
+| faces — 19,740 × 8 | 157,920 | 20.0% |
+| materials — 7 × 32 | 224 | 0.03% |
+| **remaining** | **404** | **0.05%** |
+
+**The 32-byte corner record decodes completely.** Only the leading position was previously identified,
+which made the other 20 bytes per vertex look like opaque scene-graph data — and at 19,754 corners that
+alone accounted for "half the file being unknown". It is not scene-graph data:
+
+```
++00  float3   position, relative to the chunk centre
++12  u32      0
++16  BGRA     vertex colour -- baked lighting
++20  u32      00 00 00 ff, constant
++24  float2   UV
+```
+
+The colour reads as colour and not as a float because of how it varies: a generated track whose geometry
+is flat has **exactly one** distinct value across all 19,754 corners (`ff ff ff ff`, white), while bemidji
+has 36 distinct values and dundas 46 — greys like `fd fd fd ff` and `b3 b3 b3 ff`, always with alpha
+`ff`. That is baked vertex shading, and it is why a generated track can simply write white.
+
+**The per-chunk header is 56 bytes and carries the counts.** For the first chunk of a track whose chunk 0
+holds 2,822 corners and 2,820 faces:
+
+```
++00  i32  3           chunk type/version
++04  i32  225916      size or offset of what follows
++0c  i32  -1
++10  i32  2822        corner count
++18  i32  1
++20  i32  2820        face count
++24..+38  zero
+```
+
+Both counts appear verbatim. The file header at payload +0 has the same shape, with the first chunk
+header beginning at +8.
+
+⚠️ **This does not mean `.grf` can be written yet.** `grf.to_bytes()` remains a patcher: it rewrites
+values in place and forbids anything that changes size, because the offsets in those chunk headers have
+not been verified as the only forward references in the file. What has changed is the size of the
+problem — from "the structure is unknown" to "confirm what the 404 header bytes point at". That is the
+gating question for building a track without the original toolchain, and it is a much smaller one than
+this document previously implied.
 
 ### 4.8 `SOLB` — `.sol` — ✅ CONFIRMED — the track's **collision solids** (one enum field aside)
 
@@ -2673,7 +2730,7 @@ reference; they're defined here only so that passing mentions elsewhere resolve.
 | `.ccs` | `0SCC` → `CCS0` | Config, 35 floats, fields undecoded; identical across all cars, varies per track | 🟡 header only |
 | `.tex` | ` XET` → `TEX ` | Compiled texture — opaque and colorkey round-trip (decode+encode) and full mip chain layout solved; full-alpha well-supported | ✅ / 🟡 mixed |
 | `.stp` | `PMTS` → `STMP` | 2D sprite ("stamp"): all UI art, track minimaps, track-select screenshots, cursors, multi-frame strips | ✅ decoded (149/211 files); a 2nd compressed variant ❓ |
-| `.grf` | `FARG` → `GRAF` | Track/world geometry + material bindings | ✅ mesh records byte-exact + in-place write; scene-graph header ❓ |
+| `.grf` | `FARG` → `GRAF` | Track/world geometry + material bindings | ✅ mesh records byte-exact + in-place write; 99.95% of the payload accounted for, 404 bytes of chunk header left (§4.7) |
 | `.sol` | `LBOS` → `SOLB` | **Collision solids** — BOX/SPHR/TUBE primitives (§4.8) | 🟡 well-supported |
 | `.bpp` | `TPPB` → `BPPT` | **Collision BSP** — triangle soup + 2D BSP over XZ. Largest per-track file (§4.9) | ✅ confirmed |
 | `.bsp` | `TPSB` → `BSPT` | Near-static 128-byte stub; likely vestigial | ✅ identified as stub |
