@@ -637,7 +637,9 @@ def main(argv: list[str] | None = None) -> int:
         help="Generate a track's MKWORLD source set (fooland*.txt + swept meshes) "
              "from a centreline -- the driving half of the track pipeline",
     )
-    p_trackgen.add_argument("centreline", type=Path, help="a .ase or .obj centreline")
+    p_trackgen.add_argument("centreline", type=Path,
+                            help="a .ase/.obj centreline, or a .mod road surface "
+                                 "(or directory of them) to recover one from")
     p_trackgen.add_argument("out_dir", type=Path, help="directory to write into")
     p_trackgen.add_argument("--spacing", type=float, default=10.0,
                             help="resample the centreline to this station spacing (m)")

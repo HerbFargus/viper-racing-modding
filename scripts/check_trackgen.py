@@ -147,6 +147,18 @@ def check_invariants() -> None:
     seam = math.dist(round_trip[-1][:2], round_trip[0][:2])
     check("a closed resample leaves no seam gap", seam < 15.0, f"seam {seam:.1f} m")
 
+    # Recovering a centreline from a road SURFACE, which is what a modeller
+    # exports when it will not give you a curve -- Bob's Track Builder being the
+    # case that prompted it. Checked against the mesh our own sweep produced,
+    # where the answer is known exactly.
+    from vrmod import mod as _mod
+    road = [m for n, m in scene.meshes.items() if n.startswith("asphalt")]
+    recovered = tg.centreline_from_meshes(road)
+    src = [(-p[0], -p[1]) for p in scene.centreline]
+    worst = max(min(math.dist(r[:2], (-s[0], -s[1])) for s in src) for r in recovered[::7])
+    check("a centreline can be recovered from the road surface alone",
+          worst < 2.0, f"{len(recovered)} points, worst {worst:.2f} m from the true line")
+
     # Geometry: the road comes out the width it was asked for.
     # segments are named asphalt000.mod, asphalt001.mod, ...
     road = next(m for n, m in scene.meshes.items() if n.startswith("asphalt"))
