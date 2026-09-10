@@ -53,7 +53,8 @@ def ring(n: int = 240, radius: float = 300.0) -> list[tg.Point]:
 def check_invariants() -> None:
     print("invariants (no reference data needed)")
     scene = tg.sweep(ring())
-    tg.add_start_gate(scene)
+    tg.add_checkpoints(scene, 3)
+    tg.add_grid(scene, 8)
 
     surface = tg.write_surface(scene)
     graphic = tg.write_graphic(scene)
@@ -83,6 +84,25 @@ def check_invariants() -> None:
     check("surface file negates the ground axes; graphic file does not", flipped,
           f"scene {gate[0][0]:.2f},{gate[0][1]:.2f} -> written {s_pts[0][0]:.2f},{s_pts[0][1]:.2f}")
 
+    # The engine panics with "Couldn't find any checkpoints!" and dies before the
+    # green flag if a track carries fewer than two gates. Every shipped track has
+    # two or three; a generated one had one, which is how this was found.
+    check("places at least two checkpoints", len(scene.markers) >= 2,
+          f"{len(scene.markers)}: {', '.join(scene.markers)}")
+    try:
+        tg.add_checkpoints(scene, 1)
+        check("refuses a single checkpoint", False, "it did not raise")
+    except ValueError:
+        check("refuses a single checkpoint", True)
+        tg.add_checkpoints(scene, 3)
+
+    # Shipped gates run 15-80 m against a ~12 m road, so a car running wide still
+    # crosses one. A gate spanning only the asphalt can be missed entirely.
+    import math as _m
+    widths = [_m.dist(g[0][:2], g[1][:2]) for g in scene.markers.values()]
+    check("gates are wider than the road", all(w > 12.0 for w in widths),
+          f"{min(widths):.0f}-{max(widths):.0f} m")
+
     # An empty marker block is rejected by nhmkworld, and writing one is exactly
     # the bug this emitter shipped with: the reference was first read through a
     # filter that hid the gate verts, and the artifact was mistaken for the
@@ -103,8 +123,33 @@ def check_invariants() -> None:
     check("no bare LF in output",
           "\n" not in surface.replace("\r\n", "") and "\n" not in graphic.replace("\r\n", ""))
 
+    # Chunking. The renderer culls per chunk, so a chunk spanning the whole map
+    # is always "visible" and never usefully culled. Shipped tracks subdivide
+    # heavily -- bemidji 446 chunks over ~60 m, dundas 1,117 over ~40 m. Sweeping
+    # each band as one track-length ribbon gave 7 chunks with a 1,632 m footprint
+    # and the track did not draw at all.
+    import statistics as _stats
+    foot = []
+    for mesh in scene.meshes.values():
+        xs = [v.x for v in mesh.vertices]
+        zs = [v.z for v in mesh.vertices]
+        foot.append(max(max(xs) - min(xs), max(zs) - min(zs)))
+    median = _stats.median(foot)
+    check("geometry is cut into many small chunks, as shipped tracks are",
+          len(scene.meshes) > 50 and median < 200,
+          f"{len(scene.meshes)} meshes, median footprint {median:.0f} m")
+
+    # A closed ring must have no hole at the seam. path10.ASE is flagged
+    # *SHAPE_CLOSED but its knots stop 201 m short of closing, and sweeping it
+    # as open left exactly that hole in the main straight -- with the start line
+    # sitting in it, so cars spawned over the gap and fell through the world.
+    round_trip = tg.resample(ring(), 10.0, closed=True)
+    seam = math.dist(round_trip[-1][:2], round_trip[0][:2])
+    check("a closed resample leaves no seam gap", seam < 15.0, f"seam {seam:.1f} m")
+
     # Geometry: the road comes out the width it was asked for.
-    road = scene.meshes["asphalt.mod"]
+    # segments are named asphalt000.mod, asphalt001.mod, ...
+    road = next(m for n, m in scene.meshes.items() if n.startswith("asphalt"))
     a, b = road.vertices[0], road.vertices[1]
     width = math.dist((a.x, a.z), (b.x, b.z))
     check("road width matches road_half_width * 2", abs(width - 12.0) < 1e-6, f"{width:.4f} m")
@@ -194,17 +239,24 @@ def check_against_reference(ref: Path) -> None:
               near >= 6, f"{near}/8 within 5 cm")
 
     if ref_surface.exists():
+        # Deliberately NOT compared against vrTrackMaker's gate any more. Its
+        # surface-file gate spans exactly the road (12 m) and it writes one gate;
+        # a track built that way made the engine panic with "Couldn't find any
+        # checkpoints!". The shipped tracks are the better authority -- two or
+        # three gates each, 15-80 m wide -- so that is what these assert.
         ref_gate = [tuple(map(float, m)) for m in _VERT.findall(ref_surface.read_text())][:2]
         scene = tg.sweep(tg.resample(pts, 10.9))
-        tg.add_start_gate(scene)
+        tg.add_checkpoints(scene, 3)
         ours = [tuple(map(float, m)) for m in _VERT.findall(tg.write_surface(scene))][:2]
         span_ref = math.dist(ref_gate[0][:2], ref_gate[1][:2])
         span_ours = math.dist(ours[0][:2], ours[1][:2])
-        check("start gate spans the road, same width as the reference",
-              abs(span_ref - span_ours) < 0.5, f"{span_ours:.3f} vs {span_ref:.3f} m")
-        check("start gate sits on the reference's gate",
-              math.dist(ours[0][:2], ref_gate[0][:2]) < 1.0,
-              f"offset {math.dist(ours[0][:2], ref_gate[0][:2]):.3f} m")
+        check("gates are wider than vrTrackMaker's, matching shipped tracks",
+              span_ours > span_ref, f"{span_ours:.0f} m vs its {span_ref:.0f} m")
+        check("first gate still sits on the start of the centreline",
+              math.dist(((ours[0][0] + ours[1][0]) / 2, (ours[0][1] + ours[1][1]) / 2),
+                        ((ref_gate[0][0] + ref_gate[1][0]) / 2,
+                         (ref_gate[0][1] + ref_gate[1][1]) / 2)) < 1.0,
+              "gate centre unchanged; only its width and count differ")
 
     # The mesh frame, which was measured rather than assumed.
     ref_asphalt = ref / "asphalt.mod"

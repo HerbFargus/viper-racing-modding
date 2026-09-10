@@ -645,8 +645,11 @@ def main(argv: list[str] | None = None) -> int:
                             help="full road width in metres (default 12)")
     p_trackgen.add_argument("--open", action="store_true",
                             help="treat the centreline as open rather than a closed loop")
-    p_trackgen.add_argument("--no-gate", action="store_true",
-                            help="skip the start/finish checkpoint gate")
+    p_trackgen.add_argument("--checkpoints", type=int, default=3,
+                            help="timing gates around the lap (minimum 2; the engine "
+                                 "panics with 'Couldn't find any checkpoints!' below that)")
+    p_trackgen.add_argument("--grid", type=int, default=8,
+                            help="starting-grid slots (default 8)")
 
     p_bppinfo = sub.add_parser(
         "bppinfo",
@@ -1157,17 +1160,25 @@ def main(argv: list[str] | None = None) -> int:
         from . import trackgen as _tg
         line = _tg.read_centreline(args.centreline)
         raw = len(line)
+        # A .ase flagged *SHAPE_CLOSED is a circuit even though its knots stop
+        # short of closing -- path10.ASE leaves a 201 m gap. Honour the flag
+        # unless told otherwise, and resample across the seam so the ring is
+        # continuous; sweeping it as open leaves a hole in the track.
+        closed = _tg.ase_is_closed(args.centreline) if str(args.centreline).lower().endswith(".ase") else False
+        if args.open:
+            closed = False
         if args.spacing > 0:
-            line = _tg.resample(line, args.spacing)
+            line = _tg.resample(line, args.spacing, closed=closed)
         scene = _tg.sweep(
             line,
             road_half_width=args.road_width / 2.0,
-            closed=not args.open,
+            closed=closed,
         )
-        if not args.no_gate:
-            _tg.add_start_gate(scene, args.road_width / 2.0)
+        _tg.add_checkpoints(scene, args.checkpoints, half_width=args.road_width / 2.0)
+        _tg.add_grid(scene, args.grid)
         written = _tg.write_scene(scene, args.out_dir)
-        print(f"{args.centreline.name}: {raw:,} points -> {len(scene.centreline):,} stations")
+        print(f"{args.centreline.name}: {raw:,} points -> {len(scene.centreline):,} stations"
+              f"{' (closed circuit)' if closed else ' (open)'}")
         for w in written:
             print(f"  {w.stat().st_size:>9,}  {w.name}")
         print()

@@ -8,7 +8,9 @@ list.
 +00  int32  recordCount
 +04  int32  fieldsPerRecord   (1 in every sample)
 +08  int32  reserved          (0)
-+0c  64 bytes                 uninitialised padding, zeros in 13 of 19 tracks
++0c  60 bytes                 zero
++48  u8 u8                    1, 1  -- REQUIRED, see below
++4a  2 bytes                  zero
 +4c  recordCount x 257 bytes  NUL-padded ASCII, one record each
 ```
 
@@ -45,6 +47,17 @@ VERSION = 0
 DATA_START = 76
 RECORD_SIZE = 257
 
+# Bytes 72 and 73 of the payload are both 1 in 18 of the 20 tracks on hand, and
+# the two exceptions are tracks this toolkit generated. Zeroing them makes the
+# engine panic with "Couldn't find any checkpoints!" -- it reads no records at
+# all, rather than rejecting bad ones (it has a separate "Bad checkpoint record"
+# message it does not print). So this is a table-valid flag of some kind, and it
+# is not optional.
+#
+# They were previously mistaken for uninitialised padding, from a hex dump
+# truncated at 32 bytes that never showed offset 72.
+DEFAULT_PADDING = bytes(60) + bytes([1, 1]) + bytes(2)
+
 # The three records every track opens with. MKWORLD writes the names of its own
 # inputs here; the game does not appear to care, but they are reproduced so a
 # generated table looks like a compiled one.
@@ -62,7 +75,7 @@ class Obt:
     version: int = VERSION
     # 12..76 is uninitialised in the original compiler -- zeros in most tracks,
     # heap noise in a few. Carried through on a round-trip, zeroed when built.
-    padding: bytes = bytes(DATA_START - 12)
+    padding: bytes = DEFAULT_PADDING
 
     @property
     def objects(self) -> list[str]:
@@ -100,7 +113,7 @@ def parse(data: bytes) -> Obt:
 def build(obt: Obt) -> bytes:
     """Serialise back to complete file bytes. Round-trips byte for byte."""
     body = bytearray(struct.pack("<3i", len(obt.records), 1, 0))
-    pad = obt.padding if len(obt.padding) == DATA_START - 12 else bytes(DATA_START - 12)
+    pad = obt.padding if len(obt.padding) == DATA_START - 12 else DEFAULT_PADDING
     body += pad
     for r in obt.records:
         encoded = r.encode("latin-1")

@@ -394,9 +394,13 @@ async function refreshFolder(){
 window.addEventListener('focus', async () => {
   if(!STATE || STATE.needs_folder) return;
   try {
-    const r = await api('/api/fingerprint');
-    if(LAST_FP !== null && r && r.fp !== LAST_FP) await refresh();
-    else if(r) LAST_FP = r.fp;
+    const r = await api('/api/fingerprint?t=' + Date.now());
+    if(!r) return;
+    // refresh() records the fingerprint it loaded; this branch only has to
+    // decide whether to call it. Previously the changed case refreshed without
+    // updating LAST_FP, so every later focus re-scanned the whole folder.
+    if(LAST_FP !== null && r.fp !== LAST_FP) await refresh();
+    else LAST_FP = r.fp;
   } catch(e){ /* transient -- the manual button is always there */ }
 });
 
@@ -436,7 +440,9 @@ async function applyFix(action){
 let LAST_FP = null;
 
 async function refresh(){
-  STATE = await api('/api/status');
+  // cache-bust too: no-store on the server is the real fix, but a unique URL
+  // costs nothing and survives anything that ignores the header.
+  STATE = await api('/api/status?t=' + Date.now());
   if(STATE && STATE.fp !== undefined) LAST_FP = STATE.fp;
   // No folder chosen -> show the landing screen and stop; everything else needs
   // a Data folder to render.
@@ -1088,6 +1094,14 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
+        # Every response here describes the Data folder as it is RIGHT NOW, so
+        # none of it may be cached. Without this the embedded webview serves
+        # /api/status from its cache after the first fetch, and re-scanning the
+        # folder appears to do nothing -- a mod added from Explorer never shows
+        # up however many times you press Refresh.
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
         self.end_headers()
         self.wfile.write(body)
 
@@ -1095,6 +1109,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         self._send(code, "application/json", json.dumps(obj).encode("utf-8"))
 
     def do_GET(self):
+        # Routing below is exact-match, so a cache-busting "?t=..." would miss
+        # every route and the page would render nothing. Strip the query once,
+        # here, rather than teaching each route about it.
+        self.path = self.path.split("?", 1)[0]
         d = self.data_dir
         if self.path in ("/", "/index.html"):
             return self._send(200, "text/html; charset=utf-8", _PAGE.encode("utf-8"))

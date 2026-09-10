@@ -31,7 +31,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import mod
+from . import mod, obt as obt_mod
 
 # Surface codes, as measured in the shipped .bpp files and confirmed from the
 # generator's own output. Anything outside this set has to be hand-applied or
@@ -68,6 +68,18 @@ def read_ase(path: str | Path) -> list[Point]:
     if not pts:
         raise ValueError(f"no *SHAPE_VERTEX_KNOT entries in {Path(path).name}")
     return pts
+
+
+def ase_is_closed(path: str | Path) -> bool:
+    """Whether the spline carries *SHAPE_CLOSED.
+
+    Worth asking separately, because a closed shape's knots do NOT include the
+    closing segment: path10.ASE is flagged closed but its last knot sits 201 m
+    from its first. Sweeping such a path as open leaves a hole the width of that
+    gap -- and since the start line sits at the seam, cars spawn over it and
+    fall through the world.
+    """
+    return "*SHAPE_CLOSED" in Path(path).read_text(encoding="latin-1", errors="replace")
 
 
 def read_obj_polyline(path: str | Path) -> list[Point]:
@@ -159,13 +171,21 @@ def simplify(points: list[Point], tolerance: float) -> list[Point]:
     return [p for p, k in zip(points, keep) if k]
 
 
-def resample(points: list[Point], spacing: float) -> list[Point]:
-    """Re-space a polyline at a fixed arc length, preserving both ends."""
+def resample(points: list[Point], spacing: float, closed: bool = False) -> list[Point]:
+    """Re-space a polyline at a fixed arc length, preserving both ends.
+
+    With `closed`, the segment from the last point back to the first is walked
+    too, so a ring comes out evenly sampled all the way round instead of
+    stopping short at the seam.
+    """
     if spacing <= 0 or len(points) < 2:
         return list(points)
     out = [points[0]]
     carry = 0.0
-    for a, b in zip(points, points[1:]):
+    pairs = list(zip(points, points[1:]))
+    if closed and _dist(points[-1], points[0]) > 1e-9:
+        pairs.append((points[-1], points[0]))
+    for a, b in pairs:
         seg = _dist(a, b)
         if seg == 0:
             continue
@@ -175,7 +195,11 @@ def resample(points: list[Point], spacing: float) -> list[Point]:
             out.append((a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, 0.0))
             t += spacing
         carry = (carry + seg) % spacing
-    if _dist(out[-1], points[-1]) > 1e-9:
+    if closed:
+        # the ring must not repeat its seam; sweep() closes it by wrapping
+        while len(out) > 1 and _dist(out[-1], out[0]) < spacing * 0.5:
+            out.pop()
+    elif _dist(out[-1], points[-1]) > 1e-9:
         out.append(points[-1])
     return out
 
@@ -234,6 +258,7 @@ class TrackScene:
     scenery: list[SceneObject] = field(default_factory=list)
     markers: dict[str, list[Point]] = field(default_factory=dict)
     walls: list[list[Point]] = field(default_factory=list)
+    grid: list[Point] = field(default_factory=list)
     meshes: dict[str, "mod.Mesh"] = field(default_factory=dict)
     wall_texture: str = "wall.tga"
 
@@ -312,6 +337,15 @@ def _ribbon(
     return mod.Mesh(vertices=verts, materials=[material], faces=faces)
 
 
+# How long a piece of one band becomes a single mesh. Shipped tracks subdivide
+# heavily -- bemidji is 446 chunks averaging 12 vertices over a ~60 m footprint,
+# dundas 1,117 chunks over ~40 m -- because the renderer culls per chunk, so a
+# chunk spanning the whole map is always "visible" and never usefully culled.
+# Sweeping each band as one track-length ribbon produced 7 chunks of 2,822
+# vertices with a 1,632 m footprint, and the track did not draw at all.
+DEFAULT_SEGMENT_LENGTH = 50.0
+
+
 def sweep(
     centreline: list[Point],
     *,
@@ -320,6 +354,7 @@ def sweep(
     road_texture: str = "asphalt.tex",
     closed: bool = True,
     uv_scale: float = 10.0,
+    segment_length: float = DEFAULT_SEGMENT_LENGTH,
 ) -> "TrackScene":
     """Sweep a cross-section along the centreline into a complete TrackScene.
 
@@ -337,44 +372,124 @@ def sweep(
 
     scene = TrackScene(centreline=pts)
 
-    scene.meshes["asphalt.mod"] = _ribbon(
-        pts, normals, -road_half_width, road_half_width, 0.0, 0.0,
-        road_texture, closed, uv_scale,
-    )
-    scene.driveables.append(SceneObject("asphalt.mod", ROAD))
+    # Stations per segment, from the requested segment length.
+    total = sum(_dist(a, b) for a, b in zip(pts, pts[1:])) or 1.0
+    per_station = total / max(len(pts) - 1, 1)
+    stride = max(2, int(round(segment_length / per_station))) if segment_length > 0 else len(pts)
 
+    # Segmentation and closure interact: every segment is swept as an open strip,
+    # so on a ring the last one has to reach back to station 0 or the seam is
+    # left open. Repeating the first station at the end makes that fall out of
+    # the ordinary segmentation -- the closing stretch becomes a segment like any
+    # other. Without this a closed track still had a drivable-over gap at the
+    # start line, which is exactly where it is most visible.
+    ring = pts + [pts[0]] if closed else pts
+    ring_normals = normals + [normals[0]] if closed else normals
+
+    def emit(base: str, inner: float, outer: float, y_in: float, y_out: float,
+             texture: str, code: int) -> None:
+        """Sweep one band, cut into segments, each its own mesh."""
+        starts = range(0, len(ring) - 1, stride) if stride < len(ring) else (0,)
+        for n, s in enumerate(starts):
+            e = min(s + stride + 1, len(ring))
+            if e - s < 2:
+                continue
+            # segments share their boundary station, so the surfaces meet
+            sub = ring[s:e]
+            sub_n = ring_normals[s:e]
+            name = f"{base}{n:03d}.mod" if stride < len(pts) else f"{base}.mod"
+            scene.meshes[name] = _ribbon(
+                sub, sub_n, inner, outer, y_in, y_out, texture, False, uv_scale,
+            )
+            scene.driveables.append(SceneObject(name, code))
+
+    emit("asphalt", -road_half_width, road_half_width, 0.0, 0.0, road_texture, ROAD)
     for side, sign in (("l", 1.0), ("r", -1.0)):
         offset, height = road_half_width, 0.0
         for band in bands:
             inner, outer = offset, offset + band.width
-            y_inner, y_outer = height, height + band.rise
-            name = f"{band.base}{side}.mod" if band.paired else f"{band.base}.mod"
-            scene.meshes[name] = _ribbon(
-                pts, normals, sign * inner, sign * outer, y_inner, y_outer,
-                band.texture, closed, uv_scale,
-            )
-            scene.driveables.append(SceneObject(name, band.code))
-            offset, height = outer, y_outer
+            base = f"{band.base}{side}" if band.paired else band.base
+            emit(base, sign * inner, sign * outer, height, height + band.rise,
+                 band.texture, band.code)
+            offset, height = outer, height + band.rise
 
     return scene
 
 
-def add_start_gate(scene: "TrackScene", half_width: float | None = None) -> None:
-    """Put a checkpoint gate across the centreline at its first point.
+def add_checkpoints(
+    scene: "TrackScene",
+    count: int = 3,
+    *,
+    half_width: float | None = None,
+    margin: float = 2.5,
+) -> None:
+    """Place timing gates evenly around the lap, starting at the centreline's origin.
 
-    A gate is two points spanning the road. Both scene files carry the verts;
-    the surface file writes them negated, the graphic file as-is.
+    The engine will not load a track it cannot find checkpoints on -- it panics
+    with "Couldn't find any checkpoints!" and dies before the green flag. Two
+    things about that, both learned by having it happen:
+
+    **One gate is not enough.** Every functioning track carries two or three;
+    the shipped road courses all use three. A single gate gives the engine no way
+    to establish lap direction or progress, so `count` defaults to 3 and values
+    below 2 are refused.
+
+    **A gate must be wider than the road.** Shipped gates run 15-80 m against
+    road widths around 12 m, so `margin` widens each gate by that factor -- a car
+    running wide over the kerb still crosses it. Spanning only the asphalt lets a
+    car miss the gate entirely and never complete a lap.
     """
+    if count < 2:
+        raise ValueError(
+            "a track needs at least two checkpoints -- the engine panics with "
+            "'Couldn't find any checkpoints!' otherwise"
+        )
     pts = scene.centreline
     if len(pts) < 2:
         return
-    width = half_width if half_width is not None else DEFAULT_ROAD_HALF_WIDTH
-    nx, ny = _normals_2d(pts, closed=True)[0]
-    p = pts[0]
-    scene.markers["check1"] = [
-        (p[0] + nx * width, p[1] + ny * width, 0.0),
-        (p[0] - nx * width, p[1] - ny * width, 0.0),
-    ]
+
+    base = half_width if half_width is not None else DEFAULT_ROAD_HALF_WIDTH
+    width = base * margin
+    normals = _normals_2d(pts, closed=True)
+
+    scene.markers.clear()
+    for k in range(count):
+        i = (k * len(pts)) // count
+        p, (nx, ny) = pts[i], normals[i]
+        scene.markers[f"check{k + 1}"] = [
+            (p[0] + nx * width, p[1] + ny * width, 0.0),
+            (p[0] - nx * width, p[1] - ny * width, 0.0),
+        ]
+
+
+def add_grid(scene: "TrackScene", slots: int = 8, *, spacing: float = 10.0,
+             offset: float = 3.0) -> None:
+    """Lay out starting-grid slots behind the first checkpoint.
+
+    Two staggered columns either side of the centreline, which is how the shipped
+    tracks arrange their eight. Positions go into the scene for the object table;
+    the compiler writes them out as `obj car` records.
+    """
+    pts = scene.centreline
+    if len(pts) < 2 or slots <= 0:
+        return
+    normals = _normals_2d(pts, closed=True)
+    total = sum(_dist(a, b) for a, b in zip(pts, pts[1:])) or 1.0
+    step = spacing / total * len(pts)
+
+    scene.grid.clear()
+    for k in range(slots):
+        # walk backwards from the line so the grid sits before it, not on it
+        i = int(round(-(k // 2 + 1) * step)) % len(pts)
+        p, (nx, ny) = pts[i], normals[i]
+        side = offset if k % 2 == 0 else -offset
+        scene.grid.append((p[0] + nx * side, p[1] + ny * side, 0.0))
+
+
+# Kept for callers written against the single-gate helper.
+def add_start_gate(scene: "TrackScene", half_width: float | None = None) -> None:
+    """Deprecated: places ONE gate, which the engine rejects. Use add_checkpoints."""
+    add_checkpoints(scene, 2, half_width=half_width)
 
 
 # --- emitters -------------------------------------------------------------
@@ -450,6 +565,28 @@ def write_surface(scene: "TrackScene") -> str:
     return _NL.join(out) + _NL
 
 
+
+def build_obt(scene: "TrackScene") -> bytes:
+    """Write the placed-object table: the timing gates and the starting grid.
+
+    This is generated here rather than by the compiler because the scene format
+    has no way to declare either. MKWORLD derives checkpoints from the marker
+    blocks but nothing declares grid slots, so the shipped tracks' `obj car`
+    records must have been authored by hand or by a tool that did not survive.
+    Writing the whole table natively is simpler than patching the compiler's.
+
+    Coordinates go out in the flipped ground frame, matching the surface file
+    and what the compiler itself emits.
+    """
+    records = []
+    for gate in scene.markers.values():
+        (x1, y1, _), (x2, y2, _) = gate[0], gate[1]
+        records.append(obt_mod.checkpoint(-x1, -y1, -x2, -y2))
+    for x, y, _ in scene.grid:
+        records.append(obt_mod.car(-x, -y))
+    return obt_mod.build(obt_mod.create(records))
+
+
 def write_scene(scene: "TrackScene", out_dir) -> list:
     """Write both sources and every swept mesh. Returns what was written."""
     d = Path(out_dir)
@@ -465,5 +602,9 @@ def write_scene(scene: "TrackScene", out_dir) -> list:
     for name, mesh in scene.meshes.items():
         p = d / name
         p.write_bytes(mod.build(mesh))
+        written.append(p)
+    if scene.markers or scene.grid:
+        p = d / "track.obt"
+        p.write_bytes(build_obt(scene))
         written.append(p)
     return written
