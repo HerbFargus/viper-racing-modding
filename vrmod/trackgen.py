@@ -1163,3 +1163,82 @@ def write_textures(source: str | Path, out_dir) -> list:
             pixels, w, mode="opaque" if channels == 3 else "alpha", wrap=1))
         written.append(out)
     return written
+
+
+# ---------------------------------------------------------------------------
+# Walls
+#
+# `.sol` holds the track's solid collision -- the barriers a car hits rather
+# than drives on -- and writing one from scratch was long treated as blocked,
+# because its spatial tail is not understood well enough to synthesise.
+#
+# It does not have to be synthesised. The surface scene file already has a
+# syntax for a wall: an inline `object(<texture>,1,0)` followed by four verts
+# and a `quad(0,1,2,3)`, and MKWORLD turns each one into exactly one `.sol`
+# primitive. Measured on a real track: 246 declared quads produced a 69,262-byte
+# `.sol` carrying 246 primitives, against the 48-byte empty file the same scene
+# produces with no walls declared, and at the same version (2) as the stock
+# tracks. That is the same MKWORLD run the pipeline already makes for `.bsp`, so
+# walls cost no new tool.
+#
+# Walls go in the SURFACE file only. They are collision, not scenery -- nothing
+# in the graphic file references them, and a wall that appears in both would be
+# drawn as an untextured slab across the track.
+
+DEFAULT_WALL_HEIGHT = 1.5
+DEFAULT_WALL_SPACING = 4          # stations per quad
+
+
+def add_walls(
+    scene: "TrackScene",
+    *,
+    offset: float,
+    height: float = DEFAULT_WALL_HEIGHT,
+    stride: int = DEFAULT_WALL_SPACING,
+    sides: str = "both",
+    texture: str = "wall.tga",
+) -> int:
+    """Run barrier walls alongside the centreline. Returns the quad count.
+
+    `offset` is the lateral distance from the centreline, in metres -- put it
+    outside the road AND its verges, or a car will scrape a wall while still on
+    the track. `stride` is how many stations each quad spans: fewer means more
+    quads and a closer fit through corners.
+
+    Each quad becomes one `.sol` primitive when MKWORLD compiles the surface
+    file, so the count here is the count that ends up in the track.
+    """
+    pts = scene.centreline
+    n = len(pts)
+    if n < 3:
+        raise ValueError("walls need a centreline of at least three stations")
+    if offset <= 0:
+        raise ValueError(f"wall offset must be positive, got {offset}")
+    if height <= 0:
+        raise ValueError(f"wall height must be positive, got {height}")
+    stride = max(1, int(stride))
+
+    signs = {"both": (1.0, -1.0), "left": (1.0,), "right": (-1.0,)}.get(sides)
+    if signs is None:
+        raise ValueError(f"sides must be 'both', 'left' or 'right', got {sides!r}")
+
+    normals = _normals_2d(pts, True)
+    added = 0
+    for i in range(0, n, stride):
+        j = (i + stride) % n
+        ax, ay, ae = pts[i]
+        bx, by, be = pts[j]
+        nax, nay = normals[i]
+        nbx, nby = normals[j]
+        for sgn in signs:
+            a = (ax + nax * offset * sgn, ay + nay * offset * sgn, ae)
+            b = (bx + nbx * offset * sgn, by + nby * offset * sgn, be)
+            # bottom edge along the track, then back along the top
+            scene.walls.append([
+                a, b,
+                (b[0], b[1], b[2] + height),
+                (a[0], a[1], a[2] + height),
+            ])
+            added += 1
+    scene.wall_texture = texture
+    return added

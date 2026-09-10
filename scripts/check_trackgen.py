@@ -267,6 +267,30 @@ def check_invariants() -> None:
     check("shortened texture names stay unique",
           len(set(fitted.values())) == len(fitted), f"{len(set(fitted.values()))} distinct")
 
+    # Walls. .sol was long treated as unwritable because its spatial tail is
+    # not understood -- but it does not have to be synthesised: the surface file
+    # declares wall quads, and MKWORLD turns each into one .sol primitive.
+    walled = tg.sweep(circle, closed=True)
+    quads = tg.add_walls(walled, offset=10.0, height=1.5, stride=4)
+    check("walls produce one quad per side per stride",
+          quads == len(walled.centreline) // 4 * 2, f"{quads} quads")
+    surf, graph = tg.write_surface(walled), tg.write_graphic(walled)
+    check("wall quads reach the surface file",
+          surf.count("object(wall.tga,1,0)") == quads, f"{quads} declared")
+    check("walls stay OUT of the graphic file",
+          "wall.tga" not in graph,
+          "collision only -- a wall in both is drawn as a slab across the track")
+    for bad in (0.0, -1.0):
+        try:
+            tg.add_walls(walled, offset=bad)
+        except ValueError:
+            pass
+        else:
+            check("a non-positive wall offset is refused", False, f"accepted {bad}")
+            break
+    else:
+        check("a non-positive wall offset is refused", True, "raises ValueError")
+
     # Geometry: the road comes out the width it was asked for.
     # segments are named asphalt000.mod, asphalt001.mod, ...
     road = next(m for n, m in scene.meshes.items() if n.startswith("asphalt"))
