@@ -114,13 +114,31 @@ def read_obj_polyline(path: str | Path) -> list[Point]:
 
 
 def read_centreline(path: str | Path) -> list[Point]:
-    """Read a centreline from whichever of the supported formats `path` is."""
-    suffix = Path(path).suffix.lower()
+    """Read a centreline from whichever of the supported formats `path` is.
+
+    As well as an explicit curve (.ase spline, .obj polyline), this accepts the
+    ROAD SURFACE itself -- a .mod, or a directory of them -- and recovers the
+    centreline from its geometry. That matters because the obvious source of
+    track geometry does not export a curve at all: Bob's Track Builder gives you
+    a surface, and the workaround has been to import it into 3DS Max and draw a
+    spline over it by hand. See centreline_from_meshes().
+    """
+    p = Path(path)
+    if p.is_dir():
+        meshes = [mod.parse_file(f) for f in sorted(p.glob("*.mod"))]
+        if not meshes:
+            raise ValueError(f"no .mod files in {p}")
+        return centreline_from_meshes(meshes)
+    suffix = p.suffix.lower()
     if suffix == ".ase":
-        return read_ase(path)
+        return read_ase(p)
     if suffix == ".obj":
-        return read_obj_polyline(path)
-    raise ValueError(f"unsupported centreline format '{suffix}' (want .ase or .obj)")
+        return read_obj_polyline(p)
+    if suffix == ".mod":
+        return centreline_from_meshes([mod.parse_file(p)])
+    raise ValueError(
+        f"unsupported centreline source '{suffix}' "
+        "(want .ase, .obj, a .mod road surface, or a directory of them)")
 
 
 def to_viper(p: Point, height: float = 0.0) -> Point:
@@ -608,3 +626,157 @@ def write_scene(scene: "TrackScene", out_dir) -> list:
         p.write_bytes(build_obt(scene))
         written.append(p)
     return written
+
+
+# ---------------------------------------------------------------------------
+# Recovering a centreline from an existing road surface
+#
+# The pipeline needs a centreline for the AI lines and the timing gates, but a
+# track modeller does not necessarily export one -- Bob's Track Builder does not,
+# and the workaround has been to import the road mesh into 3DS Max and draw a
+# spline over it by hand.
+#
+# It does not have to be drawn, because a road surface IS a swept strip: its
+# boundary is two long parallel chains, and the centreline is what runs between
+# them. Recovering it is a topology problem, not a modelling one.
+#
+# The approach deliberately avoids relying on vertex ORDER. A strip exported by
+# our own sweep happens to store its edges as consecutive pairs, so pairing
+# v[2i]/v[2i+1] would work -- and does, exactly, against the reference mesh. But
+# nothing guarantees another exporter does the same, so this works from the
+# boundary edges instead: an edge used by one triangle is on the boundary, and
+# for a ribbon those form two long chains (plus two short caps, or nothing at all
+# when the ring is closed).
+
+
+def _weld(meshes, tol: float = 0.01):
+    """Merge meshes into one vertex/face soup, welding coincident vertices.
+
+    Segmented road surfaces repeat their shared stations, and a modeller's export
+    may repeat every triangle's corners, so the boundary is only meaningful once
+    duplicates are collapsed.
+    """
+    q = 1.0 / max(tol, 1e-9)
+    index: dict[tuple[int, int, int], int] = {}
+    verts: list[tuple[float, float, float]] = []
+    faces: list[tuple[int, int, int]] = []
+    for m in meshes:
+        remap = []
+        for v in m.vertices:
+            key = (round(v.x * q), round(v.y * q), round(v.z * q))
+            i = index.get(key)
+            if i is None:
+                i = len(verts)
+                index[key] = i
+                verts.append((v.x, v.y, v.z))
+            remap.append(i)
+        for a, b, c in m.faces:
+            ta, tb, tc = remap[a], remap[b], remap[c]
+            if ta != tb and tb != tc and ta != tc:
+                faces.append((ta, tb, tc))
+    return verts, faces
+
+
+def _boundary_chains(verts, faces):
+    """Split the boundary edges into ordered chains (or loops)."""
+    use: dict[tuple[int, int], int] = {}
+    for a, b, c in faces:
+        for i, j in ((a, b), (b, c), (c, a)):
+            use[(min(i, j), max(i, j))] = use.get((min(i, j), max(i, j)), 0) + 1
+    adj: dict[int, list[int]] = {}
+    for (i, j), n in use.items():
+        if n == 1:                      # used once -> on the boundary
+            adj.setdefault(i, []).append(j)
+            adj.setdefault(j, []).append(i)
+
+    chains, seen = [], set()
+    for start in adj:
+        if start in seen:
+            continue
+        # walk from an endpoint where possible, so an open chain comes out whole
+        node = start
+        if len(adj[start]) > 1:
+            for cand in adj:
+                if cand not in seen and len(adj[cand]) == 1:
+                    node = cand
+                    break
+        chain, prev = [], None
+        while node is not None and node not in seen:
+            seen.add(node)
+            chain.append(node)
+            nxt = None
+            for cand in adj.get(node, ()):
+                if cand != prev and cand not in seen:
+                    nxt = cand
+                    break
+            prev, node = node, nxt
+        if len(chain) > 1:
+            chains.append(chain)
+    return chains
+
+
+def centreline_from_meshes(meshes, *, weld_tol: float = 0.01,
+                           source_frame: bool = True) -> list[Point]:
+    """Derive a centreline from one or more road-surface meshes.
+
+    Returns points in the same frame `read_ase` produces, so the result drops
+    straight into resample()/sweep(); pass source_frame=False to keep the mesh's
+    own frame instead.
+
+    Raises ValueError when the surface does not look like a strip -- better than
+    returning a plausible-looking line through the middle of something that is
+    not a road.
+    """
+    verts, faces = _weld(meshes, weld_tol)
+    if not faces:
+        raise ValueError("no usable triangles in the supplied meshes")
+
+    chains = _boundary_chains(verts, faces)
+    if len(chains) < 2:
+        raise ValueError(
+            f"expected two boundary chains for a road strip, found {len(chains)} -- "
+            "this surface does not look like a swept ribbon")
+
+    def length(ch):
+        return sum(math.dist(verts[a][::2], verts[b][::2]) for a, b in zip(ch, ch[1:]))
+
+    chains.sort(key=length, reverse=True)
+    left, right = chains[0], chains[1]
+
+    # Pair each point on the longer edge with the nearest on the other. A road is
+    # roughly constant width, so nearest-point is the correct correspondence and
+    # is immune to the two edges being sampled differently.
+    # Pair the two edges through the TRIANGLES that join them.
+    #
+    # Two simpler ideas both fail on a real circuit. Nearest-point pairing looks
+    # across the track at a hairpin and picks a point from a different part of
+    # the lap -- and because those are still a road-width apart, the bad pair is
+    # not detectable by width. Arc-length pairing fails because the outer edge of
+    # a curve is longer than the inner, so equal parameter is not equal position.
+    #
+    # The mesh already knows the answer: every triangle spans the ribbon, so a
+    # vertex on one edge is joined by an edge of some triangle to the vertices
+    # opposite it. That correspondence is local, exact, and cannot jump the
+    # track.
+    right_set = set(right)
+    neighbours: dict[int, set[int]] = {}
+    for a, b, c in faces:
+        for i, j in ((a, b), (b, c), (c, a)):
+            neighbours.setdefault(i, set()).add(j)
+            neighbours.setdefault(j, set()).add(i)
+
+    out: list[Point] = []
+    for i in left:
+        opposite = [j for j in neighbours.get(i, ()) if j in right_set]
+        if not opposite:
+            continue                     # an edge vertex with no rung: skip it
+        lx, lz = verts[i][0], verts[i][2]
+        rx = sum(verts[j][0] for j in opposite) / len(opposite)
+        rz = sum(verts[j][2] for j in opposite) / len(opposite)
+        mx, mz = (lx + rx) / 2.0, (lz + rz) / 2.0
+        out.append((-mx, -mz, 0.0) if source_frame else (mx, 0.0, mz))
+    if len(out) < 2:
+        raise ValueError(
+            "the two boundary edges are not joined by triangles -- this surface "
+            "does not look like a swept ribbon")
+    return out
