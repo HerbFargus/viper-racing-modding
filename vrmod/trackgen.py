@@ -876,10 +876,14 @@ SURFACE_PREFIXES: tuple[tuple[str, int], ...] = (
 )
 
 
-def surface_code(name: str, default: int = GRASS) -> int:
+def surface_code(name: str, default: int | None = GRASS) -> int | None:
     """The surface code a mesh or material name implies.
 
-    Falls back to grass rather than road: a misclassified verge is a car that
+    Returns `default` when nothing matches -- pass None to find out whether a
+    name carried any information at all, which is how the material name is
+    preferred over the mesh name below.
+
+    The default is grass rather than road: a misclassified verge is a car that
     slows down where it should not, a misclassified road is a car that grips
     where there is nothing to grip.
     """
@@ -888,6 +892,47 @@ def surface_code(name: str, default: int = GRASS) -> int:
         if stem.startswith(prefix):
             return code
     return default
+
+
+def split_by_material(mesh: "mod.Mesh") -> dict[str, "mod.Mesh"]:
+    """Split a multi-material mesh into one mesh per material.
+
+    Exporters differ in how much structure they preserve, and the difference is
+    silent. Bob's Track Builder writes one object per material, so its road and
+    grass arrive already separated; a Blender OBJ of the same track arrives as a
+    single object carrying both materials. Classifying by the mesh's own name
+    then gives the whole track one surface code -- the road included, which
+    means a road the game treats as grass.
+
+    Materials are the reliable unit: every format that carries geometry carries
+    them, and they are what the surface-code convention is really about.
+    """
+    if len(mesh.materials) <= 1:
+        return {}
+    out: dict[str, "mod.Mesh"] = {}
+    for material in mesh.materials:
+        faces = mesh.faces[material.face_start:material.face_end]
+        if not faces:
+            continue
+        remap: dict[int, int] = {}
+        verts: list[mod.Vertex] = []
+        local: list[tuple[int, int, int]] = []
+        for face in faces:
+            tri = []
+            for i in face:
+                j = remap.get(i)
+                if j is None:
+                    j = len(verts)
+                    remap[i] = j
+                    verts.append(mesh.vertices[i])
+                tri.append(j)
+            local.append(tuple(tri))
+        out[material.name] = mod.Mesh(
+            vertices=verts,
+            materials=[mod.Material(material.name, 0, len(verts), 0, len(local))],
+            faces=local,
+        )
+    return out
 
 
 def chunk_mesh(mesh: "mod.Mesh", *, size: float = DEFAULT_CHUNK_SIZE) -> list["mod.Mesh"]:
@@ -942,6 +987,19 @@ def chunk_mesh(mesh: "mod.Mesh", *, size: float = DEFAULT_CHUNK_SIZE) -> list["m
     return out
 
 
+def _code_for(name: str, mesh: "mod.Mesh", codes: dict[str, int]) -> int:
+    """The surface code for one mesh: an explicit override, then its material
+    name, then its own name, then grass."""
+    if name in codes:
+        return codes[name]
+    for material in mesh.materials:
+        code = surface_code(material.name, default=None)
+        if code is not None:
+            return code
+    code = surface_code(name, default=None)
+    return GRASS if code is None else code
+
+
 def scene_from_meshes(
     meshes: dict[str, "mod.Mesh"],
     *,
@@ -963,10 +1021,24 @@ def scene_from_meshes(
         raise ValueError("no meshes to import")
 
     codes = codes or {}
+    # An exporter that writes one object per material and one that writes a
+    # single object carrying several must import the same way, so split first
+    # and classify per material.
+    expanded: dict[str, "mod.Mesh"] = {}
+    for name, mesh in meshes.items():
+        pieces = split_by_material(mesh)
+        if not pieces:
+            expanded[name] = mesh
+            continue
+        for material_name, piece in pieces.items():
+            key = f"{Path(material_name).stem}.mod"
+            while key in expanded:
+                key = f"{Path(key).stem}_.mod"
+            expanded[key] = piece
+    meshes = expanded
     _rename_materials(meshes)
     if centreline is None:
-        road = [m for n, m in meshes.items()
-                if codes.get(n, surface_code(n)) == ROAD]
+        road = [m for n, m in meshes.items() if _code_for(n, m, codes) == ROAD]
         if not road:
             raise ValueError(
                 "no mesh classifies as road, so there is no centreline to recover -- "
@@ -982,7 +1054,7 @@ def scene_from_meshes(
     scene = TrackScene(centreline=[(p[0], p[1], p[2] if len(p) > 2 else 0.0)
                                    for p in centreline])
     for name in sorted(meshes):
-        code = codes.get(name, surface_code(name))
+        code = _code_for(name, meshes[name], codes)
         base = Path(name).stem
         for n, piece in enumerate(chunk_mesh(meshes[name], size=chunk_size)):
             chunk_name = f"{base}{n:03d}.mod"
@@ -1140,11 +1212,17 @@ def write_textures(source: str | Path, out_dir) -> list:
         m.name for mesh in meshes.values() for m in mesh.materials)
 
     written = []
+    missing = []
     for original, fitted in sorted(mapping.items()):
         stem = Path(original).stem
         image = next((base / (stem + e) for e in (".tga", ".TGA")
                       if (base / (stem + e)).exists()), None)
         if image is None:
+            # Skipping quietly is the wrong failure: the mesh still references
+            # the texture, so the archive ships a .grf naming a member that does
+            # not exist, and the surface renders as flat colour in game with no
+            # error. Better to stop here, where the cause is obvious.
+            missing.append((stem, [q.name for q in base.glob(stem + ".*")]))
             continue
         out = d / fitted
         pixels, w, h = tex.read_tga(image)
@@ -1169,6 +1247,18 @@ def write_textures(source: str | Path, out_dir) -> list:
         out.write_bytes(tex.encode_to_tex(
             pixels, w, mode="opaque" if channels == 3 else "alpha", wrap=1))
         written.append(out)
+
+    if missing:
+        lines = []
+        for stem, found in missing:
+            near = f"; found {found}" if found else ""
+            lines.append(f"  {stem}: no {stem}.tga beside the model{near}")
+        raise ValueError(
+            "these materials have no source image, so the track would ship a "
+            "mesh referencing a texture that is not in the archive:\n"
+            + "\n".join(lines)
+            + "\n\nOnly .tga is read today -- convert the images beside the "
+              "model, or supply the .tex members yourself.")
     return written
 
 

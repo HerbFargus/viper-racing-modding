@@ -267,6 +267,46 @@ def check_invariants() -> None:
     check("shortened texture names stay unique",
           len(set(fitted.values())) == len(fitted), f"{len(set(fitted.values()))} distinct")
 
+    # Exporters differ in how much structure they keep, silently. BTB writes one
+    # object per material; a Blender OBJ of the same track is a single object
+    # carrying both. Classifying by the mesh name gives the second one surface
+    # code for the whole track -- a road the game treats as grass. Both must
+    # import identically, so classification goes by MATERIAL.
+    from vrmod import mod as _mod
+    split_scene = tg.sweep(circle, closed=True)
+    road_mesh = next(m for n, m in split_scene.meshes.items() if n.startswith("asphalt"))
+    grass_mesh = next(m for n, m in split_scene.meshes.items() if n.startswith("grass"))
+    merged_v = list(road_mesh.vertices) + list(grass_mesh.vertices)
+    off = len(road_mesh.vertices)
+    merged_f = list(road_mesh.faces) + [(a + off, b + off, c + off)
+                                        for a, b, c in grass_mesh.faces]
+    merged = _mod.Mesh(
+        vertices=merged_v,
+        materials=[_mod.Material("road_tarmac001.tex", 0, off, 0, len(road_mesh.faces)),
+                   _mod.Material("ground_grass001.tex", off, len(merged_v),
+                                 len(road_mesh.faces), len(merged_f))],
+        faces=merged_f,
+    )
+    pieces = tg.split_by_material(merged)
+    check("a multi-material mesh splits into one mesh per material",
+          len(pieces) == 2, f"{sorted(pieces)}")
+    check("splitting preserves every triangle",
+          sum(len(m.faces) for m in pieces.values()) == len(merged_f),
+          f"{sum(len(m.faces) for m in pieces.values())} of {len(merged_f)}")
+    one_object = tg.scene_from_meshes({"track.obj": merged}, centreline=circle,
+                                      chunk_size=50.0)
+    per_object = tg.scene_from_meshes(
+        {"road_tarmac001.mod": pieces["road_tarmac001.tex"],
+         "ground_grass001.mod": pieces["ground_grass001.tex"]},
+        centreline=circle, chunk_size=50.0)
+    import collections as _c
+    a = _c.Counter(o.code for o in one_object.driveables)
+    b = _c.Counter(o.code for o in per_object.driveables)
+    check("a single-object export classifies the same as a per-material one",
+          a == b, f"{dict(a)} vs {dict(b)}")
+    check("the road in a single-object export is road, not grass",
+          a.get(tg.ROAD, 0) > 0, f"{a.get(tg.ROAD, 0)} road chunks")
+
     # Walls. .sol was long treated as unwritable because its spatial tail is
     # not understood -- but it does not have to be synthesised: the surface file
     # declares wall quads, and MKWORLD turns each into one .sol primitive.
