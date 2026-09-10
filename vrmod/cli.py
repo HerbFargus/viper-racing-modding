@@ -1160,17 +1160,25 @@ def main(argv: list[str] | None = None) -> int:
         from . import trackgen as _tg
         line = _tg.read_centreline(args.centreline)
         raw = len(line)
+        # A .ase flagged *SHAPE_CLOSED is a circuit even though its knots stop
+        # short of closing -- path10.ASE leaves a 201 m gap. Honour the flag
+        # unless told otherwise, and resample across the seam so the ring is
+        # continuous; sweeping it as open leaves a hole in the track.
+        closed = _tg.ase_is_closed(args.centreline) if str(args.centreline).lower().endswith(".ase") else False
+        if args.open:
+            closed = False
         if args.spacing > 0:
-            line = _tg.resample(line, args.spacing)
+            line = _tg.resample(line, args.spacing, closed=closed)
         scene = _tg.sweep(
             line,
             road_half_width=args.road_width / 2.0,
-            closed=not args.open,
+            closed=closed,
         )
         _tg.add_checkpoints(scene, args.checkpoints, half_width=args.road_width / 2.0)
         _tg.add_grid(scene, args.grid)
         written = _tg.write_scene(scene, args.out_dir)
-        print(f"{args.centreline.name}: {raw:,} points -> {len(scene.centreline):,} stations")
+        print(f"{args.centreline.name}: {raw:,} points -> {len(scene.centreline):,} stations"
+              f"{' (closed circuit)' if closed else ' (open)'}")
         for w in written:
             print(f"  {w.stat().st_size:>9,}  {w.name}")
         print()

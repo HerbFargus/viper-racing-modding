@@ -70,6 +70,18 @@ def read_ase(path: str | Path) -> list[Point]:
     return pts
 
 
+def ase_is_closed(path: str | Path) -> bool:
+    """Whether the spline carries *SHAPE_CLOSED.
+
+    Worth asking separately, because a closed shape's knots do NOT include the
+    closing segment: path10.ASE is flagged closed but its last knot sits 201 m
+    from its first. Sweeping such a path as open leaves a hole the width of that
+    gap -- and since the start line sits at the seam, cars spawn over it and
+    fall through the world.
+    """
+    return "*SHAPE_CLOSED" in Path(path).read_text(encoding="latin-1", errors="replace")
+
+
 def read_obj_polyline(path: str | Path) -> list[Point]:
     """Read a centreline from an OBJ containing a polyline (`l` records).
 
@@ -159,13 +171,21 @@ def simplify(points: list[Point], tolerance: float) -> list[Point]:
     return [p for p, k in zip(points, keep) if k]
 
 
-def resample(points: list[Point], spacing: float) -> list[Point]:
-    """Re-space a polyline at a fixed arc length, preserving both ends."""
+def resample(points: list[Point], spacing: float, closed: bool = False) -> list[Point]:
+    """Re-space a polyline at a fixed arc length, preserving both ends.
+
+    With `closed`, the segment from the last point back to the first is walked
+    too, so a ring comes out evenly sampled all the way round instead of
+    stopping short at the seam.
+    """
     if spacing <= 0 or len(points) < 2:
         return list(points)
     out = [points[0]]
     carry = 0.0
-    for a, b in zip(points, points[1:]):
+    pairs = list(zip(points, points[1:]))
+    if closed and _dist(points[-1], points[0]) > 1e-9:
+        pairs.append((points[-1], points[0]))
+    for a, b in pairs:
         seg = _dist(a, b)
         if seg == 0:
             continue
@@ -175,7 +195,11 @@ def resample(points: list[Point], spacing: float) -> list[Point]:
             out.append((a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, 0.0))
             t += spacing
         carry = (carry + seg) % spacing
-    if _dist(out[-1], points[-1]) > 1e-9:
+    if closed:
+        # the ring must not repeat its seam; sweep() closes it by wrapping
+        while len(out) > 1 and _dist(out[-1], out[0]) < spacing * 0.5:
+            out.pop()
+    elif _dist(out[-1], points[-1]) > 1e-9:
         out.append(points[-1])
     return out
 

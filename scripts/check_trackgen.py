@@ -139,6 +139,14 @@ def check_invariants() -> None:
           len(scene.meshes) > 50 and median < 200,
           f"{len(scene.meshes)} meshes, median footprint {median:.0f} m")
 
+    # A closed ring must have no hole at the seam. path10.ASE is flagged
+    # *SHAPE_CLOSED but its knots stop 201 m short of closing, and sweeping it
+    # as open left exactly that hole in the main straight -- with the start line
+    # sitting in it, so cars spawned over the gap and fell through the world.
+    round_trip = tg.resample(ring(), 10.0, closed=True)
+    seam = math.dist(round_trip[-1][:2], round_trip[0][:2])
+    check("a closed resample leaves no seam gap", seam < 15.0, f"seam {seam:.1f} m")
+
     # Geometry: the road comes out the width it was asked for.
     # segments are named asphalt000.mod, asphalt001.mod, ...
     road = next(m for n, m in scene.meshes.items() if n.startswith("asphalt"))
