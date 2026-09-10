@@ -393,8 +393,40 @@ confirmed `NILI`-tagged and structurally identical to `.ili`/`.ild`).
 0x20  N × 68-byte records (17 × float32):
         field[1] = X (world space, meters)
         field[2] = Z (world space, meters) — same sign as the mesh data; see the note below
+        field[5] = corridor half-width, meters — `track.ild` only; see below
+        field[6] = target speed, m/s (a flat 100.0 in every `track.ild`)
         field[9] = cumulative arc-length distance from record 0 (meters)
+        field[10] = NOT a float: `0xFF<kind><index16>`, an incrementing record index
+        field[16] = NOT a float: `0xFEEDBEEF`
 ```
+
+**Field 5 is a corridor half-width, not a sentinel — ✅ CONFIRMED in game.** In `default.ili` and
+`rdefault.ili` it is `-20000.0` in every record of every track that shipped with the game, which reads
+like an obvious "unset" marker and was recorded here as one. It is not. In `track.ild` it is *never*
+`-20000`: it is a per-record distance in metres, either side of the line, inside which the game considers
+the car to be on the track.
+
+| Track | `track.ild` field 5 | | Track | `track.ild` field 5 |
+|---|---|---|---|---|
+| Kyalami | 12 | | jumper, limbo, maxi, Rainbow, Telly, dundas, hastings | 20 |
+| nfield, sunretx | 15 | | bemidji, uptown | 30 |
+| kenyon | 25, dipping to 17 for 3 records | | heaven | 25, dipping to 15 for 18 records |
+
+The two tracks that vary it do so at a pinch point, which is what identifies the field: it is a driving
+corridor, not the width of the asphalt (bemidji's road is far narrower than its corridor of 30).
+
+Writing `-20000` into `track.ild` gives every station a *negative* corridor, so the car is outside it
+wherever it stands. The symptom is not subtle and does not look like a line problem: the track loads,
+renders and drives, but "press space to reset" appears within seconds of the green flag and resetting
+teleports the car off the map. Nothing in the geometry, collision, checkpoints or object table is wrong —
+the game is correctly reporting that a corridor of width −20000 contains nothing.
+
+> Worth recording as a method note: the `-20000` reading came from surveying only the tracks that shipped
+> with the retail game, where the AI lines really are uniform. The community tracks (Kyalami, jumper,
+> maxi, Rainbow, Telly) were built with `mkilicc` and carry different values in several fields —
+> field 5 is `12`/`20` there even in the AI lines, field 7 is sometimes `NaN`, and field 3/4 is a unit
+> tangent rather than the half central-difference bemidji uses. A constant across one publisher's tracks
+> is a house style, not a format rule.
 
 The stored cumulative-distance field was checked against the actual point-to-point 2D distance across all
 21 sample files (7 tracks × 3 line variants at the time) with **zero mismatches**. Waypoints share the mesh's own coordinate space
