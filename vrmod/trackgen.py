@@ -1447,9 +1447,16 @@ def read_surface_patterns(path: str | Path) -> list[tuple[str, int]]:
 
 def surface_code_from_patterns(name: str,
                                patterns: list[tuple[str, int]]) -> int | None:
-    """Match a material name against patterns from `read_surface_patterns`."""
+    """Match a material name against patterns from `read_surface_patterns`.
+
+    A bare "*" never matches here either, not only when the patterns are read:
+    the caller may have built the list itself, and a catch-all that turns every
+    unclassified mesh into road is the one outcome this must not produce.
+    """
     stem = Path(name).stem.lower()
     for glob, code in patterns:
+        if glob.strip() == "*":
+            continue
         if fnmatch.fnmatchcase(stem, glob.lower()):
             return code
     return None
