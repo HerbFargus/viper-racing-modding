@@ -159,6 +159,20 @@ def check_invariants() -> None:
     check("a centreline can be recovered from the road surface alone",
           worst < 2.0, f"{len(recovered)} points, worst {worst:.2f} m from the true line")
 
+    # Elevation. A Point's third component carries height, and it has to survive
+    # recovery, resampling and the sweep -- generated tracks were flat because
+    # the ribbon builder passed a literal zero instead of the station's height.
+    hilly = [(math.cos(a) * 300, math.sin(a) * 300, 20.0 + 30.0 * math.sin(a * 3))
+             for a in [i * 2 * math.pi / 240 for i in range(240)]]
+    rs = tg.resample(hilly, 10.0, closed=True)
+    check("resample carries elevation",
+          abs(max(p[2] for p in rs) - 50.0) < 1.0 and abs(min(p[2] for p in rs) - -10.0) < 1.0,
+          f"{min(p[2] for p in rs):.1f}..{max(p[2] for p in rs):.1f} m")
+    hs = tg.sweep(rs, closed=True)
+    ys = [v.y for m in hs.meshes.values() for v in m.vertices]
+    check("the sweep follows the centreline's elevation",
+          max(ys) - min(ys) > 50.0, f"mesh spans {min(ys):.1f}..{max(ys):.1f} m")
+
     # Geometry: the road comes out the width it was asked for.
     # segments are named asphalt000.mod, asphalt001.mod, ...
     road = next(m for n, m in scene.meshes.items() if n.startswith("asphalt"))

@@ -153,8 +153,14 @@ def read_centreline(path: str | Path) -> list[Point]:
 
 
 def to_viper(p: Point, height: float = 0.0) -> Point:
-    """Ground-plane point in source frame -> game frame, with y as the height."""
-    return (-p[0], height, -p[1])
+    """Source frame -> game frame.
+
+    A Point is (x, y, elevation): the first two are the ground plane, and the
+    THIRD carries height above it. That component used to be a constant zero,
+    which is why generated tracks were flat. `height` is added to it, so a band's
+    own rise stacks on top of the centreline's elevation.
+    """
+    return (-p[0], height + (p[2] if len(p) > 2 else 0.0), -p[1])
 
 
 def _dist(a: Point, b: Point) -> float:
@@ -218,10 +224,14 @@ def resample(points: list[Point], spacing: float, closed: bool = False) -> list[
         seg = _dist(a, b)
         if seg == 0:
             continue
+        ea = a[2] if len(a) > 2 else 0.0
+        eb = b[2] if len(b) > 2 else 0.0
         t = spacing - carry
         while t <= seg:
             f = t / seg
-            out.append((a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, 0.0))
+            out.append((a[0] + (b[0] - a[0]) * f,
+                        a[1] + (b[1] - a[1]) * f,
+                        ea + (eb - ea) * f))       # elevation rides along
             t += spacing
         carry = (carry + seg) % spacing
     if closed:
@@ -331,9 +341,11 @@ def _ribbon(
         if i:
             run += _dist(pts[i - 1], p)
         v = run / uv_scale if uv_scale else 0.0
+        elev = p[2] if len(p) > 2 else 0.0
         for off, y, u in ((inner, y_inner, 0.0), (outer, y_outer, 1.0)):
             gx, gy = p[0] + nx * off, p[1] + ny * off
-            wx, wy, wz = to_viper((gx, gy, 0.0), y)
+            # the station's own elevation, with the band's rise stacked on top
+            wx, wy, wz = to_viper((gx, gy, elev), y)
             verts.append(mod.Vertex(wx, wy, wz, 0.0, 1.0, 0.0, u, v))
 
     stations = len(pts)
@@ -394,7 +406,7 @@ def sweep(
     if len(centreline) < 2:
         raise ValueError("centreline needs at least two points")
 
-    pts = [(p[0], p[1], 0.0) for p in centreline]
+    pts = [(p[0], p[1], p[2] if len(p) > 2 else 0.0) for p in centreline]
     if closed and _dist(pts[0], pts[-1]) < 1e-6:
         pts.pop()                      # a closed ring must not repeat its seam
     normals = _normals_2d(pts, closed)
@@ -806,11 +818,14 @@ def centreline_from_meshes(meshes, *, weld_tol: float = 0.01,
         opposite = across(i)
         if not opposite:
             continue                     # an edge vertex with no rung: skip it
-        lx, lz = verts[i][0], verts[i][2]
+        lx, ly, lz = verts[i]
         rx = sum(verts[j][0] for j in opposite) / len(opposite)
+        ry = sum(verts[j][1] for j in opposite) / len(opposite)
         rz = sum(verts[j][2] for j in opposite) / len(opposite)
-        mx, mz = (lx + rx) / 2.0, (lz + rz) / 2.0
-        out.append((-mx, -mz, 0.0) if source_frame else (mx, 0.0, mz))
+        mx, my, mz = (lx + rx) / 2.0, (ly + ry) / 2.0, (lz + rz) / 2.0
+        # the road's own height, averaged across its width, so a hilly source
+        # track comes back as a hilly centreline rather than a flat plan view
+        out.append((-mx, -mz, my) if source_frame else (mx, my, mz))
     if len(out) < 2:
         raise ValueError(
             "could not walk from one boundary edge to the other -- this surface "
