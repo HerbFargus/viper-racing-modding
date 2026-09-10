@@ -307,6 +307,24 @@ def check_invariants() -> None:
     check("the road in a single-object export is road, not grass",
           a.get(tg.ROAD, 0) > 0, f"{a.get(tg.ROAD, 0)} road chunks")
 
+    # The built-in prefix table is a guess at what people call things, and it
+    # guesses wrong on a real BTB export: rmbl* (kerbs), rgeddirt* and rgedgrav*
+    # all fall back to grass. BTB ships its own answer in special.ini, and the
+    # author's statement of intent beats our guess.
+    pats = [("rmbl*", tg.RUMBLE), ("gras*", tg.GRASS), ("rgeddirt*", tg.DIRT),
+            ("road*", tg.ROAD)]
+    check("the built-in table does mis-classify BTB's real kerb naming",
+          tg.surface_code("rmbl01") == tg.GRASS, "rmbl01 -> grass, which is why patterns matter")
+    check("surface patterns classify what the prefix table misses",
+          [tg.surface_code_from_patterns(n, pats) for n in
+           ("rmbl01", "rgeddirt01", "gras01", "road01")]
+          == [tg.RUMBLE, tg.DIRT, tg.GRASS, tg.ROAD], "all four correct")
+    check("an unmatched material still falls back, not crashes",
+          tg.surface_code_from_patterns("mystery", pats) is None, "returns None")
+    check("a bare '*' catch-all is not honoured",
+          tg.surface_code_from_patterns("mystery", [("*", tg.ROAD)]) is None,
+          "would otherwise make every prop grippy road")
+
     # Walls. .sol was long treated as unwritable because its spatial tail is
     # not understood -- but it does not have to be synthesised: the surface file
     # declares wall quads, and MKWORLD turns each into one .sol primitive.

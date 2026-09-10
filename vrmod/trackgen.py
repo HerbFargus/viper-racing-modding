@@ -26,6 +26,7 @@ distance-to-centre -- a number that had to come out right and did.
 
 from __future__ import annotations
 
+import fnmatch
 import math
 import re
 from dataclasses import dataclass, field
@@ -987,13 +988,27 @@ def chunk_mesh(mesh: "mod.Mesh", *, size: float = DEFAULT_CHUNK_SIZE) -> list["m
     return out
 
 
-def _code_for(name: str, mesh: "mod.Mesh", codes: dict[str, int]) -> int:
-    """The surface code for one mesh: an explicit override, then its material
-    name, then its own name, then grass."""
+def _code_for(name: str, mesh: "mod.Mesh", codes: dict[str, int],
+              patterns: list[tuple[str, int]] | None = None) -> int:
+    """The surface code for one mesh.
+
+    In order: an explicit override, then the author's own surface patterns, then
+    the material name against the built-in table, then the mesh name, then grass.
+    The author's patterns come first because they are a statement of intent --
+    the built-in table is only a guess at what people call things.
+    """
     if name in codes:
         return codes[name]
     for material in mesh.materials:
+        if patterns:
+            code = surface_code_from_patterns(material.name, patterns)
+            if code is not None:
+                return code
         code = surface_code(material.name, default=None)
+        if code is not None:
+            return code
+    if patterns:
+        code = surface_code_from_patterns(name, patterns)
         if code is not None:
             return code
     code = surface_code(name, default=None)
@@ -1006,6 +1021,7 @@ def scene_from_meshes(
     centreline: list[Point] | None = None,
     chunk_size: float = DEFAULT_CHUNK_SIZE,
     codes: dict[str, int] | None = None,
+    patterns: list[tuple[str, int]] | None = None,
 ) -> "TrackScene":
     """Build a TrackScene from geometry that already exists.
 
@@ -1038,7 +1054,8 @@ def scene_from_meshes(
     meshes = expanded
     _rename_materials(meshes)
     if centreline is None:
-        road = [m for n, m in meshes.items() if _code_for(n, m, codes) == ROAD]
+        road = [m for n, m in meshes.items()
+                if _code_for(n, m, codes, patterns) == ROAD]
         if not road:
             raise ValueError(
                 "no mesh classifies as road, so there is no centreline to recover -- "
@@ -1054,7 +1071,7 @@ def scene_from_meshes(
     scene = TrackScene(centreline=[(p[0], p[1], p[2] if len(p) > 2 else 0.0)
                                    for p in centreline])
     for name in sorted(meshes):
-        code = _code_for(name, meshes[name], codes)
+        code = _code_for(name, meshes[name], codes, patterns)
         base = Path(name).stem
         for n, piece in enumerate(chunk_mesh(meshes[name], size=chunk_size)):
             chunk_name = f"{base}{n:03d}.mod"
@@ -1352,3 +1369,87 @@ def add_walls(
             added += 1
     scene.wall_texture = texture
     return added
+
+
+# ---------------------------------------------------------------------------
+# Reading the author's own surface settings
+#
+# The prefix table above is a guess at what people call things, and measured
+# against a real Bob's Track Builder export it guesses wrong: BTB's own material
+# patterns are `rmbl*` for kerbs, `rgeddirt*` for sand and `rgedgrav*` for
+# gravel, none of which start with a word this file lists. All three would fall
+# back to grass -- silently, as usual.
+#
+# BTB does not leave it to guesswork. Its racer export ships `special.ini` with
+# a `surfaces` block binding a physics type to a material-name glob:
+#
+#     surf_kerb { type=kerb  grip_factor=1.0  pattern=rmbl* }
+#     surf_grass{ type=grass grip_factor=0.6  pattern=gras* }
+#
+# That is the author's own physics setting, exported. Reading it beats guessing,
+# and it means someone who renames their materials in BTB gets the right surface
+# codes without touching anything here.
+#
+# Racer's types are richer than Viper's five codes -- grip_factor, rolling
+# resistance and road noise have nowhere to go -- so only the type carries over.
+
+RACER_SURFACE_TYPES: dict[str, int] = {
+    "road": ROAD, "asphalt": ROAD, "tarmac": ROAD,
+    "kerb": RUMBLE, "curb": RUMBLE,
+    "grass": GRASS,
+    "sand": DIRT, "gravel": DIRT, "dirt": DIRT,
+    "water": WATER,
+}
+
+
+def read_surface_patterns(path: str | Path) -> list[tuple[str, int]]:
+    """Read `special.ini`'s surfaces block as (glob, surface code) pairs.
+
+    Accepts the ini itself or any file beside it -- importing a `.dof` can hand
+    over the model's own path. Returns [] when there is nothing to read, so the
+    prefix table stays the fallback rather than a hard requirement.
+
+    Pairs come back most-specific first. Order in the file cannot be taken as
+    precedence: BTB writes `pattern=*` second, and first-match-wins would then
+    make every material road.
+    """
+    p = Path(path)
+    ini = p if p.name.lower() == "special.ini" else p.parent / "special.ini"
+    if not ini.exists():
+        return []
+
+    text = ini.read_text("latin-1", errors="replace")
+    block = re.search(r"^surfaces\s*\{(.*?)^\}", text, re.S | re.M)
+    if not block:
+        return []
+
+    out: list[tuple[str, int]] = []
+    for body in re.findall(r"\{([^{}]*)\}", block.group(1)):
+        kind = re.search(r"^\s*type\s*=\s*(\S+)", body, re.M)
+        glob = re.search(r"^\s*pattern\s*=\s*(\S+)", body, re.M)
+        if not kind or not glob:
+            continue
+        code = RACER_SURFACE_TYPES.get(kind.group(1).strip().lower())
+        if code is None:
+            continue
+        out.append((glob.group(1).strip(), code))
+    # longest literal prefix wins; a bare "*" sorts last
+    # A bare "*" is dropped. BTB writes one (surf_road, so everything unmatched
+    # would become asphalt), and in Racer that is a terrain default -- objects are
+    # a separate concept there. Here every mesh goes through the same
+    # classification, so honouring it would make scenery, buildings and billboards
+    # grippy road. Unmatched materials fall back to grass instead, for the same
+    # reason the built-in default does.
+    out = [(g, c) for g, c in out if g.strip() != "*"]
+    out.sort(key=lambda pair: -len(pair[0].rstrip("*")))
+    return out
+
+
+def surface_code_from_patterns(name: str,
+                               patterns: list[tuple[str, int]]) -> int | None:
+    """Match a material name against patterns from `read_surface_patterns`."""
+    stem = Path(name).stem.lower()
+    for glob, code in patterns:
+        if fnmatch.fnmatchcase(stem, glob.lower()):
+            return code
+    return None
