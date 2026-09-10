@@ -510,10 +510,34 @@ FIELD_SENTINEL_B = 16    # ~-1.58e38
 # carry, so it stays.
 MARK_VALUE = -20000.0
 
-# The corridor a generated track gets when none is given. The stock spread is
-# 12-30 with most tracks at 20, and the value is a driving-limit, not the width
-# of the asphalt -- bemidji's road is far narrower than its corridor of 30.
-DEFAULT_CORRIDOR = 20.0
+# The corridor scales with the road. Measuring each shipped track's asphalt
+# against its own track.ild gives the rule on the two tracks whose road texture
+# covers the road and nothing else -- Kyalami, corridor 12.0 against a 6.14 m
+# half-width, and kenyon, 25.0 against 13.20 m. Both land on
+#
+#     corridor = 2 x road half-width  =  the full width of the road
+#
+# (The other tracks reuse their asphalt texture on pit aprons and paddock, so
+# the same measurement there describes the paving, not the road.)
+#
+# Kyalami is worth keeping in mind as the reference: a community track built
+# with mkilicc, 6.14 m half-width -- within 15 cm of what `trackgen` sweeps by
+# default -- and it ships with 12.0.
+DEFAULT_ROAD_WIDTH = 12.0
+DEFAULT_CORRIDOR = DEFAULT_ROAD_WIDTH
+
+
+def corridor_for(road_width: float) -> float:
+    """The corridor half-width a road of `road_width` metres wants.
+
+    Twice the half-width, which is the road's full width -- see DEFAULT_CORRIDOR
+    for where that comes from. A corridor much wider than this is not harmless:
+    the game treats everything inside it as track, so the car can be reset onto
+    the grass and still be, as far as the game is concerned, where it belongs.
+    """
+    if road_width <= 0.0:
+        raise ValueError(f"road width must be positive, got {road_width}")
+    return float(road_width)
 
 # track.ild carries a flat 100.0 in field 6 on every shipped track, where the AI
 # lines carry a real target speed. It is a track-definition line, not a line

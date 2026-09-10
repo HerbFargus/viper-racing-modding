@@ -413,7 +413,18 @@ the car to be on the track.
 | kenyon | 25, dipping to 17 for 3 records | | heaven | 25, dipping to 15 for 18 records |
 
 The two tracks that vary it do so at a pinch point, which is what identifies the field: it is a driving
-corridor, not the width of the asphalt (bemidji's road is far narrower than its corridor of 30).
+corridor, not the edge of the asphalt.
+
+**The corridor is twice the road's half-width — i.e. the road's full width.** Measuring each track's road
+texture against its own `track.ild` gives this cleanly on the two tracks whose asphalt texture covers the
+road and nothing else: Kyalami, corridor 12.0 against a 6.14 m half-width (ratio 1.95), and kenyon, 25.0
+against 13.20 m (1.89). The remaining tracks reuse their road texture on pit aprons and paddock, so the
+same measurement there describes the paving rather than the road and the ratio falls apart (bemidji reads
+83 m).
+
+Sizing it too generously is not harmless. The game treats everything inside the corridor as track, so a
+corridor of 20 m over a 12 m road leaves 14 m of grass either side that the game considers on-track, and
+a reset drops the car there — on the grass, beside the road, exactly where the game thinks it belongs.
 
 Writing `-20000` into `track.ild` gives every station a *negative* corridor, so the car is outside it
 wherever it stands. The symptom is not subtle and does not look like a line problem: the track loads,
