@@ -136,9 +136,20 @@ def read_centreline(path: str | Path) -> list[Point]:
         return read_obj_polyline(p)
     if suffix == ".mod":
         return centreline_from_meshes([mod.parse_file(p)])
+    if suffix == ".dof":
+        # A Bob's Track Builder export. Use the road surface, not the whole
+        # scene: the grass apron is a ribbon too, and its centreline is not the
+        # racing line.
+        from . import dof as dof_mod
+        scene = dof_mod.parse_file(p)
+        meshes = dof_mod.to_meshes(scene)
+        road = [m for n, m in meshes.items() if n.lower().startswith(("road", "asphalt", "tarmac"))]
+        if not road:
+            road = list(meshes.values())[:1]
+        return centreline_from_meshes(road)
     raise ValueError(
         f"unsupported centreline source '{suffix}' "
-        "(want .ase, .obj, a .mod road surface, or a directory of them)")
+        "(want .ase, .obj, .dof, a .mod road surface, or a directory of them)")
 
 
 def to_viper(p: Point, height: float = 0.0) -> Point:

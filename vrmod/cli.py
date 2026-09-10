@@ -1166,7 +1166,17 @@ def main(argv: list[str] | None = None) -> int:
         # short of closing -- path10.ASE leaves a 201 m gap. Honour the flag
         # unless told otherwise, and resample across the seam so the ring is
         # continuous; sweeping it as open leaves a hole in the track.
-        closed = _tg.ase_is_closed(args.centreline) if str(args.centreline).lower().endswith(".ase") else False
+        if str(args.centreline).lower().endswith(".ase"):
+            closed = _tg.ase_is_closed(args.centreline)
+        else:
+            # No flag to consult, so ask the geometry: a centreline recovered
+            # from a circuit comes back with its ends a station apart, not a lap
+            # apart. Anything within a few spacings is a ring.
+            import math as _math
+            gap = _math.dist(line[0][:2], line[-1][:2])
+            step = (sum(_math.dist(a[:2], b[:2]) for a, b in zip(line, line[1:]))
+                    / max(len(line) - 1, 1))
+            closed = gap < max(step * 4.0, args.spacing * 4.0)
         if args.open:
             closed = False
         if args.spacing > 0:
