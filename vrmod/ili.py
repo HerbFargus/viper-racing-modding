@@ -470,8 +470,11 @@ def write_line_file(path, line: Line):
 #        with a turn-rate estimate.
 #   [15] is a lateral or banking term in the range +-13. Filled with zero.
 #
-# If a generated line drives correctly, these are advisory. If the AI behaves
-# oddly, they are where to look first.
+# CONFIRMED IN GAME: a track carrying lines generated this way loads and drives,
+# so the three approximations above are tolerated by the engine rather than
+# merely plausible. That does not make them right -- if the AI is ever seen
+# braking early, weaving, or cutting where it should not, field 12/13's block
+# rule is the first thing to finish properly.
 
 FIELD_DIR_X = 3
 FIELD_DIR_Z = 4
