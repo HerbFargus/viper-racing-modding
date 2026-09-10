@@ -722,3 +722,127 @@ def to_bytes(grf_mesh: GrfMesh) -> bytes:
 def write_file(path, grf_mesh: GrfMesh) -> None:
     from pathlib import Path
     Path(path).write_bytes(to_bytes(grf_mesh))
+
+
+# ---------------------------------------------------------------------------
+# Building a .grf from nothing
+#
+# to_bytes() above is a patcher: it rewrites values inside a payload it parsed
+# and forbids anything that changes size. What follows builds the payload
+# outright, which is what a generated track needs.
+#
+# The layout, measured against a freshly compiled track (553 chunks) and checked
+# against the shipped ones:
+#
+#   payload
+#     +00  i32 0, i32 0, i32 12          file header; 12 is the first chunk
+#     then a chain of chunks, each:
+#       +00  i32   3                     chunk type
+#       +04  i32   offset of the NEXT chunk header, 0 at the end
+#       +08  i32   0
+#       +0c  i32   -1
+#       +10  i32   corner count
+#       +14  i32   0
+#       +18  i32   1
+#       +1c  i32   0
+#       +20  i32   face count
+#       +24  3f    chunk centre; corner positions are stored relative to it
+#       +30  zero
+#       +38  corners   count x 32
+#            material  32
+#            faces     count x 8
+#
+# A corner is position(3f) relative to the centre, a zero u32, a BGRA vertex
+# colour, a constant 00 00 00 ff, then UV(2f). A face is three u16 indices local
+# to its chunk plus a zero. A material is a NUL-padded texture name with the
+# corner and face counts repeated at +26 and +30.
+#
+# One caveat worth stating plainly: the chain built here is FLAT -- every chunk
+# points at the next. That is exactly what nhmkworld emits for a track made of
+# many small uniform meshes, and such a track renders correctly in game. The
+# shipped tracks are not flat: bemidji has 446 chunks but only 2 in its chain,
+# so there is a nesting this does not reproduce and does not need to.
+
+FILE_HEADER = 12
+CHUNK_HEADER = 56
+CORNER = 32
+FACE = 8
+MATERIAL = 32
+CHUNK_TYPE = 3
+NAME_FIELD = 26
+
+# The two constants inside every corner record, established by surveying every
+# corner of every track on hand.
+CORNER_PAD = b"\x00\x00\x00\x00"
+CORNER_TAIL = b"\x00\x00\x00\xff"
+WHITE = b"\xff\xff\xff\xff"
+
+
+def _corner(x: float, y: float, z: float, u: float, v: float,
+            colour: bytes = WHITE) -> bytes:
+    return (struct.pack("<3f", x, y, z) + CORNER_PAD + colour + CORNER_TAIL
+            + struct.pack("<2f", u, v))
+
+
+def _material(texture: str, corners: int, faces: int) -> bytes:
+    name = texture.encode("latin-1")[:NAME_FIELD - 1]
+    rec = bytearray(MATERIAL)
+    rec[0:len(name)] = name
+    struct.pack_into("<H", rec, 26, corners)
+    struct.pack_into("<H", rec, 30, faces)
+    return bytes(rec)
+
+
+def build_chunk(mesh, texture: str, *, centre=(0.0, 0.0, 0.0),
+                next_offset: int = 0, colours=None) -> bytes:
+    """One chunk: header, corners, material, faces.
+
+    `next_offset` is patched by build() once every chunk's size is known, so
+    callers normally leave it at 0.
+    """
+    n, f = len(mesh.vertices), len(mesh.faces)
+    if n > 0xFFFF:
+        raise GrfWriteError(f"chunk has {n:,} corners; face indices are u16")
+    head = bytearray(CHUNK_HEADER)
+    struct.pack_into("<i", head, 0, CHUNK_TYPE)
+    struct.pack_into("<i", head, 4, next_offset)
+    struct.pack_into("<i", head, 12, -1)
+    struct.pack_into("<i", head, 16, n)
+    struct.pack_into("<i", head, 24, 1)
+    struct.pack_into("<i", head, 32, f)
+    struct.pack_into("<3f", head, 36, *centre)
+
+    body = bytearray(head)
+    cx, cy, cz = centre
+    for i, vert in enumerate(mesh.vertices):
+        colour = colours[i] if colours else WHITE
+        body += _corner(vert.x - cx, vert.y - cy, vert.z - cz, vert.u, vert.v, colour)
+    body += _material(texture, n, f)
+    for a, b, c in mesh.faces:
+        body += struct.pack("<4H", a, b, c, 0)
+    return bytes(body)
+
+
+def build(chunks: list[tuple], version: int = 3) -> bytes:
+    """Build a complete `.grf` from (mesh, texture) pairs, envelope included.
+
+    Each pair becomes one chunk. Sizes are computed first so each chunk header
+    can name the offset of the next, and the last is terminated with 0.
+    """
+    if not chunks:
+        raise GrfWriteError("a .grf needs at least one chunk")
+
+    blobs = [build_chunk(m, t) for m, t in chunks]
+    offsets = []
+    at = FILE_HEADER
+    for b in blobs:
+        offsets.append(at)
+        at += len(b)
+
+    out = bytearray(struct.pack("<3i", 0, 0, FILE_HEADER))
+    for i, b in enumerate(blobs):
+        nxt = offsets[i + 1] if i + 1 < len(blobs) else 0
+        patched = bytearray(b)
+        struct.pack_into("<i", patched, 4, nxt)
+        out += patched
+    return envelope.build(TAG, version, bytes(out))

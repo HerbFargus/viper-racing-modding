@@ -919,12 +919,39 @@ holds 2,822 corners and 2,820 faces:
 Both counts appear verbatim. The file header at payload +0 has the same shape, with the first chunk
 header beginning at +8.
 
-⚠️ **This does not mean `.grf` can be written yet.** `grf.to_bytes()` remains a patcher: it rewrites
-values in place and forbids anything that changes size, because the offsets in those chunk headers have
-not been verified as the only forward references in the file. What has changed is the size of the
-problem — from "the structure is unknown" to "confirm what the 404 header bytes point at". That is the
-gating question for building a track without the original toolchain, and it is a much smaller one than
-this document previously implied.
+✅ **`.grf` can now be written from nothing** — `grf.build()`. The 404 bytes were the per-chunk header,
+and correlating it across 553 chunks of a compiled track resolves every field. The one that mattered is
+`+04`: it holds the offset of the **next** chunk header, terminated by 0. The chunks are a linked list.
+
+```
++00  i32  3          chunk type
++04  i32  offset of the NEXT chunk header, 0 at the end
++08  i32  0
++0c  i32  -1
++10  i32  corner count
++14  i32  0
++18  i32  1
++1c  i32  0
++20  i32  face count
++24  3f   chunk centre -- zero in every chunk nhmkworld writes
+```
+
+A chunk is that header, then corners (32 bytes each), then its material record (32), then faces (8 each:
+three u16 indices local to the chunk, then a zero). The material record is the texture name NUL-padded,
+with the corner and face counts repeated at +26 and +30. The file header is `i32 0, i32 0, i32 12` — 12
+being the offset of the first chunk.
+
+Checked against nhmkworld's own output for the same 553 meshes: **the same chunk count, the same payload
+size to the byte (915,668), and an identical vertex set of 21,896 positions**. It is *not* byte-identical
+and will not be — nhmkworld reorders vertices within a chunk, so the same geometry lands in a different
+order — so the test asserts the geometry rather than the bytes. ✅ **A track carrying a `.grf` built this
+way loads and drives in game**, which is the check that counts.
+
+⚠️ One limitation. The chain built here is **flat**: every chunk points at the next. That is what
+nhmkworld emits for a track made of many small uniform meshes, and such a track renders correctly. The
+shipped tracks are not flat — bemidji has 446 chunks but only 2 in its chain — so there is a nesting this
+does not reproduce. It has not been needed for generated tracks, but a general-purpose writer would have
+to understand it.
 
 ### 4.8 `SOLB` — `.sol` — ✅ CONFIRMED — the track's **collision solids** (one enum field aside)
 
@@ -2730,7 +2757,7 @@ reference; they're defined here only so that passing mentions elsewhere resolve.
 | `.ccs` | `0SCC` → `CCS0` | Config, 35 floats, fields undecoded; identical across all cars, varies per track | 🟡 header only |
 | `.tex` | ` XET` → `TEX ` | Compiled texture — opaque and colorkey round-trip (decode+encode) and full mip chain layout solved; full-alpha well-supported | ✅ / 🟡 mixed |
 | `.stp` | `PMTS` → `STMP` | 2D sprite ("stamp"): all UI art, track minimaps, track-select screenshots, cursors, multi-frame strips | ✅ decoded (149/211 files); a 2nd compressed variant ❓ |
-| `.grf` | `FARG` → `GRAF` | Track/world geometry + material bindings | ✅ mesh records byte-exact + in-place write; 99.95% of the payload accounted for, 404 bytes of chunk header left (§4.7) |
+| `.grf` | `FARG` → `GRAF` | Track/world geometry + material bindings | ✅ read, in-place write, **and build from nothing** (`grf.build`); confirmed in game (§4.7) |
 | `.sol` | `LBOS` → `SOLB` | **Collision solids** — BOX/SPHR/TUBE primitives (§4.8) | 🟡 well-supported |
 | `.bpp` | `TPPB` → `BPPT` | **Collision BSP** — triangle soup + 2D BSP over XZ. Largest per-track file (§4.9) | ✅ confirmed |
 | `.bsp` | `TPSB` → `BSPT` | Near-static 128-byte stub; likely vestigial | ✅ identified as stub |

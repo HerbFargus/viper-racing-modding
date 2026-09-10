@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from vrmod import archive, bsp, envelope, ili, obt, sol  # noqa: E402
+from vrmod import archive, bsp, envelope, grf, ili, mod, obt, sol  # noqa: E402
 
 DEFAULT_DATA = Path.home() / "Desktop" / "claude-code" / "game-files" / "Viper Racing" / "Data"
 SKIP = ("TEST", "BACKUP", "LEFTOVER", "pristine")
@@ -203,6 +203,40 @@ def check_ili(data: Path) -> None:
         break
 
 
+def check_grf(compiled: Path | None) -> None:
+    print()
+    print("track.grf -- render geometry")
+    if not compiled or not (compiled / "track.grf").exists():
+        print("  SKIP  no compiled track.grf given -- pass its folder as argv[2]")
+        return
+    meshes = sorted(compiled.parent.glob("*.mod"))
+    if not meshes:
+        print("  SKIP  no source meshes beside the compiled output")
+        return
+    pairs = []
+    for f in meshes:
+        m = mod.parse_file(f)
+        pairs.append((m, m.materials[0].name))
+    built = grf.build(pairs)
+    ours = grf.parse(built)
+    ref = grf.parse((compiled / "track.grf").read_bytes())
+
+    check("build() produces the same chunk count as nhmkworld",
+          len(ours.chunks) == len(ref.chunks), f"{len(ours.chunks)} vs {len(ref.chunks)}")
+    check("build() produces the same payload size",
+          len(envelope.parse(built).payload) == len((compiled / "track.grf").read_bytes()) - 20,
+          f"{len(envelope.parse(built).payload):,} bytes")
+
+    # Byte-identity is not the bar and is not reachable: nhmkworld reorders
+    # vertices within a chunk. What must hold is that the geometry is the same.
+    ov = sorted((round(v.x, 2), round(v.y, 2), round(v.z, 2)) for v in ours.mesh.vertices)
+    rv = sorted((round(v.x, 2), round(v.y, 2), round(v.z, 2)) for v in ref.mesh.vertices)
+    check("build() reproduces nhmkworld's geometry exactly",
+          ov == rv, f"{len(ov):,} vertices, identical as a set")
+    check("what build() writes parses back",
+          len(ours.mesh.faces) == len(ref.mesh.faces), f"{len(ours.mesh.faces):,} faces")
+
+
 if __name__ == "__main__":
     data = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_DATA
     compiled = Path(sys.argv[2]) if len(sys.argv) > 2 else None
@@ -210,6 +244,7 @@ if __name__ == "__main__":
     check_sol(data, compiled)
     check_obt(data, compiled)
     check_ili(data)
+    check_grf(compiled)
     print(f"\n{checks - len(failures)}/{checks} passed")
     if failures:
         print("failed: " + ", ".join(failures))

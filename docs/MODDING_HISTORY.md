@@ -104,6 +104,8 @@ by Frank P. Wolf, distributed from his own site (`members.aol.com/racingwolf999/
 - **MKWORLD / mkfltoa** ✓ — generate the surface + collision set
   (`.sol` / `.obt` / `.bsp` / `.grf` / `.bpp`) from a text scene description;
   **nhmkworld** ✓ — the graphic pass that adds objects to `.grf` / `.bpp`.
+  `vrmod` now writes `.bsp`, `.obt` and `.grf` itself, and packs the `.tra`, all
+  confirmed in a track that loads and drives; only `.bpp` still needs these.
 - **MKSTAMP / Stp2Tga / tga2stp** ✓ — the `.stp` menu screenshot and `Trackmap`.
 - **MKTABLE / mkilicc** ✓ — data tables / the AI racing lines. `mkilicc -nolat`
   is run three times: `track.ili`→`track.ild` (the track-map line),
