@@ -277,6 +277,31 @@ def check_invariants() -> None:
     surf, graph = tg.write_surface(walled), tg.write_graphic(walled)
     check("wall quads reach the surface file",
           surf.count("object(wall.tga,1,0)") == quads, f"{quads} declared")
+    # Walls do not share the markers' frame: vrTrackMaker writes its gate verts
+    # in the mesh frame and its wall verts negated on both ground axes, and
+    # MKWORLD negates walls back on the way into .sol. A wall written in the
+    # mesh frame compiles mirrored through the origin -- barriers land across
+    # the track as invisible walls in the road.
+    #
+    # The ring above is centred on the origin, where the two frames are
+    # indistinguishable, so this uses an OFF-CENTRE loop that can tell them
+    # apart.
+    import re as _re
+    off = [(math.cos(t / 40.0 * math.tau) * 200.0 + 600.0,
+            math.sin(t / 40.0 * math.tau) * 200.0 + 250.0, 0.0) for t in range(40)]
+    offscene = tg.sweep(off, closed=True)
+    tg.add_walls(offscene, offset=10.0, height=1.5, stride=4)
+    otxt = tg.write_surface(offscene)
+    ov = [tuple(map(float, t)) for t in _re.findall(
+        r"vert\(([-\d.]+), ([-\d.]+), ([-\d.]+)\)",
+        _re.findall(r"object\(wall\.tga,1,0\)(.*?)quad", otxt, _re.S)[0])]
+    # source frame: near the centreline itself. mesh frame: near its negation.
+    d_src = min(math.dist((v[0], v[1]), (p[0], p[1])) for v in ov for p in off)
+    d_mesh = min(math.dist((v[0], v[1]), (-p[0], -p[1])) for v in ov for p in off)
+    check("wall verts are written in the source frame, not the mesh frame",
+          d_src < 15.0 and d_mesh > 100.0,
+          f"{d_src:.1f} m from the centreline, {d_mesh:.0f} m from its mirror")
+
     check("walls stay OUT of the graphic file",
           "wall.tga" not in graph,
           "collision only -- a wall in both is drawn as a slab across the track")

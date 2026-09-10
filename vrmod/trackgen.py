@@ -597,7 +597,14 @@ def write_surface(scene: "TrackScene") -> str:
     out.extend(_modobject(o) for o in scene.driveables)
     for quad in scene.walls:
         out.append(f"  object({scene.wall_texture},1,0)")
-        out.extend(_vert(p, flip=True) for p in quad)
+        # Walls do NOT share the markers' frame. Measured against vrTrackMaker's
+        # own output: its gate verts match the mesh frame, while its wall verts
+        # are negated on both ground axes (mesh x -819.9..810.5 against wall
+        # column 1 -811.3..820.9). MKWORLD negates them back on the way into
+        # .sol, so a wall written in the mesh frame is compiled mirrored through
+        # the origin -- which, on a roughly centred circuit, drops a good share
+        # of the barriers across the track as invisible walls in the road.
+        out.extend(_vert(p, flip=False) for p in quad)
         out.append("    quad(0,1,2,3)")
         out.append("  end")
         out.append("")
