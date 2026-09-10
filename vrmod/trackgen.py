@@ -997,6 +997,19 @@ def scene_from_meshes(
 TEX_NAME_LIMIT = 16
 _TEX_STEM_LIMIT = TEX_NAME_LIMIT - len(".tex")
 
+# The game never ships a texture larger than 256. Across all 46 archives in a
+# full install -- every track, every car, every .res -- the sizes are 16, 32,
+# 64, 128 and 256, and nothing above. A modeller has no such limit: BTB writes
+# 512 and 1024 by default. Oversized textures do not merely look wrong or load
+# slowly; the surface renders as flat untextured colour.
+TEX_MAX_SIZE = 256
+
+# A texture whose alpha never drops this low has no transparency worth keeping
+# -- BTB writes a specular-ish alpha into its road texture that never falls
+# below 225. Encoding that as ARGB4444 gets flags=3, where every stock road and
+# ground texture is flags=0 (opaque RGB565).
+_OPAQUE_ALPHA_FLOOR = 128
+
 
 def fit_texture_names(names) -> dict[str, str]:
     """Map texture names onto ones that fit the archive's name field.
@@ -1121,9 +1134,26 @@ def write_textures(source: str | Path, out_dir) -> list:
         if image is None:
             continue
         out = d / fitted
+        pixels, w, h = tex.read_tga(image)
+        if w != h:
+            raise ValueError(f"{image.name} is {w}x{h}; textures must be square")
+        channels = len(pixels) // (w * h)
+
+        # Drop an alpha channel that carries no transparency, so the texture is
+        # encoded opaque like every stock road and ground texture.
+        if channels == 4 and min(pixels[3::4]) >= _OPAQUE_ALPHA_FLOOR:
+            pixels = bytes(b for i, b in enumerate(pixels) if i % 4 != 3)
+            channels = 3
+
+        if w > TEX_MAX_SIZE:
+            pixels = tex.resize_nearest(pixels, w, h, TEX_MAX_SIZE, TEX_MAX_SIZE,
+                                        channels=channels)
+            w = h = TEX_MAX_SIZE
+
         # wrap=1, not the encoder's default of 0: a road texture tiles along the
         # track, and a freshly encoded texture with wrap 0 is rejected outright
         # ("unknown texture format") rather than merely looking wrong.
-        tex.tga_to_tex(image, out, wrap=1)
+        out.write_bytes(tex.encode_to_tex(
+            pixels, w, mode="opaque" if channels == 3 else "alpha", wrap=1))
         written.append(out)
     return written
