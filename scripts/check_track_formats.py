@@ -139,6 +139,19 @@ def check_obt(data: Path, compiled: Path | None) -> None:
     check("every track opens with the compiler boilerplate", seen > 0,
           f"object kinds: {kinds}")
 
+    # Bytes 72-73 are a table-valid flag, not padding. Zeroing them makes the
+    # engine panic with "Couldn't find any checkpoints!" -- it reads no records
+    # at all. Found by shipping a track that did exactly that.
+    flagged = 0
+    for p, members in tracks(data):
+        e = members.get("track.obt")
+        if e is not None and e.payload[72:76] == bytes([1, 1, 0, 0]):
+            flagged += 1
+    built = envelope.parse(obt.build(obt.create([obt.checkpoint(0, 0, 1, 1)]))).payload
+    check("build() sets the table-valid flag at bytes 72-73",
+          built[72:76] == bytes([1, 1, 0, 0]),
+          f"{flagged} tracks on disk carry it")
+
     # The real test: rebuild a compiled table from its records alone, carrying no
     # bytes over, and see whether it reproduces what MKWORLD wrote.
     if compiled and (compiled / "track.obt").exists():
