@@ -215,12 +215,12 @@ Two kinds of software are kept apart deliberately:
 | Tool | Creator | Purpose | `vrmod` |
 |---|---|---|---|
 | **Trackman** | Frank P. Wolf | Install add-on tracks into the 8 game slots | Switcher track install/restore; `vrmod trk2tra` produces the `.tra` it consumes |
-| **Track Maker** | Sucahyo | Build a track from a 3DS Max ASE file | **none** — track *authoring* is out of scope so far |
-| **vrTrackMaker** | Sucahyo | Consumes a **`.ase` spline exported from 3DS Max** and emits the MKWORLD source set. Emits only surface codes 0, 10 and 16, so water and dirt must be hand-edited into the generated text afterwards — in *both* source files | **none** — this stage, plus the spline generation feeding it, is the one real gap left in track authoring |
-| **MKWORLD / mkfltoa / nhmkworld** | — | Generate the surface + collision set (`.sol`/`.obt`/`.bsp`/`.grf`/`.bpp`) from a text scene | **none** — the hard part of track editing (see below) |
+| **Track Maker** | Sucahyo | Build a track from a 3DS Max ASE file | `vrmod trackgen` — generates the whole source set from a centreline |
+| **vrTrackMaker** | Sucahyo | Consumes a **`.ase` spline exported from 3DS Max** and emits the MKWORLD source set. Emits only surface codes 0, 10 and 16, so water and dirt must be hand-edited into the generated text afterwards — in *both* source files | `vrmod trackgen` — all five surface codes, both files written from one list, and the centreline can be recovered from a road mesh instead of drawn in Max |
+| **MKWORLD / mkfltoa / nhmkworld** | — | Generate the surface + collision set (`.sol`/`.obt`/`.bsp`/`.grf`/`.bpp`) from a text scene | `.obt`, `.bsp`, `.grf` and (empty) `.sol` written natively — *partial*: **`.bpp` still needs `nhmkworld`** |
 | **BPP-2-Mod Converter** | Sucahyo | `.bpp` ⇄ `.mod`: fix holes, add surface, read surface types, merge verts | `vrmod bpp2obj`, `bppinfo`, `bppsurface` (read + surface retag; no `.mod` → `.bpp` rebuild) |
 | **Bad Poly Fix** | Sucahyo | Repair the "bad polys" that make holes after conversion | `vrmod collisioncheck` *detects*; no repair |
-| **MKTABLE / MKILI** | — | Data tables / the AI racing line (`.ili`) | `ili.py` reads; `vrmod trackmap` draws from `track.ild` — *partial* |
+| **MKTABLE / MKILI** | — | Data tables / the AI racing line (`.ili`) | `ili.generate` writes all three lines from a centreline; `vrmod` writes the `.obt` table natively — *partial*: fields 12/13 (AI pacing) approximated |
 | **trkaitweaker ("Track AI Tweaker")** | — | Make AI drive add-on tracks competently (also Nascar Heat) | **none** |
 
 ### Engine patches & install fixes
