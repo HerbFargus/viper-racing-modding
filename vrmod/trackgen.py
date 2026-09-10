@@ -765,9 +765,34 @@ def centreline_from_meshes(meshes, *, weld_tol: float = 0.01,
             neighbours.setdefault(i, set()).add(j)
             neighbours.setdefault(j, set()).add(i)
 
+    def across(start: int, hops: int = 24) -> list[int]:
+        """Walk the mesh from a left-edge vertex until the right edge is reached.
+
+        A road is not always two vertices wide. Our own sweep emits a plain quad
+        strip, so the opposite edge is an immediate neighbour -- but Bob's Track
+        Builder subdivides across the width (its road came out five vertices
+        across, four quads), and then the two boundaries share no triangle at
+        all. Walking the graph handles both, and because it only ever moves
+        through connected geometry it cannot cross to a different part of the lap
+        the way a proximity search does.
+        """
+        frontier, seen = {start}, {start}
+        for _ in range(hops):
+            hits = [i for i in frontier if i in right_set]
+            if hits:
+                return hits
+            nxt = set()
+            for i in frontier:
+                nxt |= neighbours.get(i, set()) - seen
+            if not nxt:
+                return []
+            seen |= nxt
+            frontier = nxt
+        return []
+
     out: list[Point] = []
     for i in left:
-        opposite = [j for j in neighbours.get(i, ()) if j in right_set]
+        opposite = across(i)
         if not opposite:
             continue                     # an edge vertex with no rung: skip it
         lx, lz = verts[i][0], verts[i][2]
@@ -777,6 +802,6 @@ def centreline_from_meshes(meshes, *, weld_tol: float = 0.01,
         out.append((-mx, -mz, 0.0) if source_frame else (mx, 0.0, mz))
     if len(out) < 2:
         raise ValueError(
-            "the two boundary edges are not joined by triangles -- this surface "
+            "could not walk from one boundary edge to the other -- this surface "
             "does not look like a swept ribbon")
     return out
