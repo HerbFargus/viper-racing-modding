@@ -26,7 +26,7 @@ Plus documentation in [`docs/`](docs/):
 
 **Try the Library in your browser:** https://herbfargus.github.io/viper-racing-modding/ — open your own Viper Racing **Data** folder and browse every car and track in 3D, entirely client-side (nothing is uploaded).
 
-**Browse the docs online:** the [file-format reference](https://herbfargus.github.io/viper-racing-modding/docs/reference.html) and the [modding history](https://herbfargus.github.io/viper-racing-modding/docs/MODDING_HISTORY.html) (both also in [`docs/`](docs/) as Markdown).
+**Browse the docs online:** the [file-format reference](https://herbfargus.github.io/viper-racing-modding/docs/reference.html), the [modding history](https://herbfargus.github.io/viper-racing-modding/docs/MODDING_HISTORY.html) and the [old-vs-new workflow comparison](https://herbfargus.github.io/viper-racing-modding/docs/WORKFLOW_COMPARISON.html) (all also in [`docs/`](docs/) as Markdown).
 
 > **Repo naming:** the GitHub repo is `viper-racing-modding`; the Python package is
 > `vrmod`; the desktop app's product name is "Viper Racing Mod Manager". The
