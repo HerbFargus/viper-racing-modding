@@ -595,13 +595,34 @@ purpose-built test tracks and tooling make controlled, single-variable compariso
 
 ### 4.5 `TEX ` — `.tex` texture — ✅ CONFIRMED (opaque, colorkey, mip chain layout; full-alpha 🟡 well-supported)
 
+> **Two limits that are not in the file format, and both fail silently.**
+>
+> **Names are 8.3.** All 244 distinct texture names in a full install are at most 12 characters —
+> eight plus `.tex` (`asphalth.tex`, `pine3o15.tex`, `bboard01.tex`) — and not one contains an
+> underscore. This is *not* the archive's limit: a `.tra` directory entry has a 16-byte name field,
+> and a 16-character texture name packs, lists and reads back correctly through every tool here. In
+> game the surface using it renders as flat untextured colour, with no crash, no warning and no
+> placeholder.
+>
+> **Nothing is larger than 256.** Across those same 880 textures the sizes are 16, 32, 64, 128 and
+> 256, and nothing above. An oversized texture does not look wrong or load slowly — it does not draw.
+>
+> Both were found the same way, and only after a track that raced perfectly rendered in flat colour:
+> by surveying what the game ships rather than validating what a writer produced. A texture that
+> round-trips byte-exactly through `tex.parse`/`tex.encode_to_tex` can still be one the game will not
+> draw.
+
+
 ```
 0x00  "0SER" + " XET"(on disk) + int32 version(=3) + reserved + "!IGM"   -- envelope
 0x14  byte   flags bitfield: bit0 = colorkey transparency, bit1 = full alpha channel
                               (observed: 0x00 = opaque, 0x01 = colorkey, 0x03 = colorkey+alpha —
                                bit1 alone, 0x02, was never seen on a real in-game texture, only
                                produced synthetically — see below)
-0x15  byte   (unconfirmed)
+0x15  byte   1 for a texture drawn on 3D geometry, 0 for sky and 2D overlays — ✅ CONFIRMED by
+              survey. Of all 880 textures in a full install, the only ones carrying 0 are sky1-4 on
+              every track plus uptown's 2dtele.tex and oo1-4.tex; every road, kerb, grass and prop
+              texture carries 1. It is NOT a mipmap flag — both groups ship full mip chains.
 0x16  byte   (unconfirmed)
 0x17  byte   wrap flag (0x01 observed only on tileable surfaces — asphalt, checker pattern, paint
               stripe; 0x00 on unique decals)

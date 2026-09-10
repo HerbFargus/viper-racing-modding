@@ -122,7 +122,9 @@ def build_tiles(pixels: bytes, width: int, height: int, size: int,
         for y in range(size):
             src = (y * target_w + i * size) * 3
             tile[y * size * 3:(y + 1) * size * 3] = pixels[src:src + size * 3]
-        out.append(tex.encode_to_tex(bytes(tile), size, mode=mode, wrap=wrap))
+        # sky ships with byte 0x01 clear, unlike every texture drawn on geometry
+        out.append(tex.encode_to_tex(bytes(tile), size, mode=mode, wrap=wrap,
+                                     on_geometry=False))
     return out
 
 

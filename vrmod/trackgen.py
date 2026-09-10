@@ -831,3 +831,335 @@ def centreline_from_meshes(meshes, *, weld_tol: float = 0.01,
             "could not walk from one boundary edge to the other -- this surface "
             "does not look like a swept ribbon")
     return out
+
+
+# ---------------------------------------------------------------------------
+# Importing an existing track model
+#
+# `sweep()` builds a road from a centreline. This is the other half of the
+# brief: take geometry somebody has already modelled -- in Bob's Track Builder,
+# Blender, anything that exports a mesh -- and turn it into a Viper track
+# without redrawing it.
+#
+# Two things stand between an exported mesh and a loadable track.
+#
+# The first is CHUNKING. The renderer culls per chunk, so a track shipped as one
+# large mesh either draws entirely or not at all; a whole-track ribbon rendered
+# as nothing at all, which is not an obvious symptom to trace back to geometry
+# size. Shipped tracks are hundreds of small meshes (bemidji: 446 chunks, 9-12
+# vertices each, 40-60 m across). An exporter has no reason to do that, so the
+# import has to.
+#
+# The second is SURFACE CODES. Viper needs to know which triangles are road and
+# which are grass; a mesh format carries a material name and nothing else. The
+# convention here is that the material name says what the surface is -- anything
+# starting "road", "asphalt" or "tarmac" is road, "grass" is grass, and so on --
+# which is what BTB's own naming already produces (`road1`, `grass0`).
+
+DEFAULT_CHUNK_SIZE = 50.0
+
+# Material-name prefixes to surface codes. Ordered longest-first at match time,
+# so "roadside" does not match "road".
+SURFACE_PREFIXES: tuple[tuple[str, int], ...] = (
+    ("asphalt", ROAD), ("tarmac", ROAD), ("road", ROAD),
+    ("rumble", RUMBLE), ("kerb", RUMBLE), ("curb", RUMBLE),
+    ("water", WATER), ("river", WATER), ("lake", WATER),
+    ("dirt", DIRT), ("gravel", DIRT), ("sand", DIRT),
+    ("grass", GRASS), ("verge", GRASS), ("ground", GRASS),
+)
+
+
+def surface_code(name: str, default: int = GRASS) -> int:
+    """The surface code a mesh or material name implies.
+
+    Falls back to grass rather than road: a misclassified verge is a car that
+    slows down where it should not, a misclassified road is a car that grips
+    where there is nothing to grip.
+    """
+    stem = Path(name).stem.lower()
+    for prefix, code in sorted(SURFACE_PREFIXES, key=lambda p: -len(p[0])):
+        if stem.startswith(prefix):
+            return code
+    return default
+
+
+def chunk_mesh(mesh: "mod.Mesh", *, size: float = DEFAULT_CHUNK_SIZE) -> list["mod.Mesh"]:
+    """Split a mesh into a grid of roughly `size`-metre tiles.
+
+    Triangles are assigned whole, by centroid, so no geometry is cut and no new
+    vertices are introduced -- a chunk's true extent therefore overruns its tile
+    by up to one triangle, which is what the renderer wants anyway (a chunk
+    culled at its own boundary would pop).
+
+    Vertices are re-indexed per chunk and shared ones duplicated, because chunk
+    face indices are `u16` and local to the chunk.
+    """
+    if size <= 0:
+        raise ValueError(f"chunk size must be positive, got {size}")
+    if not mesh.faces:
+        return []
+
+    texture = mesh.materials[0].name if mesh.materials else "asphalt.tex"
+
+    tiles: dict[tuple[int, int], list[tuple[int, int, int]]] = {}
+    for face in mesh.faces:
+        a, b, c = (mesh.vertices[i] for i in face)
+        cx = (a.x + b.x + c.x) / 3.0
+        cz = (a.z + b.z + c.z) / 3.0
+        tiles.setdefault((math.floor(cx / size), math.floor(cz / size)), []).append(face)
+
+    out: list["mod.Mesh"] = []
+    for key in sorted(tiles):
+        remap: dict[int, int] = {}
+        verts: list[mod.Vertex] = []
+        faces: list[tuple[int, int, int]] = []
+        for face in tiles[key]:
+            local = []
+            for i in face:
+                j = remap.get(i)
+                if j is None:
+                    j = len(verts)
+                    remap[i] = j
+                    verts.append(mesh.vertices[i])
+                local.append(j)
+            faces.append(tuple(local))
+        if len(verts) > 0xFFFF:
+            raise ValueError(
+                f"chunk at {key} has {len(verts):,} vertices; face indices are u16 -- "
+                "use a smaller --chunk-size")
+        out.append(mod.Mesh(
+            vertices=verts,
+            materials=[mod.Material(texture, 0, len(verts), 0, len(faces))],
+            faces=faces,
+        ))
+    return out
+
+
+def scene_from_meshes(
+    meshes: dict[str, "mod.Mesh"],
+    *,
+    centreline: list[Point] | None = None,
+    chunk_size: float = DEFAULT_CHUNK_SIZE,
+    codes: dict[str, int] | None = None,
+) -> "TrackScene":
+    """Build a TrackScene from geometry that already exists.
+
+    `meshes` is keyed by name -- `dof.to_meshes()` produces exactly this shape.
+    Each is classified by `surface_code()` unless `codes` overrides it by name,
+    then cut into chunks the renderer can cull.
+
+    The centreline is recovered from whichever meshes classify as road, unless
+    one is supplied. It is needed for the racing lines, the timing gates and the
+    grid, none of which the geometry carries.
+    """
+    if not meshes:
+        raise ValueError("no meshes to import")
+
+    codes = codes or {}
+    _rename_materials(meshes)
+    if centreline is None:
+        road = [m for n, m in meshes.items()
+                if codes.get(n, surface_code(n)) == ROAD]
+        if not road:
+            raise ValueError(
+                "no mesh classifies as road, so there is no centreline to recover -- "
+                f"names seen: {sorted(meshes)}. Rename the road material to start "
+                "'road', 'asphalt' or 'tarmac', or pass a centreline.")
+        # Source frame, not the mesh's own: TrackScene.centreline is consumed in
+        # the same convention read_ase() produces -- (x, y, elevation), which
+        # to_viper() maps back onto the mesh's (x, height, z). Handing it the
+        # mesh frame instead mirrors the track, and a mirrored circuit looks
+        # entirely plausible until you notice the signage renders backwards.
+        centreline = centreline_from_meshes(road, source_frame=True)
+
+    scene = TrackScene(centreline=[(p[0], p[1], p[2] if len(p) > 2 else 0.0)
+                                   for p in centreline])
+    for name in sorted(meshes):
+        code = codes.get(name, surface_code(name))
+        base = Path(name).stem
+        for n, piece in enumerate(chunk_mesh(meshes[name], size=chunk_size)):
+            chunk_name = f"{base}{n:03d}.mod"
+            scene.meshes[chunk_name] = piece
+            scene.driveables.append(SceneObject(chunk_name, code))
+    if not scene.meshes:
+        raise ValueError("every mesh chunked to nothing -- no triangles anywhere")
+    return scene
+
+
+# Texture names are 8.3. A .tra directory entry has a 16-byte name field, which
+# is what this first fitted names to -- and 16 is wrong. Surveying every texture
+# in a full install gives 244 distinct names, and the longest is 12 characters:
+# eight plus ".tex" ("asphalth.tex", "pine3o15.tex", "bboard01.tex"). Not one of
+# the 244 contains an underscore.
+#
+# A name that fits the archive but not 8.3 is accepted by the packer, listed in
+# the directory, and read back correctly by every tool here -- and the surface
+# using it renders as flat untextured colour in game. It does not crash, warn or
+# fall back to a placeholder, which is what makes it expensive to find.
+#
+# Names are therefore cut to eight alphanumeric characters, and the mesh
+# materials cut identically: Viper resolves textures by NAME, so the two must
+# agree exactly.
+TEX_NAME_LIMIT = 12
+_TEX_STEM_LIMIT = TEX_NAME_LIMIT - len(".tex")
+
+# The game never ships a texture larger than 256. Across all 46 archives in a
+# full install -- every track, every car, every .res -- the sizes are 16, 32,
+# 64, 128 and 256, and nothing above. A modeller has no such limit: BTB writes
+# 512 and 1024 by default. Oversized textures do not merely look wrong or load
+# slowly; the surface renders as flat untextured colour.
+TEX_MAX_SIZE = 256
+
+# A texture whose alpha never drops this low has no transparency worth keeping
+# -- BTB writes a specular-ish alpha into its road texture that never falls
+# below 225. Encoding that as ARGB4444 gets flags=3, where every stock road and
+# ground texture is flags=0 (opaque RGB565).
+_OPAQUE_ALPHA_FLOOR = 128
+
+
+def fit_texture_names(names) -> dict[str, str]:
+    """Map texture names onto ones that fit the archive's name field.
+
+    Deterministic for a given set, so the meshes and the `.tex` members can be
+    named in separate passes and still agree. Truncated names that would
+    collide get a numeric tail rather than silently becoming one texture.
+    """
+    out: dict[str, str] = {}
+    taken: set[str] = set()
+    for name in sorted(set(names)):
+        stem = "".join(c for c in Path(name).stem if c.isalnum())
+        stem = stem[:_TEX_STEM_LIMIT] or "tex"
+        if stem in taken:
+            for n in range(1, 1000):
+                tail = str(n)
+                cand = stem[:_TEX_STEM_LIMIT - len(tail)] + tail
+                if cand not in taken:
+                    stem = cand
+                    break
+            else:
+                raise ValueError(f"cannot fit a unique name for {name!r}")
+        taken.add(stem)
+        out[name] = f"{stem}.tex"
+    return out
+
+
+def _rename_materials(meshes: dict[str, "mod.Mesh"]) -> dict[str, str]:
+    """Rename every material in place to a name the archive can hold."""
+    mapping = fit_texture_names(
+        m.name for mesh in meshes.values() for m in mesh.materials)
+    for mesh in meshes.values():
+        for material in mesh.materials:
+            material.name = mapping[material.name]
+    return mapping
+
+
+def read_meshes(path: str | Path) -> dict[str, "mod.Mesh"]:
+    """Load the geometry from a model file, keyed by name.
+
+    Accepts the same sources `read_centreline` does, but returns the whole model
+    rather than a line through the middle of it.
+    """
+    p = Path(path)
+    suffix = p.suffix.lower()
+    if suffix == ".dof":
+        from . import dof as dof_mod
+        return dof_mod.to_meshes(dof_mod.parse_file(p))
+    if suffix == ".mod":
+        return {p.name: mod.parse(p.read_bytes())}
+    if p.is_dir():
+        out = {}
+        for f in sorted(p.glob("*.mod")):
+            out[f.name] = mod.parse(f.read_bytes())
+        if out:
+            return out
+        raise ValueError(f"no .mod files in {p}")
+    if suffix == ".obj":
+        return {p.name: mod.read_obj(p)}
+    raise ValueError(
+        f"cannot read geometry from '{suffix}' -- want .dof, .obj, .mod, or a "
+        "directory of .mod files")
+
+
+def road_half_width(scene: "TrackScene") -> float:
+    """Measure the road's half-width from the scene's own road chunks.
+
+    Taken from the geometry rather than asked for, because an imported model
+    already has a width and guessing a different one puts the timing gates and
+    the racing-line corridor in the wrong place. Returns 0.0 when nothing in the
+    scene is road.
+    """
+    road = {o.name for o in scene.driveables if o.code == ROAD}
+    if not road or len(scene.centreline) < 2:
+        return 0.0
+    pts = [to_viper(p) for p in scene.centreline]
+    ground = [(p[0], p[2]) for p in pts]
+    n = len(ground)
+
+    lats: list[float] = []
+    for name in road:
+        for v in scene.meshes[name].vertices:
+            i = min(range(n), key=lambda k: (ground[k][0] - v.x) ** 2
+                                            + (ground[k][1] - v.z) ** 2)
+            ax, az = ground[i]
+            bx, bz = ground[(i + 1) % n]
+            tx, tz = bx - ax, bz - az
+            L = math.hypot(tx, tz) or 1.0
+            lats.append(abs((v.x - ax) * (-tz / L) + (v.z - az) * (tx / L)))
+    if not lats:
+        return 0.0
+    lats.sort()
+    # The 95th percentile, not the maximum: one stray vertex from a joining slip
+    # road would otherwise widen the whole track.
+    return lats[min(int(len(lats) * 0.95), len(lats) - 1)]
+
+
+def write_textures(source: str | Path, out_dir) -> list:
+    """Convert the source model's textures to `.tex` alongside the scene.
+
+    Texture resolution in Viper is by NAME, so a mesh referencing
+    `road_tarmac001.tex` needs a member of exactly that name in the archive --
+    a missing one is not a missing texture but a crash. Images are looked up
+    next to the model, which is where every exporter puts them.
+    """
+    from . import tex
+
+    src = Path(source)
+    base = src.parent
+    d = Path(out_dir)
+    d.mkdir(parents=True, exist_ok=True)
+
+    meshes = read_meshes(src)
+    mapping = fit_texture_names(
+        m.name for mesh in meshes.values() for m in mesh.materials)
+
+    written = []
+    for original, fitted in sorted(mapping.items()):
+        stem = Path(original).stem
+        image = next((base / (stem + e) for e in (".tga", ".TGA")
+                      if (base / (stem + e)).exists()), None)
+        if image is None:
+            continue
+        out = d / fitted
+        pixels, w, h = tex.read_tga(image)
+        if w != h:
+            raise ValueError(f"{image.name} is {w}x{h}; textures must be square")
+        channels = len(pixels) // (w * h)
+
+        # Drop an alpha channel that carries no transparency, so the texture is
+        # encoded opaque like every stock road and ground texture.
+        if channels == 4 and min(pixels[3::4]) >= _OPAQUE_ALPHA_FLOOR:
+            pixels = bytes(b for i, b in enumerate(pixels) if i % 4 != 3)
+            channels = 3
+
+        if w > TEX_MAX_SIZE:
+            pixels = tex.resize_nearest(pixels, w, h, TEX_MAX_SIZE, TEX_MAX_SIZE,
+                                        channels=channels)
+            w = h = TEX_MAX_SIZE
+
+        # wrap=1, not the encoder's default of 0: a road texture tiles along the
+        # track, and a freshly encoded texture with wrap 0 is rejected outright
+        # ("unknown texture format") rather than merely looking wrong.
+        out.write_bytes(tex.encode_to_tex(
+            pixels, w, mode="opaque" if channels == 3 else "alpha", wrap=1))
+        written.append(out)
+    return written
