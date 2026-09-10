@@ -31,7 +31,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import mod
+from . import mod, obt as obt_mod
 
 # Surface codes, as measured in the shipped .bpp files and confirmed from the
 # generator's own output. Anything outside this set has to be hand-applied or
@@ -234,6 +234,7 @@ class TrackScene:
     scenery: list[SceneObject] = field(default_factory=list)
     markers: dict[str, list[Point]] = field(default_factory=dict)
     walls: list[list[Point]] = field(default_factory=list)
+    grid: list[Point] = field(default_factory=list)
     meshes: dict[str, "mod.Mesh"] = field(default_factory=dict)
     wall_texture: str = "wall.tga"
 
@@ -359,22 +360,80 @@ def sweep(
     return scene
 
 
-def add_start_gate(scene: "TrackScene", half_width: float | None = None) -> None:
-    """Put a checkpoint gate across the centreline at its first point.
+def add_checkpoints(
+    scene: "TrackScene",
+    count: int = 3,
+    *,
+    half_width: float | None = None,
+    margin: float = 2.5,
+) -> None:
+    """Place timing gates evenly around the lap, starting at the centreline's origin.
 
-    A gate is two points spanning the road. Both scene files carry the verts;
-    the surface file writes them negated, the graphic file as-is.
+    The engine will not load a track it cannot find checkpoints on -- it panics
+    with "Couldn't find any checkpoints!" and dies before the green flag. Two
+    things about that, both learned by having it happen:
+
+    **One gate is not enough.** Every functioning track carries two or three;
+    the shipped road courses all use three. A single gate gives the engine no way
+    to establish lap direction or progress, so `count` defaults to 3 and values
+    below 2 are refused.
+
+    **A gate must be wider than the road.** Shipped gates run 15-80 m against
+    road widths around 12 m, so `margin` widens each gate by that factor -- a car
+    running wide over the kerb still crosses it. Spanning only the asphalt lets a
+    car miss the gate entirely and never complete a lap.
     """
+    if count < 2:
+        raise ValueError(
+            "a track needs at least two checkpoints -- the engine panics with "
+            "'Couldn't find any checkpoints!' otherwise"
+        )
     pts = scene.centreline
     if len(pts) < 2:
         return
-    width = half_width if half_width is not None else DEFAULT_ROAD_HALF_WIDTH
-    nx, ny = _normals_2d(pts, closed=True)[0]
-    p = pts[0]
-    scene.markers["check1"] = [
-        (p[0] + nx * width, p[1] + ny * width, 0.0),
-        (p[0] - nx * width, p[1] - ny * width, 0.0),
-    ]
+
+    base = half_width if half_width is not None else DEFAULT_ROAD_HALF_WIDTH
+    width = base * margin
+    normals = _normals_2d(pts, closed=True)
+
+    scene.markers.clear()
+    for k in range(count):
+        i = (k * len(pts)) // count
+        p, (nx, ny) = pts[i], normals[i]
+        scene.markers[f"check{k + 1}"] = [
+            (p[0] + nx * width, p[1] + ny * width, 0.0),
+            (p[0] - nx * width, p[1] - ny * width, 0.0),
+        ]
+
+
+def add_grid(scene: "TrackScene", slots: int = 8, *, spacing: float = 10.0,
+             offset: float = 3.0) -> None:
+    """Lay out starting-grid slots behind the first checkpoint.
+
+    Two staggered columns either side of the centreline, which is how the shipped
+    tracks arrange their eight. Positions go into the scene for the object table;
+    the compiler writes them out as `obj car` records.
+    """
+    pts = scene.centreline
+    if len(pts) < 2 or slots <= 0:
+        return
+    normals = _normals_2d(pts, closed=True)
+    total = sum(_dist(a, b) for a, b in zip(pts, pts[1:])) or 1.0
+    step = spacing / total * len(pts)
+
+    scene.grid.clear()
+    for k in range(slots):
+        # walk backwards from the line so the grid sits before it, not on it
+        i = int(round(-(k // 2 + 1) * step)) % len(pts)
+        p, (nx, ny) = pts[i], normals[i]
+        side = offset if k % 2 == 0 else -offset
+        scene.grid.append((p[0] + nx * side, p[1] + ny * side, 0.0))
+
+
+# Kept for callers written against the single-gate helper.
+def add_start_gate(scene: "TrackScene", half_width: float | None = None) -> None:
+    """Deprecated: places ONE gate, which the engine rejects. Use add_checkpoints."""
+    add_checkpoints(scene, 2, half_width=half_width)
 
 
 # --- emitters -------------------------------------------------------------
@@ -450,6 +509,28 @@ def write_surface(scene: "TrackScene") -> str:
     return _NL.join(out) + _NL
 
 
+
+def build_obt(scene: "TrackScene") -> bytes:
+    """Write the placed-object table: the timing gates and the starting grid.
+
+    This is generated here rather than by the compiler because the scene format
+    has no way to declare either. MKWORLD derives checkpoints from the marker
+    blocks but nothing declares grid slots, so the shipped tracks' `obj car`
+    records must have been authored by hand or by a tool that did not survive.
+    Writing the whole table natively is simpler than patching the compiler's.
+
+    Coordinates go out in the flipped ground frame, matching the surface file
+    and what the compiler itself emits.
+    """
+    records = []
+    for gate in scene.markers.values():
+        (x1, y1, _), (x2, y2, _) = gate[0], gate[1]
+        records.append(obt_mod.checkpoint(-x1, -y1, -x2, -y2))
+    for x, y, _ in scene.grid:
+        records.append(obt_mod.car(-x, -y))
+    return obt_mod.build(obt_mod.create(records))
+
+
 def write_scene(scene: "TrackScene", out_dir) -> list:
     """Write both sources and every swept mesh. Returns what was written."""
     d = Path(out_dir)
@@ -465,5 +546,9 @@ def write_scene(scene: "TrackScene", out_dir) -> list:
     for name, mesh in scene.meshes.items():
         p = d / name
         p.write_bytes(mod.build(mesh))
+        written.append(p)
+    if scene.markers or scene.grid:
+        p = d / "track.obt"
+        p.write_bytes(build_obt(scene))
         written.append(p)
     return written

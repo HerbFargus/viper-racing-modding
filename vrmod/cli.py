@@ -645,8 +645,11 @@ def main(argv: list[str] | None = None) -> int:
                             help="full road width in metres (default 12)")
     p_trackgen.add_argument("--open", action="store_true",
                             help="treat the centreline as open rather than a closed loop")
-    p_trackgen.add_argument("--no-gate", action="store_true",
-                            help="skip the start/finish checkpoint gate")
+    p_trackgen.add_argument("--checkpoints", type=int, default=3,
+                            help="timing gates around the lap (minimum 2; the engine "
+                                 "panics with 'Couldn't find any checkpoints!' below that)")
+    p_trackgen.add_argument("--grid", type=int, default=8,
+                            help="starting-grid slots (default 8)")
 
     p_bppinfo = sub.add_parser(
         "bppinfo",
@@ -1164,8 +1167,8 @@ def main(argv: list[str] | None = None) -> int:
             road_half_width=args.road_width / 2.0,
             closed=not args.open,
         )
-        if not args.no_gate:
-            _tg.add_start_gate(scene, args.road_width / 2.0)
+        _tg.add_checkpoints(scene, args.checkpoints, half_width=args.road_width / 2.0)
+        _tg.add_grid(scene, args.grid)
         written = _tg.write_scene(scene, args.out_dir)
         print(f"{args.centreline.name}: {raw:,} points -> {len(scene.centreline):,} stations")
         for w in written:
