@@ -12,7 +12,7 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from . import aifield, archive, aspectfix, bpp as bppmod, car, carshot, catalog as catalog_mod, cf, cockpit_tab, doctor, envelope, hornball, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch
+from . import aifield, archive, aspectfix, bpp as bppmod, car, carshot, catalog as catalog_mod, cf, cockpit_tab, doctor, envelope, hornball, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili
 
 COMMIT_PATH = "/__vrmod_commit__"
 
@@ -650,6 +650,14 @@ def main(argv: list[str] | None = None) -> int:
     p_trackgen.add_argument("--checkpoints", type=int, default=3,
                             help="timing gates around the lap (minimum 2; the engine "
                                  "panics with 'Couldn't find any checkpoints!' below that)")
+    p_trackgen.add_argument("--keep-geometry", action="store_true",
+                            help="ship the source model's own geometry and textures "
+                                 "instead of sweeping a new road from its centreline "
+                                 "(.dof/.obj/.mod sources only)")
+    p_trackgen.add_argument("--chunk-size", type=float, default=50.0,
+                            help="tile size in metres for --keep-geometry (default 50; "
+                                 "the renderer culls per chunk, so a whole-track mesh "
+                                 "draws as nothing at all)")
     p_trackgen.add_argument("--grid", type=int, default=8,
                             help="starting-grid slots (default 8)")
 
@@ -1181,14 +1189,23 @@ def main(argv: list[str] | None = None) -> int:
             closed = False
         if args.spacing > 0:
             line = _tg.resample(line, args.spacing, closed=closed)
-        scene = _tg.sweep(
-            line,
-            road_half_width=args.road_width / 2.0,
-            closed=closed,
-        )
-        _tg.add_checkpoints(scene, args.checkpoints, half_width=args.road_width / 2.0)
+        if args.keep_geometry:
+            meshes = _tg.read_meshes(args.centreline)
+            scene = _tg.scene_from_meshes(meshes, centreline=line,
+                                          chunk_size=args.chunk_size)
+            half = _tg.road_half_width(scene) or args.road_width / 2.0
+        else:
+            scene = _tg.sweep(
+                line,
+                road_half_width=args.road_width / 2.0,
+                closed=closed,
+            )
+            half = args.road_width / 2.0
+        _tg.add_checkpoints(scene, args.checkpoints, half_width=half)
         _tg.add_grid(scene, args.grid)
         written = _tg.write_scene(scene, args.out_dir)
+        if args.keep_geometry:
+            written += _tg.write_textures(args.centreline, args.out_dir)
         print(f"{args.centreline.name}: {raw:,} points -> {len(scene.centreline):,} stations"
               f"{' (closed circuit)' if closed else ' (open)'}")
         for w in written:
@@ -1196,6 +1213,9 @@ def main(argv: list[str] | None = None) -> int:
         print()
         print(f"{len(scene.driveables)} driveable objects, written identically "
               f"to both scene files.")
+        if args.keep_geometry:
+            print(f"road half-width measured from the model: {half:.2f} m "
+                  f"(racing-line corridor {ili.corridor_for(half * 2.0):.1f} m)")
         print(f"Next: run make-track.bat in {args.out_dir} to compile.")
 
     elif args.command == "trackmap":

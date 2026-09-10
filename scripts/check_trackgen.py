@@ -220,6 +220,47 @@ def check_invariants() -> None:
     else:
         check("a non-positive corridor is refused", False, "accepted -20000")
 
+    # Importing an existing model, rather than sweeping a new road.
+    import math as _m
+    circle = [(_m.cos(t / 40.0 * _m.tau) * 200.0, _m.sin(t / 40.0 * _m.tau) * 200.0, 0.0)
+            for t in range(40)]
+    swept = tg.sweep(circle, closed=True)
+    imported = tg.scene_from_meshes(
+        {"road.mod" if n.startswith("asphalt") else "grass.mod": m
+         for n, m in list(swept.meshes.items())[:1]},
+        centreline=circle, chunk_size=50.0)
+    check("an imported model keeps its own geometry",
+          len(imported.meshes) > 0, f"{len(imported.meshes)} chunks")
+    check("imported road classifies as road, not grass",
+          all(o.code == tg.ROAD for o in imported.driveables),
+          f"codes {sorted({o.code for o in imported.driveables})}")
+
+    # Chunking: the renderer culls per chunk, so a whole-track mesh draws as
+    # nothing at all. Every chunk must also stay inside the u16 index limit.
+    big = next(iter(swept.meshes.values()))
+    pieces = tg.chunk_mesh(big, size=50.0)
+    check("chunking preserves every triangle",
+          sum(len(c.faces) for c in pieces) == len(big.faces),
+          f"{sum(len(c.faces) for c in pieces)} vs {len(big.faces)}")
+    check("no chunk exceeds the u16 vertex index limit",
+          all(len(c.vertices) <= 0xFFFF for c in pieces),
+          f"largest {max(len(c.vertices) for c in pieces)}")
+    check("chunk footprints land in the shipped 40-60 m range",
+          all(max(max(v.x for v in c.vertices) - min(v.x for v in c.vertices),
+                  max(v.z for v in c.vertices) - min(v.z for v in c.vertices)) < 120.0
+              for c in pieces), "under 120 m")
+
+    # A .tra name field is 16 bytes and a modeller's texture names exceed it.
+    # Viper resolves textures by name, so a mesh asking for one the archive does
+    # not hold is a crash, not a missing texture.
+    fitted = tg.fit_texture_names(
+        ["road_tarmac001.tex", "ground_grass001.tex", "road_tarmac002.tex"])
+    check("texture names are shortened to fit the archive name field",
+          all(len(v) <= tg.TEX_NAME_LIMIT for v in fitted.values()),
+          f"{sorted(fitted.values())}")
+    check("shortened texture names stay unique",
+          len(set(fitted.values())) == len(fitted), f"{len(set(fitted.values()))} distinct")
+
     # Geometry: the road comes out the width it was asked for.
     # segments are named asphalt000.mod, asphalt001.mod, ...
     road = next(m for n, m in scene.meshes.items() if n.startswith("asphalt"))
