@@ -173,6 +173,53 @@ def check_invariants() -> None:
     check("the sweep follows the centreline's elevation",
           max(ys) - min(ys) > 50.0, f"mesh spans {min(ys):.1f}..{max(ys):.1f} m")
 
+    # Field 10 of a racing line is a record INDEX with a kind tag, stored in a
+    # float slot. Writing it as a constant leaves every waypoint claiming to be
+    # waypoint zero: the AI still drives, because it follows positions, but
+    # resetting the car teleports it off the track.
+    import struct as _struct
+    from vrmod import ili as _ili
+    line = _ili.generate([(i * 10.0, 0.0, 0.0) for i in range(8)], speed=50, closed=False)
+    ids = [_struct.unpack("<i", _struct.pack("<f", r[10]))[0] & 0xFFFFFFFF for r in line.records]
+    check("racing-line records carry an incrementing index",
+          ids == [0xFF000000 + i for i in range(8)], f"{[hex(v) for v in ids[:3]]}...")
+    # track.ild is not one line: every shipped track splits it into three
+    # sub-lines tagged 0x01/0x02/0x03, changing where the lap crosses a
+    # checkpoint, with the index running continuously across all three.
+    ild = _ili.generate([(i * 10.0, 0.0, 0.0) for i in range(90)], speed=50,
+                        closed=True, kind=_ili.KIND_ILD, sectors=True,
+                        gates=[0.0, 300.0, 600.0])
+    ik = [_struct.unpack("<i", _struct.pack("<f", r[10]))[0] & 0xFFFFFFFF for r in ild.records]
+    kinds = sorted({(v >> 16) & 0xFF for v in ik})
+    check("track.ild carries three sector tags", kinds == [1, 2, 3], f"{[hex(k) for k in kinds]}")
+    check("track.ild's index runs continuously across sectors",
+          [v & 0xFFFF for v in ik] == list(range(len(ik))), "0..n-1")
+    plain = _ili.generate([(i * 10.0, 0.0, 0.0) for i in range(20)], speed=50, closed=True)
+    pk = {(_struct.unpack("<i", _struct.pack("<f", r[10]))[0] >> 16) & 0xFF for r in plain.records}
+    check("default.ili stays a single kind-0 line", pk == {0}, f"{[hex(k) for k in pk]}")
+
+    # Field 5 is a corridor half-width, not the sentinel it looks like in the AI
+    # lines. A track.ild full of -20000 puts the car outside the corridor at
+    # every station, which is what the game reports as "press space to reset"
+    # seconds after the green flag.
+    check("track.ild carries a positive corridor, not the sentinel",
+          all(r[5] > 0.0 for r in ild.records), f"f5 = {ild.records[0][5]}")
+    check("track.ild's speed field is the flat 100 the stock tracks carry",
+          all(abs(r[6] - _ili.ILD_SPEED) < 1e-6 for r in ild.records),
+          f"f6 = {ild.records[0][6]}")
+    check("an AI line keeps the -20000 the stock AI lines carry",
+          all(r[5] == _ili.MARK_VALUE for r in plain.records), f"f5 = {plain.records[0][5]}")
+    check("a requested corridor reaches the records",
+          _ili.generate([(i * 10.0, 0.0, 0.0) for i in range(20)], speed=50,
+                        closed=True, corridor=17.5).records[0][5] == 17.5, "17.5 m")
+    try:
+        _ili.generate([(i * 10.0, 0.0, 0.0) for i in range(20)], speed=50,
+                      closed=True, corridor=-20000.0)
+    except ValueError:
+        check("a non-positive corridor is refused", True, "raises ValueError")
+    else:
+        check("a non-positive corridor is refused", False, "accepted -20000")
+
     # Geometry: the road comes out the width it was asked for.
     # segments are named asphalt000.mod, asphalt001.mod, ...
     road = next(m for n, m in scene.meshes.items() if n.startswith("asphalt"))

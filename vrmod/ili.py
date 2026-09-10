@@ -478,7 +478,7 @@ def write_line_file(path, line: Line):
 
 FIELD_DIR_X = 3
 FIELD_DIR_Z = 4
-FIELD_MARK = 5           # -20000.0 in every record of every track
+FIELD_CORRIDOR = 5       # see below -- NOT the sentinel it looks like
 FIELD_CURVE = 7
 FIELD_STEP = 8           # distance to the next waypoint
 FIELD_SENTINEL_A = 10    # ~-1.7e38
@@ -488,19 +488,119 @@ FIELD_TIME = 14          # cumulative lap time, seconds
 FIELD_LATERAL = 15
 FIELD_SENTINEL_B = 16    # ~-1.58e38
 
+# Field 5 is the one field whose meaning a survey of the stock tracks alone gets
+# wrong. In default.ili and rdefault.ili it is -20000.0 in every record of every
+# track that shipped with the game, which reads as an obvious sentinel -- and as
+# a sentinel it was written here, into all three files.
+#
+# It is not a sentinel. In track.ild it is never -20000: it is a per-record
+# CORRIDOR HALF-WIDTH in metres, the distance either side of the line the car is
+# allowed to be before the game considers it off the track. Shipped values run
+# 12 (Kyalami) to 30 (bemidji, uptown), and two tracks vary it along the lap --
+# heaven narrows 25 -> 15 for eighteen records, kenyon 25 -> 17 for three, both
+# at a pinch point.
+#
+# Writing -20000 into track.ild gives every station a negative corridor, so the
+# car is outside it wherever it stands. That is the "press space to reset" that
+# appears within seconds of the green flag and then teleports the car off the
+# map: not a reset bug at all, but the game correctly reporting that a corridor
+# of width -20000 contains nothing.
+#
+# On the AI lines the field is unused, and -20000 there is what the stock tracks
+# carry, so it stays.
 MARK_VALUE = -20000.0
-SENTINEL_A = -1.7014118346046923e38
-SENTINEL_B = -1.5800920945002098e38
+
+# The corridor scales with the road. Measuring each shipped track's asphalt
+# against its own track.ild gives the rule on the two tracks whose road texture
+# covers the road and nothing else -- Kyalami, corridor 12.0 against a 6.14 m
+# half-width, and kenyon, 25.0 against 13.20 m. Both land on
+#
+#     corridor = 2 x road half-width  =  the full width of the road
+#
+# (The other tracks reuse their asphalt texture on pit aprons and paddock, so
+# the same measurement there describes the paving, not the road.)
+#
+# Kyalami is worth keeping in mind as the reference: a community track built
+# with mkilicc, 6.14 m half-width -- within 15 cm of what `trackgen` sweeps by
+# default -- and it ships with 12.0.
+DEFAULT_ROAD_WIDTH = 12.0
+DEFAULT_CORRIDOR = DEFAULT_ROAD_WIDTH
 
 
-def generate(points, *, speed: float = 60.0, gates=None,
-             closed: bool = True, version: int = 3) -> Line:
+def corridor_for(road_width: float) -> float:
+    """The corridor half-width a road of `road_width` metres wants.
+
+    Twice the half-width, which is the road's full width -- see DEFAULT_CORRIDOR
+    for where that comes from. A corridor much wider than this is not harmless:
+    the game treats everything inside it as track, so the car can be reset onto
+    the grass and still be, as far as the game is concerned, where it belongs.
+    """
+    if road_width <= 0.0:
+        raise ValueError(f"road width must be positive, got {road_width}")
+    return float(road_width)
+
+# track.ild carries a flat 100.0 in field 6 on every shipped track, where the AI
+# lines carry a real target speed. It is a track-definition line, not a line
+# anything drives, so there is no speed to set.
+ILD_SPEED = 100.0
+# Fields 10 and 16 are not floats. Read their bits as int32 and they are
+# perfectly ordinary integers that a float reader was never meant to see:
+#
+#   [10]  0xFF<kind><index16> -- a RECORD INDEX, incrementing by one down the
+#         line, tagged with which kind of line it is: 0x00 for default.ili and
+#         rdefault.ili, 0x01 for track.ild.
+#   [16]  0xFEEDBEEF -- a magic marker, the same in every record of every line.
+#
+# Writing [10] as a constant (which is what the float value looks like if you
+# only ever print it) makes every waypoint claim to be waypoint zero. The line
+# still drives, because the AI follows positions -- but anything that asks
+# "which waypoint am I at" gets nonsense, and resetting the car teleports it
+# off the track.
+INDEX_TAG = 0xFF000000
+KIND_ILI = 0x00           # default.ili
+KIND_ILD = 0x01           # track.ild -- the FIRST of its three sector tags
+#
+# track.ild is not one line. Every shipped track splits it into three sub-lines
+# tagged 0x01, 0x02 and 0x03, with the record index running continuously across
+# all three, and the tag changing where the lap crosses a checkpoint (measured
+# 6-19 m from a gate centre on bemidji and dundas -- inside the gate). Every one
+# of those tracks has exactly three checkpoints.
+#
+# Writing it as a single 0x01 line does not match any shipped track. (It was
+# also blamed here for the "press space to reset" failure; that was field 5 --
+# see FIELD_CORRIDOR below -- and splitting the sub-lines did not fix it.)
+ILD_SECTORS = 3
+MAGIC = 0xFEEDBEEF
+
+
+def _as_float(bits: int) -> float:
+    """Reinterpret an int32's bits as the float32 that occupies the slot."""
+    return struct.unpack("<f", struct.pack("<I", bits & 0xFFFFFFFF))[0]
+
+
+SENTINEL_B = _as_float(MAGIC)
+
+
+def generate(points, *, speed: float = 60.0, gates=None, closed: bool = True,
+             kind: int = KIND_ILI, sectors: bool = False,
+             corridor: float | None = None, version: int = 3) -> Line:
     """Build a racing line from a centreline.
+
+    `kind` tags the record index in field 10, and `sectors` splits that tag at
+    each gate -- which is what track.ild needs, and what default.ili must not
+    have. Getting either wrong breaks the game's idea of where the car is on the
+    track, whatever the positions say.
 
     `points` are (x, z) or (x, y, z) in the game's frame -- the same frame the
     meshes and the object table use. `speed` is the target in metres per second
     (60 m/s is about 134 mph, close to what the shipped lines carry). `gates` is
     the cumulative distance of each checkpoint, used for fields 12 and 13.
+
+    `corridor` is the half-width in metres the car may stray from the line before
+    the game calls it off the track. It belongs to track.ild and is required
+    there; pass None (the default) for an AI line, which carries the -20000 the
+    stock lines carry instead. `sectors` implies a track.ild, so a corridor is
+    supplied automatically when one is not given.
     """
     pts = [(p[0], p[2] if len(p) > 2 else p[1]) for p in points]
     if len(pts) < 3:
@@ -526,12 +626,27 @@ def generate(points, *, speed: float = 60.0, gates=None,
 
     marks = sorted(gates) if gates else [0.0, total / 2.0]
 
+    # track.ild is a track-definition line: it needs a corridor, and its speed
+    # field is a flat 100 on every shipped track rather than anything drivable.
+    if corridor is None and sectors:
+        corridor = DEFAULT_CORRIDOR
+    if corridor is not None and corridor <= 0.0:
+        raise ValueError(
+            f"corridor must be positive, got {corridor}; a non-positive corridor "
+            "puts the car off the track at every station")
+    mark = MARK_VALUE if corridor is None else corridor
+    target = ILD_SPEED if sectors else speed
+
     records = []
     for i in range(n):
         x, z = pts[i]
         ax, az = pts[nxt(i)]
         bx, bz = pts[prv(i)]
-        dx, dz = ax - x, az - z
+        # Fields 3 and 4 are the CENTRAL difference, halved -- a smoothed tangent
+        # across the neighbouring waypoints, not the delta to the next one.
+        # Checked against bemidji to zero error; the delta-to-next reading this
+        # first shipped with was out by up to 5.7 m.
+        dx, dz = (ax - bx) / 2.0, (az - bz) / 2.0
 
         # turn rate: how much the heading swings here, per metre travelled
         h0 = math.atan2(z - bz, x - bx)
@@ -547,12 +662,17 @@ def generate(points, *, speed: float = 60.0, gates=None,
         r[FIELD_Z] = z
         r[FIELD_DIR_X] = dx
         r[FIELD_DIR_Z] = dz
-        r[FIELD_MARK] = MARK_VALUE
-        r[FIELD_SPEED] = speed
+        r[FIELD_CORRIDOR] = mark
+        r[FIELD_SPEED] = target
         r[FIELD_CURVE] = curve
         r[FIELD_STEP] = step[i]
         r[FIELD_DISTANCE] = dist[i]
-        r[FIELD_SENTINEL_A] = SENTINEL_A
+        tag = kind
+        if sectors:
+            # the sector this record falls in, counted from the first gate
+            tag = kind + sum(1 for m in marks if m <= dist[i]) - 1
+            tag = max(kind, min(kind + len(marks) - 1, tag))
+        r[FIELD_SENTINEL_A] = _as_float(INDEX_TAG | ((tag & 0xFF) << 16) | (i & 0xFFFF))
         r[FIELD_AHEAD] = ahead - dist[i]
         r[FIELD_BEHIND] = behind - dist[i]
         r[FIELD_TIME] = time[i]
