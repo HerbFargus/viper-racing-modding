@@ -1188,9 +1188,22 @@ def write_textures(source: str | Path, out_dir) -> list:
 # tracks. That is the same MKWORLD run the pipeline already makes for `.bsp`, so
 # walls cost no new tool.
 #
-# Walls go in the SURFACE file only. They are collision, not scenery -- nothing
-# in the graphic file references them, and a wall that appears in both would be
-# drawn as an untextured slab across the track.
+# A wall is TWO things, and vrTrackMaker keeps them apart:
+#
+#   the collision   object(wall.tga,1,0) + a quad, in the SURFACE file only,
+#                   which MKWORLD compiles into a .sol primitive
+#   the appearance  an ordinary mesh in the GRAPHIC file, listed with param1=3
+#                   (NO_COLLISION) so it is drawn but not solid
+#
+# Its output carries four such meshes -- wallcli/wallclo/wallcri/wallcro, the
+# left and right barriers' inner and outer faces -- none of which appears in the
+# surface file at all. The stock tracks do the same thing by hand: they have no
+# wall-specific texture, just scenery (fncing.tex, fense.tex, brk.tex, concr.tex)
+# with .sol boxes and tubes placed alongside to approximate it.
+#
+# add_walls() below emits only the collision half, which is why a generated wall
+# is invisible. Emitting the appearance half is what importing a modelled
+# barrier will need, and it belongs in the graphic file with param1=3.
 
 DEFAULT_WALL_HEIGHT = 1.5
 DEFAULT_WALL_SPACING = 4          # stations per quad

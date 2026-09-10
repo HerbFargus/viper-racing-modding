@@ -302,9 +302,12 @@ def check_invariants() -> None:
           d_src < 15.0 and d_mesh > 100.0,
           f"{d_src:.1f} m from the centreline, {d_mesh:.0f} m from its mirror")
 
-    check("walls stay OUT of the graphic file",
+    # The COLLISION half of a wall is surface-file only. (The appearance half is
+    # an ordinary mesh in the graphic file at param1=3, which add_walls does not
+    # emit -- vrTrackMaker ships four of them per track.)
+    check("wall collision quads stay OUT of the graphic file",
           "wall.tga" not in graph,
-          "collision only -- a wall in both is drawn as a slab across the track")
+          "surface file only; the visible mesh is a separate, non-colliding object")
     for bad in (0.0, -1.0):
         try:
             tg.add_walls(walled, offset=bad)
