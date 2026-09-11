@@ -383,6 +383,19 @@ real Viper GTS's 4.45 × 1.92 × 1.12 m. **No conversion is needed to bring car 
 
 `default.ili` = the AI racing line; `rdefault.ili` = reverse-direction variant; `track.ild` = a third line
 variant (checkpoint/pit line). All three share the format — as does a fourth extension, `.ilg`, found in
+> **`drivers.res` makes the AI drive the WRONG track on any add-on, and the community fix is to empty
+> it — ✅ CONFIRMED.** The shipped file is 6,334,252 bytes holding 1,220 members: 524 `.ilg` AI lines,
+> 695 `.dnt` tunings and `aidriver.adr`. Those `.ilg` lines are baked per track, so a new track
+> installed into a stock slot inherits the *original* track's AI line — the AI swerves off the road at
+> the start, or the game crashes outright on some tracks.
+>
+> Sucahyo's fix, circulated from 2009, is a `drivers.res` containing nothing at all: 16 bytes,
+> `30 54 53 52` plus three zero counts, which is byte-for-byte what `archive.to_bytes([])` produces.
+> With no baked lines to prefer, the AI falls back to the track's own `default.ili` / `track.ild`.
+>
+> **This is a prerequisite for any generated or imported track**, and it is invisible until AI cars
+> are on track: geometry, collision, timing and the player's own car all behave correctly without it.
+
 `drivers.res` on the retail disc: one AI-line variant per AI driver skill tier per track section
 (`000vipr.ilg` … `6xxvipr.ilg`, paired with a same-tier `.dnt` file, §4.11 — hundreds of them, all
 confirmed `NILI`-tagged and structurally identical to `.ili`/`.ild`).
@@ -399,6 +412,68 @@ confirmed `NILI`-tagged and structurally identical to `.ili`/`.ild`).
         field[10] = NOT a float: `0xFF<kind><index16>`, an incrementing record index
         field[16] = NOT a float: `0xFEEDBEEF`
 ```
+
+> ### A 1998 build carries the game's own linker map
+>
+> `ai-tweaker.exe` — circulated as an "AI speed tweaker", run with **Ctrl-A** to tune each AI car per
+> track per difficulty — is not a utility. It is a **1998-dated build of the game itself**
+> (`Oct 21 1998 08:49:56`, 2,404,451 bytes against the shipping `race.bin`'s 1,314,816), and it has
+> an **MSVC linker map embedded in it: 10,414 symbols across 296 object files**, with C++ mangled
+> names and the source object each came from. The crash handler's familiar *"No mapfile present"*
+> line is the shipping build looking for exactly this.
+>
+> This names structures this document had only measured. A sample against its open questions:
+>
+> | symbol | object | what it tells us |
+> |---|---|---|
+> | `parse_wobble(char const*)` | `world:world.obj` | the `.obt` wobble record has a dedicated parser |
+> | `WobbleObject::WobbleObject(WobbleData*)` | `world:wob.obj` | wobbles are built from a `WobbleData` struct |
+> | `Wobble::ResolveExternalImpulse` | `physics:obstacle.obj` | and they respond to being hit |
+> | `IdealLine::load_res`, `nearest_node_to`, `get_nearest_bead`, `segloop_count` | `ai:ideal.obj` | the `.ili` reader; its records are **`ILSeg`**, a position along one is **`ILinePos`** |
+> | `SphereVolume`, `CubeVolume`, **`MoveableSphereVolume`**, `CollisionVolume::ApplyForce` | `physics:volume.obj` | the `.sol` primitive classes — and some are *moveable* |
+> | `BPPFinder::bpp_find(bpp_node*)`, `point_in_poly`, `test_poly` | `world:bpp.obj` | the `.bpp` traversal, over `bpp_tri`/`bpp_node` |
+>
+> The addresses are that build's, not `race.bin`'s, so they do not transfer directly — but the names,
+> the class layouts they imply, and the module boundaries do. Anything in this document still marked
+> unsolved (the `.sol` spatial tail, the `.bpp` writer, what `obj wobble`'s integer indexes) now has a
+> named function to work from rather than a hex dump.
+>
+> The map is not reproduced here: it is derived from a copyrighted binary, and anyone holding a copy
+> can extract it with a regex for `^\s*0001:[0-9a-f]{8}` over the file's printable strings.
+
+**What the AI actually does with these lines**, from the readme of Sucahyo's `trkaitweaker` —
+the only first-hand account of the AI's behaviour recovered so far:
+
+> *"AI in viper racing driving using path defined either by some ilg or default.ili or rdefault.ili
+> (reverse). This file define path, speed, and direction."*
+
+Its two pairs of controls describe the model:
+
+- **mult & add** — *"decide how fast the AI do on straight or on tight corner"*: the speed field is
+  computed from the path's curvature through a multiplier and an offset.
+- **forward lookup & backward lookup** — *"I limit the AI speed based from this two parameter. The AI
+  action will be using the slowest speed needed on this range. For instance, if my algorithm detected
+  a tight corner 20 meter ahead, then it will use that corner speed right now (as brake) if the
+  forward lookup is more than 20 meter. Increase forward lookup if AI braking too late… increase
+  backward lookup if AI accelerate too soon on corner exit."*
+
+That is a direct description of the shape fields **12 and 13** carry: a distance ahead and a distance
+behind, measured from each station, resetting in blocks. This document had them recorded as
+"distances to the boundaries of a segmentation whose rule is not known" — the rule is a braking
+lookahead, and the blocks are the stretches over which one corner governs the speed. `vrmod`
+approximates them with distance-to-next-checkpoint, which is why generated lines drive but do not
+brake like a shipped track.
+
+He also notes the author-side tool: *"AI-tweaker (also known as debug version race.bin ctrl-A)"*,
+which writes `aidriver.adr` — the single member inside `drivers.res` that is not an `.ilg` or `.dnt`.
+
+> **Reported, partly corroborated:** the same readme says `track.sol` holds pit markers as the int32
+> values 1000 (`pit_entry`), 1002 (`pit_exit`) and 1004 (`pit_reentry`), *"usually at begining or end
+> of file"*. Searching the shipped files finds them clustered in the tail region past the primitives
+> on heaven (1×1000, 2×1002, 2×1004 around offset 120k) and nfield (2×1000, 4×1002 around 143k), but
+> not at all on bemidji, hastings, uptown or Kyalami — so the values are real but not universal.
+> He also records that he never worked out how to edit `.sol`, and that `track.txt` carries a
+> `pit_side` variable.
 
 **Field 5 is a corridor half-width, not a sentinel — ✅ CONFIRMED in game.** In `default.ili` and
 `rdefault.ili` it is `-20000.0` in every record of every track that shipped with the game, which reads

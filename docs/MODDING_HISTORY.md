@@ -71,7 +71,13 @@ by Frank P. Wolf, distributed from his own site (`members.aol.com/racingwolf999/
 - **mkres.exe** ✓ — (re)pack an archive from a `reslist`.
 - **mkcar.exe** — build the `.car` itself. Named in the tutorial's step 4
   alongside `mktex`/`mkres`/`mksfx`; no surviving binary located yet.
-- **extract.exe** ✓ — an alternate unpacker.
+- **extract.exe** ✓ (Sucahyo) — **not an unpacker.** A multi-function track
+  utility, recovered 2026-09-10 with its own readme: `.ase` → vertex text for
+  mkflt, `.ase` → `.ili`, `.ase` → **wall quad objects**, `.ase` → a "pipeline"
+  of walls down both sides of the road, **mod2quad** (wall quads from a `.mod`,
+  with an added-height box), `.bpp` → `.mod`, `.ase` → `camera.tab`, and
+  **injection of obstacle records into `track.obt`**. Its earlier description
+  here as an unpacker was wrong.
 
 ### Cars
 - **CarMan / CarMan2 / AICarMan** ✓ (Frank Wolf) — install/activate/organise cars
@@ -182,13 +188,24 @@ Two kinds of software are kept apart deliberately:
 
 ## Part A — community tools (Viper Racing–specific)
 
+> **`reslist.txt` had two incompatible shapes, and that is why a "reorder" step existed.** An
+> extracted track's list is one long whitespace-separated row (castle's is 62 entries on a single
+> line); the track-building kit ships one entry per line (19 entries, 18 newlines). VRcarEditor's
+> tutorial spells out the consequence — its REORDERRESLIST button "lines up the reslist.txt contents
+> in a row in order for mkres.exe to recognize it". A hand-maintained list that two tools in the same
+> chain disagreed about is the kind of failure `vrmod pack` removes by not needing a list at all.
+
 ### Archive / packaging
 | Tool | Creator | Purpose | `vrmod` |
 |---|---|---|---|
 | **rescrack.exe** *(RESTools)* | Frank P. Wolf | Unpack `.car`/`.res`/`.trk` to loose members + `reslist.txt` | `vrmod unpack` |
 | **mkres.exe** *(RESTools)* | Frank P. Wolf | Repack an archive from a `reslist` | `vrmod pack` |
 | **mkcar.exe** *(RESTools)* | Frank P. Wolf | Build the `.car` itself | `vrmod pack` / `carfork` |
-| **extract.exe** | — | Alternate unpacker | `vrmod unpack` |
+| **extract.exe** | Sucahyo | Multi-function track utility — `.ase`→vertex text/`.ili`/wall quads/pipeline, mod2quad, `.bpp`→`.mod`, `.ase`→`camera.tab`, obstacle injection into `track.obt` | `vrmod trackgen` (`--walls`, and `mesh_to_wall_quads` for mod2quad); `bpp2obj`; obstacle records not yet written |
+| **VRcarEditor** | — (2008 tutorial by a community member) | A .NET front end that drives the car-stats chain: rescrack → cf2txt → *edit the text by hand* → mkcar → **reorderreslist** → mkres, thirteen steps across six tools to change one number. Carries no knowledge of the `.cf` fields itself | `vrmod cfdump` / `cfset` / `cfpatch` — one command, in place |
+| **VR-ResEdit** | Matthias Walden | GUI front end for the archive command-line tools — browse, extract, import, rename and discard members of a `.car`/`.res`/`.trk`, with drag-and-drop and multi-select. v0.96, freeware. Supports both Viper Racing and Nascar Heat resource types | Mod manager + `vrmod unpack`/`pack`/`list` |
+| **ViperMan** | — | Setup manager and launcher: edit `.csu` setups outside the game, copy/paste them between slots, tracks and installations, manage multiple installs, and launch Frank Wolf's utilities. Aware of tracks and cars disabled by TrackMan/CarMan. v0.5 beta | Mod manager (install/restore); setup editing — **none** |
+| **mod2quadnoz.exe** | Sucahyo | Wall quads from a `.mod`, with a bottom/top height box; its 2016 tutorial documents the rule that **faces must be vertical** — no tilting, no horizontal parts — and suggested heights (guard rails +1.0, small billboards +2.0, big billboards +4.0, banner posts +8, one-storey buildings +10) | `trackgen.mesh_to_wall_quads` — same rule, reached independently |
 
 ### Cars
 | Tool | Creator | Purpose | `vrmod` |
@@ -221,7 +238,8 @@ Two kinds of software are kept apart deliberately:
 | **BPP-2-Mod Converter** | Sucahyo | `.bpp` ⇄ `.mod`: fix holes, add surface, read surface types, merge verts | `vrmod bpp2obj`, `bppinfo`, `bppsurface` (read + surface retag; no `.mod` → `.bpp` rebuild) |
 | **Bad Poly Fix** | Sucahyo | Repair the "bad polys" that make holes after conversion | `vrmod collisioncheck` *detects*; no repair |
 | **MKTABLE / MKILI** | — | Data tables / the AI racing line (`.ili`) | `ili.generate` writes all three lines from a centreline; `vrmod` writes the `.obt` table natively — *partial*: fields 12/13 (AI pacing) approximated |
-| **trkaitweaker ("Track AI Tweaker")** | — | Make AI drive add-on tracks competently (also Nascar Heat) | **none** |
+| **trkaitweaker ("Track AI Tweaker")** | Sucahyo | Recompute the AI speed along a `.ili`/`.ild` from the path's curvature, with *mult*/*add* shaping cornering-vs-straight speed and *forward*/*backward lookup* setting how far ahead it brakes and how early it accelerates out. Also converts a Nascar Heat `track.ild` back to `fooland.txt` | **none** — but its readme is the only first-hand account of the AI model recovered, and it identifies what fields 12/13 are for (see the format reference) |
+| **Empty `drivers.res`** | Sucahyo (circulated by Val, 2009/2014) | The stock file bakes 524 per-track `.ilg` AI lines, so on an add-on track the AI follows the *original* track's line — swerving off at the start, or crashing. Replacing it with an EMPTY archive makes the AI fall back to the track's own `default.ili` | `vrmod` can produce the exact file (`archive.to_bytes([])` is byte-identical); no command exposes it yet |
 
 ### Engine patches & install fixes
 | Tool | Creator | Purpose | `vrmod` |
