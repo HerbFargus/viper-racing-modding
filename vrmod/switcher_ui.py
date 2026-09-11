@@ -1266,8 +1266,13 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             if hit is None:
                 try:
                     hit = carshot.to_png(f)
-                except Exception:
-                    return self._send(404, "text/plain", b"no body mesh")
+                except Exception as e:
+                    # Don't let a renderer bug look like a car without a mesh --
+                    # that is how a crash in the default wire style went unnoticed.
+                    import traceback
+                    traceback.print_exc()
+                    return self._send(404, "text/plain",
+                                      f"carshot failed: {type(e).__name__}: {e}".encode())
                 _SHOT_CACHE.clear()      # keyed by mtime, so stale entries are dead weight
                 _SHOT_CACHE[key] = hit
             return self._send(200, "image/png", hit)
@@ -1287,8 +1292,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             if hit is None:
                 try:
                     hit = carshot.track_to_png(f)
-                except Exception:
-                    return self._send(404, "text/plain", b"no mesh")
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+                    return self._send(404, "text/plain",
+                                      f"trackshot failed: {type(e).__name__}: {e}".encode())
                 _TRACKSHOT_CACHE.clear()
                 _TRACKSHOT_CACHE[key] = hit
             return self._send(200, "image/png", hit)
