@@ -42,10 +42,17 @@ def check(name: str, ok: bool, detail: str = "") -> None:
         print(f"  FAIL  {name}" + (f"  ({detail})" if detail else ""))
 
 
-def ring(n=96, rx=300.0, rz=200.0):
+def ring(n=96, rx=300.0, rz=200.0, cx=900.0, cz=-450.0):
+    """A test loop placed OFF the origin.
+
+    Centred on the origin it would be symmetric under negation, and a mirrored
+    racing line would lie on the road just as well as a correct one -- the check
+    below could not tell them apart. This project has already been caught by an
+    origin-centred ring once, on the walls.
+    """
     import math
-    return [(rx * math.cos(2 * math.pi * i / n),
-             rz * math.sin(2 * math.pi * i / n), 0.0) for i in range(n)]
+    return [(cx + rx * math.cos(2 * math.pi * i / n),
+             cz + rz * math.sin(2 * math.pi * i / n), 0.0) for i in range(n)]
 
 
 def main() -> int:
@@ -58,6 +65,7 @@ def main() -> int:
     scene = trackgen.sweep(ring())
     trackgen.add_checkpoints(scene, 3, half_width=trackgen.DEFAULT_ROAD_HALF_WIDTH)
     trackgen.add_grid(scene, 8)
+    trackgen.add_ground(scene)
 
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "generated.trk"
@@ -129,6 +137,33 @@ def main() -> int:
             ok += bpp.find_point(b, x, z) == b.triangles.index(t)
         check("the collision tree locates its own triangles", ok >= 396,
               f"{ok}/400")
+
+        # THE one that only shows up by driving it: the centreline is in the
+        # SOURCE frame and the meshes are not, so a line built from the raw
+        # centreline is mirrored through the origin. The AI then drives a
+        # perfect lap of a road that is not there.
+        import math
+        road = [t for t in b.triangles if t.flag == 0]
+        w = ili.parse(env("default.ili"))
+
+        def near(x, z):
+            return min(math.dist((x, z), (v[0], v[2]))
+                       for t in road for v in t.v)
+
+        probes = list(w)[::5][:24]
+        on = sum(1 for q in probes if near(q.x, q.z) < 12.0)
+        flipped = sum(1 for q in probes if near(-q.x, -q.z) < 12.0)
+        check("the racing line lies ON the road, not mirrored through the origin",
+              on == len(probes) and flipped < len(probes),
+              f"{on}/{len(probes)} on the road, {flipped}/{len(probes)} if negated")
+
+        # A ground plane must be drawn but NOT collided: it overlaps the road in
+        # XZ, and .bpp stores one surface per point.
+        ground = [n for n in scene.meshes if n.startswith("ground")]
+        if ground:
+            check("a ground plane stays out of the collision set",
+                  not any(o.name in ground for o in scene.driveables),
+                  "scenery only")
 
         # A donor with no stand-in for a texture must fail loudly, not quietly
         # drop the member.

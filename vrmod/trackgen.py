@@ -716,6 +716,46 @@ def write_bpp(scene: "TrackScene", out_dir, *, name: str = "track.bpp", **kw):
     return out, tree
 
 
+def add_ground(scene: "TrackScene", *, texture: str = "grass.tex",
+               margin: float = 400.0, drop: float = 0.15,
+               name: str = "ground.mod") -> None:
+    """Lay a wide plane under the whole track so the world does not end at the verge.
+
+    A swept track is a RIBBON about 28 m across and nothing beyond it, so off the
+    grass you see sky straight down -- there is no terrain to see. This fills
+    that in.
+
+    It is added as SCENERY, not as a driveable: a plane under the track overlaps
+    the road in XZ, and .bpp stores one surface per point (see bpp.py). Feeding
+    it to the collision tree would make the whole track unrepresentable. Drawn
+    and not collided sidesteps that entirely -- which is also what `param1=3`
+    exists for.
+
+    `drop` sits it just under the road so the two do not z-fight along the verge.
+    """
+    pts = scene.centreline
+    if not pts:
+        raise ValueError("the scene has no centreline to size a ground plane to")
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    x0, x1 = min(xs) - margin, max(xs) + margin
+    y0, y1 = min(ys) - margin, max(ys) + margin
+    elev = min((p[2] if len(p) > 2 else 0.0) for p in pts) - drop
+
+    corners = [(x0, y0, elev), (x1, y0, elev), (x1, y1, elev), (x0, y1, elev)]
+    tile = max(x1 - x0, y1 - y0) / 40.0 or 1.0
+    verts = []
+    for gx, gy, gz in corners:
+        wx, wy, wz = to_viper((gx, gy, gz))
+        verts.append(mod.Vertex(wx, wy, wz, 0.0, 1.0, 0.0,
+                                (gx - x0) / tile, (gy - y0) / tile))
+    faces = [(0, 1, 2), (0, 2, 3)]
+    material = mod.Material(name=texture, vertex_start=0, vertex_end=4,
+                            face_start=0, face_end=2)
+    scene.meshes[name] = mod.Mesh(vertices=verts, materials=[material], faces=faces)
+    scene.scenery.append(SceneObject(name, GRASS, NO_COLLISION))
+
+
 def write_scene(scene: "TrackScene", out_dir) -> list:
     """Write both sources and every swept mesh. Returns what was written."""
     d = Path(out_dir)

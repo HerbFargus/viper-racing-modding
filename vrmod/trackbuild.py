@@ -162,7 +162,13 @@ def assemble(scene, *, donor: str | Path, out_path: str | Path,
     add("track.sol", SOL_TAG, SOL_VERSION, envelope.parse(sol.empty(SOL_VERSION)).payload)
 
     # ---- racing lines ----------------------------------------------------
-    pts = [(p[0], p[1]) for p in scene.centreline]
+    # THE CENTRELINE IS IN THE SOURCE FRAME; the meshes are not. to_viper()
+    # negates both ground axes, so a line built from the raw centreline comes out
+    # mirrored through the origin -- the AI then drives a perfect lap of a road
+    # that is not there. Measured before this: 40 of 40 waypoints landed on the
+    # road only after negating. Same trap as the walls, which needed flip=False.
+    pts = [(v[0], v[2]) for v in
+           (trackgen.to_viper(p) for p in scene.centreline)]
     half = trackgen.DEFAULT_ROAD_HALF_WIDTH
     corr = corridor if corridor is not None else ili.corridor_for(half * 2.0)
     # `gates` is the cumulative distance of each checkpoint, which is what the
