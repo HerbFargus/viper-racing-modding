@@ -239,6 +239,7 @@ Two kinds of software are kept apart deliberately:
 | **Bad Poly Fix** | Sucahyo | Repair the "bad polys" that make holes after conversion | `vrmod collisioncheck` *detects*; no repair |
 | **MKTABLE / MKILI** | — | Data tables / the AI racing line (`.ili`) | `ili.generate` writes all three lines from a centreline; `vrmod` writes the `.obt` table natively — *partial*: fields 12/13 (AI pacing) approximated |
 | **trkaitweaker ("Track AI Tweaker")** | — | Make AI drive add-on tracks competently (also Nascar Heat) | **none** |
+| **Empty `drivers.res`** | Sucahyo (circulated by Val, 2009/2014) | The stock file bakes 524 per-track `.ilg` AI lines, so on an add-on track the AI follows the *original* track's line — swerving off at the start, or crashing. Replacing it with an EMPTY archive makes the AI fall back to the track's own `default.ili` | `vrmod` can produce the exact file (`archive.to_bytes([])` is byte-identical); no command exposes it yet |
 
 ### Engine patches & install fixes
 | Tool | Creator | Purpose | `vrmod` |

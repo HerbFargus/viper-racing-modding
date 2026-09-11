@@ -383,6 +383,19 @@ real Viper GTS's 4.45 × 1.92 × 1.12 m. **No conversion is needed to bring car 
 
 `default.ili` = the AI racing line; `rdefault.ili` = reverse-direction variant; `track.ild` = a third line
 variant (checkpoint/pit line). All three share the format — as does a fourth extension, `.ilg`, found in
+> **`drivers.res` makes the AI drive the WRONG track on any add-on, and the community fix is to empty
+> it — ✅ CONFIRMED.** The shipped file is 6,334,252 bytes holding 1,220 members: 524 `.ilg` AI lines,
+> 695 `.dnt` tunings and `aidriver.adr`. Those `.ilg` lines are baked per track, so a new track
+> installed into a stock slot inherits the *original* track's AI line — the AI swerves off the road at
+> the start, or the game crashes outright on some tracks.
+>
+> Sucahyo's fix, circulated from 2009, is a `drivers.res` containing nothing at all: 16 bytes,
+> `30 54 53 52` plus three zero counts, which is byte-for-byte what `archive.to_bytes([])` produces.
+> With no baked lines to prefer, the AI falls back to the track's own `default.ili` / `track.ild`.
+>
+> **This is a prerequisite for any generated or imported track**, and it is invisible until AI cars
+> are on track: geometry, collision, timing and the player's own car all behave correctly without it.
+
 `drivers.res` on the retail disc: one AI-line variant per AI driver skill tier per track section
 (`000vipr.ilg` … `6xxvipr.ilg`, paired with a same-tier `.dnt` file, §4.11 — hundreds of them, all
 confirmed `NILI`-tagged and structurally identical to `.ili`/`.ild`).
