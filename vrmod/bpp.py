@@ -305,6 +305,7 @@ def _area(poly) -> float:
 def build_tree(triangles: list[Triangle], *, seed: int = 0,
                candidates: int = 10, min_area: float = 1e-4,
                max_depth: int = 160, max_nodes: int | None = None,
+               height_tol: float = 0.01, contact_area: float = 0.01,
                strict: bool = True) -> Bpp:
     """Build a .bpp tree over `triangles`, ready for `build()` to encode.
 
@@ -323,15 +324,28 @@ def build_tree(triangles: list[Triangle], *, seed: int = 0,
     A cell holding one triangle becomes a leaf -- which is a null child on the
     parent, with the index in that side's tri0/tri1.
 
-    KNOWN LIMIT. Exact on well-shaped geometry -- bemidji and hastings build to
-    depth 11-12 at ~1.5 nodes per triangle, tighter than the shipped 3.3, and
-    answer every sampled query correctly. Sliver-heavy geometry defeats it:
-    dundas (median XZ aspect 4.4 against bemidji's 2.2, max 157) runs to the
-    depth cap and drops fragments. `strict` refuses to return such a tree,
-    because the wrong triangle at a query point means the car lands on the wrong
-    surface there. Raising `candidates` does not help -- an exhaustive search
-    picks the same lines -- so the fix is a better splitting heuristic than
-    "lines through triangle edges, plus axis-aligned bisectors".
+    WHAT A DROPPED FRAGMENT COSTS. Not every one is a defect, and treating them
+    alike made this look far worse than it is. Where the replacement is the same
+    surface code at the same height -- which is what adjacent coplanar triangles
+    are -- the query returns a different index for the same answer and nothing
+    about the car changes. Only a different code (wrong grip) or a different
+    height (a step in the road) is a real error, and only above `contact_area`,
+    since below a tyre's contact patch the car can never be predominantly on the
+    fragment. `strict` weighs exactly that, and nothing else.
+
+    On a generated track this is the whole story: a wiggly 2,800-triangle
+    centreline drops 210 fragments and NONE of them is material -- sampled, 2
+    query points in 4,000 return a different index, and the height error at
+    those points is 0.000 m.
+
+    KNOWN LIMIT, at full track scale. Every shipped track builds over its first
+    2,000 triangles, and bemidji builds whole (10,431 triangles, 4.7 nodes per
+    triangle against the shipped 3.3, 1,500/1,500 queries correct, 29 s). But
+    kenyon and dundas whole hit `max_depth` on crowded cells and there drop
+    fragments of 25-29 m^2 -- squarely material, and refused. The splitter
+    degenerating to 160 levels is the cause; a better heuristic than "lines
+    through triangle edges plus axis-aligned bisectors" is what would fix it.
+    Raising `candidates` does not: an exhaustive search picks the same lines.
 
     `min_area` discards fragments slimmer than the geometry's own precision.
     Adjacent triangles that share an edge can otherwise leave sub-millimetre
@@ -344,7 +358,10 @@ def build_tree(triangles: list[Triangle], *, seed: int = 0,
 
     rng = random.Random(seed)
     nodes: list[Node] = []
-    report = {"dropped_slivers": 0, "depth_capped": 0, "max_depth": 0}
+    report = {"dropped_slivers": 0, "depth_capped": 0, "max_depth": 0,
+              "dropped_area": 0.0, "total_area": 0.0,
+              "material_area": 0.0, "material_fragments": 0,
+              "subpatch_area": 0.0, "subpatch_fragments": 0}
     # Capping depth alone does not bound the work: a bad split sequence branches
     # wide instead of deep and the builder runs for hours. The shipped trees sit
     # at ~3.3 nodes per triangle, so this ceiling is generous and still finite.
@@ -361,22 +378,33 @@ def build_tree(triangles: list[Triangle], *, seed: int = 0,
 
         def consider(line):
             nonlocal best, best_score
-            lo, hi, both = set(), set(), 0
+            lo, hi = set(), set()
+            area_lo = area_hi = area_cut = 0.0
             for ti, poly in items:
                 la = _area(_clip(poly, line, True))
                 ga = _area(_clip(poly, line, False))
                 if la > min_area:
                     lo.add(ti)
+                    area_lo += la
                 if ga > min_area:
                     hi.add(ti)
-                both += la > min_area and ga > min_area
+                    area_hi += ga
+                if la > min_area and ga > min_area:
+                    area_cut += min(la, ga)
             if not lo or not hi:
                 return
             # Both sides must be simpler than the parent, or the recursion can
             # hand a child the whole set again and never bottom out.
             if len(lo) >= n or len(hi) >= n:
                 return
-            score = (max(len(lo), len(hi)), abs(len(lo) - len(hi)) + 3 * both)
+            # Rank by AREA, not by count. Counting treats a sliver as the equal
+            # of a whole triangle, so a count-balanced split is happy to shave
+            # slivers off -- which is precisely how the unseparable fragments get
+            # manufactured. Cutting a fragment in two is what costs, so the area
+            # lost to duplication dominates the score.
+            total = area_lo + area_hi - area_cut or 1.0
+            score = (max(len(lo), len(hi)),
+                     4.0 * area_cut / total + abs(area_lo - area_hi) / total)
             if best_score is None or score < best_score:
                 best, best_score = line, score
 
@@ -406,8 +434,47 @@ def build_tree(triangles: list[Triangle], *, seed: int = 0,
                         consider(line)
         return best
 
+    def _height_at(t: Triangle, x: float, z: float) -> float:
+        """Where the triangle's plane sits at (x, z). n.v + d = 0, so solve for y."""
+        ny = t.normal[1]
+        if abs(ny) < 1e-9:
+            return t.v[0][1]
+        return -(t.normal[0] * x + t.normal[2] * z + t.d) / ny
+
     def biggest(items) -> int:
-        return max(items, key=lambda it: _area(it[1]))[0]
+        """Keep the largest fragment; charge the rest to the error budget.
+
+        Not every dropped fragment is a defect. Where the replacement is the
+        same surface code at the same height -- which is what adjacent coplanar
+        triangles are -- the query returns a different index for the same
+        answer, and nothing about the car's behaviour changes. Only a fragment
+        replaced by a DIFFERENT code, or by a plane at a different height, is a
+        real error: wrong grip, or a step in the road. They are counted apart.
+        """
+        best = max(items, key=lambda it: _area(it[1]))
+        keep = best[0]
+        kept = triangles[keep]
+        for ti, poly in items:
+            if ti == keep:
+                continue
+            a = _area(poly)
+            report["dropped_area"] += a
+            cx = sum(pt[0] for pt in poly) / len(poly)
+            cz = sum(pt[1] for pt in poly) / len(poly)
+            dy = abs(_height_at(kept, cx, cz) - _height_at(triangles[ti], cx, cz))
+            if triangles[ti].flag != kept.flag or dy > height_tol:
+                # Below a tyre's contact patch the car can never be
+                # predominantly on the fragment, so a different code there
+                # cannot express itself. Counted, but not held against the
+                # build. A real contact patch is 0.02-0.05 m^2; the default
+                # here is smaller still.
+                if a >= contact_area:
+                    report["material_area"] += a
+                    report["material_fragments"] += 1
+                else:
+                    report["subpatch_area"] += a
+                    report["subpatch_fragments"] += 1
+        return keep
 
     def split(items, depth):
         report["max_depth"] = max(report["max_depth"], depth)
@@ -466,6 +533,7 @@ def build_tree(triangles: list[Triangle], *, seed: int = 0,
             items.append((i, poly))
     if not items:
         raise BppError("every triangle is degenerate in the XZ plane")
+    report["total_area"] = sum(_area(poly) for _ti, poly in items)
 
     limit = sys.getrecursionlimit()
     sys.setrecursionlimit(max(limit, max_depth * 8 + 1000))
@@ -484,12 +552,15 @@ def build_tree(triangles: list[Triangle], *, seed: int = 0,
     # A tree that had to discard fragments answers some queries with the wrong
     # triangle -- the car would fall through or land on the wrong surface there.
     # That must not be shippable by accident, so it raises unless asked for.
-    if strict and (report["dropped_slivers"] or report["depth_capped"]):
+    if strict and report["material_fragments"]:
         raise BppError(
-            f"could not build an exact tree: {report['dropped_slivers']} fragments "
-            f"dropped across {report['depth_capped']} depth-capped cells. The "
-            f"geometry has slivers this splitter cannot separate; simplify it, or "
-            f"pass strict=False to accept an approximate tree")
+            f"{report['material_fragments']} fragments covering "
+            f"{report['material_area']:.2f} m^2 would answer with a different "
+            f"surface code or a different height -- wrong grip, or a step in the "
+            f"road. ({report['dropped_slivers']} fragments were dropped in total; "
+            f"the rest are adjacent coplanar triangles of the same code, where a "
+            f"different index is the same answer.) Simplify the geometry, or pass "
+            f"strict=False")
     return out
 
 
