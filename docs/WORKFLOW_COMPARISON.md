@@ -10,8 +10,7 @@ what it takes now. It is not a tutorial, and it is not a tool chart — the char
 document, and the formats are in [VIPER_RACING_FILE_FORMATS.md](VIPER_RACING_FILE_FORMATS.md).
 
 **The bottom line.** Every stage of both pipelines now runs from one cross-platform Python library,
-with two exceptions: the collision BSP (`.bpp`) still requires the original `nhmkworld`, and `.sol`
-walls can only be written empty. Everything else — geometry, textures, surface codes, racing lines,
+with one exception: the collision BSP (`.bpp`) still requires the original `nhmkworld`. Everything else — geometry, textures, surface codes, racing lines,
 timing gates, the starting grid, packaging, installation — is `vrmod`. Both pipelines are confirmed
 in game: a car with a custom model on 2026-09-07, a track generated from a centreline on 2026-09-09,
 and a Bob's Track Builder track imported with its own geometry on 2026-09-10.
@@ -33,7 +32,7 @@ text afterwards — in **both** source files, or the track looked right and drov
 | 4 | Timing gates | vrTrackMaker | `vrmod trackgen --checkpoints` |
 | 5 | Starting grid | vrTrackMaker | `vrmod trackgen --grid` |
 | 6 | Racing lines | `mkilicc -nolat`, run three times over three hand-authored `.ili` sources | `ili.generate` — all three lines direct from the centreline |
-| 7 | Compile the surface set | `mkfltoa` → `MKWORLD` → `.sol` `.obt` `.bsp` | `vrmod` writes `.obt`, `.bsp` and `.sol` natively |
+| 7 | Compile the surface set | `mkfltoa` → `MKWORLD` → `.sol` `.obt` `.bsp` | `vrmod` writes `.obt` and `.bsp` natively; barriers via `--walls` → `MKWORLD` → `.sol` |
 | 8 | Compile graphics and collision | `mkfltoa` → `nhmkworld` → `.grf` `.bpp` | `.grf` native; **`.bpp` still needs `nhmkworld`** |
 | 9 | Track map image | MKSTAMP / tga2stp | `vrmod trackmap` |
 | 10 | Sky | jpg2sky, four tiles by hand | `vrmod skyimport` — one panoramic TGA |
@@ -143,8 +142,6 @@ Stated plainly, because a comparison that lists only wins is not much use:
 
 - **`.bpp` — the collision BSP.** Still built by `nhmkworld` from the graphic scene file. This is the
   one step in either pipeline that cannot run without an original binary.
-- **`.sol` — walls.** Can only be written empty. The spatial tail is not understood well enough to
-  synthesise, so a generated track has no wall collision.
 - **UV editing.** UVs round-trip through OBJ, but there is no equivalent of the **UV Map Editor**, or
   of Sucahyo's **Auto Image Tiler**, which rewrote a `.mod`'s UVs and texture references together.
 - **AI tuning.** No equivalent of **trkaitweaker**. Racing lines are generated, but fields 12 and 13 —
