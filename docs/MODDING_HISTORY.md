@@ -188,6 +188,13 @@ Two kinds of software are kept apart deliberately:
 
 ## Part A — community tools (Viper Racing–specific)
 
+> **`reslist.txt` had two incompatible shapes, and that is why a "reorder" step existed.** An
+> extracted track's list is one long whitespace-separated row (castle's is 62 entries on a single
+> line); the track-building kit ships one entry per line (19 entries, 18 newlines). VRcarEditor's
+> tutorial spells out the consequence — its REORDERRESLIST button "lines up the reslist.txt contents
+> in a row in order for mkres.exe to recognize it". A hand-maintained list that two tools in the same
+> chain disagreed about is the kind of failure `vrmod pack` removes by not needing a list at all.
+
 ### Archive / packaging
 | Tool | Creator | Purpose | `vrmod` |
 |---|---|---|---|
@@ -195,6 +202,7 @@ Two kinds of software are kept apart deliberately:
 | **mkres.exe** *(RESTools)* | Frank P. Wolf | Repack an archive from a `reslist` | `vrmod pack` |
 | **mkcar.exe** *(RESTools)* | Frank P. Wolf | Build the `.car` itself | `vrmod pack` / `carfork` |
 | **extract.exe** | Sucahyo | Multi-function track utility — `.ase`→vertex text/`.ili`/wall quads/pipeline, mod2quad, `.bpp`→`.mod`, `.ase`→`camera.tab`, obstacle injection into `track.obt` | `vrmod trackgen` (`--walls`, and `mesh_to_wall_quads` for mod2quad); `bpp2obj`; obstacle records not yet written |
+| **VRcarEditor** | — (2008 tutorial by a community member) | A .NET front end that drives the car-stats chain: rescrack → cf2txt → *edit the text by hand* → mkcar → **reorderreslist** → mkres, thirteen steps across six tools to change one number. Carries no knowledge of the `.cf` fields itself | `vrmod cfdump` / `cfset` / `cfpatch` — one command, in place |
 | **VR-ResEdit** | Matthias Walden | GUI front end for the archive command-line tools — browse, extract, import, rename and discard members of a `.car`/`.res`/`.trk`, with drag-and-drop and multi-select. v0.96, freeware. Supports both Viper Racing and Nascar Heat resource types | Mod manager + `vrmod unpack`/`pack`/`list` |
 | **ViperMan** | — | Setup manager and launcher: edit `.csu` setups outside the game, copy/paste them between slots, tracks and installations, manage multiple installs, and launch Frank Wolf's utilities. Aware of tracks and cars disabled by TrackMan/CarMan. v0.5 beta | Mod manager (install/restore); setup editing — **none** |
 | **mod2quadnoz.exe** | Sucahyo | Wall quads from a `.mod`, with a bottom/top height box; its 2016 tutorial documents the rule that **faces must be vertical** — no tilting, no horizontal parts — and suggested heights (guard rails +1.0, small billboards +2.0, big billboards +4.0, banner posts +8, one-storey buildings +10) | `trackgen.mesh_to_wall_quads` — same rule, reached independently |
