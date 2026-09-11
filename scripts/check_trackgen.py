@@ -307,23 +307,35 @@ def check_invariants() -> None:
     check("the road in a single-object export is road, not grass",
           a.get(tg.ROAD, 0) > 0, f"{a.get(tg.ROAD, 0)} road chunks")
 
-    # The built-in prefix table is a guess at what people call things, and it
-    # guesses wrong on a real BTB export: rmbl* (kerbs), rgeddirt* and rgedgrav*
-    # all fall back to grass. BTB ships its own answer in special.ini, and the
-    # author's statement of intent beats our guess.
-    pats = [("rmbl*", tg.RUMBLE), ("gras*", tg.GRASS), ("rgeddirt*", tg.DIRT),
-            ("road*", tg.ROAD)]
-    check("the built-in table does mis-classify BTB's real kerb naming",
-          tg.surface_code("rmbl01") == tg.GRASS, "rmbl01 -> grass, which is why patterns matter")
-    check("surface patterns classify what the prefix table misses",
-          [tg.surface_code_from_patterns(n, pats) for n in
-           ("rmbl01", "rgeddirt01", "gras01", "road01")]
-          == [tg.RUMBLE, tg.DIRT, tg.GRASS, tg.ROAD], "all four correct")
-    check("an unmatched material still falls back, not crashes",
-          tg.surface_code_from_patterns("mystery", pats) is None, "returns None")
-    check("a bare '*' catch-all is not honoured",
-          tg.surface_code_from_patterns("mystery", [("*", tg.ROAD)]) is None,
-          "would otherwise make every prop grippy road")
+    # Roles. A surface code says what a mesh drives like, not whether it is a
+    # driving surface at all. BTB names material slots generically -- a concrete
+    # barrier's material is "road24" and seven traffic cones are "road1" -- so
+    # classifying a wall by its material makes it asphalt and the car drives up
+    # it. The source FILE name is the reliable signal, with textures as backup.
+    check("BTB's file naming resolves roles",
+          [tg.mesh_role(n) for n in ("t_0_s0", "ta0000", "wall0_s0", "obj00000")]
+          == [tg.SURFACE, tg.SURFACE, tg.WALL, tg.PROP], "track/terrain/wall/prop")
+    check("a texture resolves a role the file name does not",
+          [tg.mesh_role("mesh17", [t]) for t in
+           ("Cone.tex", "wall_cement001.tex", "Tree04_leaves.tex", "GuardRail.tex")]
+          == [tg.PROP, tg.WALL, tg.PROP, tg.WALL], "cone/wall/tree/guardrail")
+    check("an unrecognised mesh stays a driving surface",
+          tg.mesh_role("whatever", ["mystery.tex"]) == tg.SURFACE,
+          "no silent demotion to scenery you fall through")
+
+    roled = tg.scene_from_meshes(
+        {"road_a.mod": road_mesh, "wall0_s0.mod": grass_mesh},
+        centreline=circle, chunk_size=50.0)
+    check("a wall is routed to scenery, not to driveables",
+          all(not o.name.startswith("wall") for o in roled.driveables)
+          and any(o.name.startswith("wall") for o in roled.scenery),
+          f"{len(roled.driveables)} driveable, {len(roled.scenery)} scenery")
+    check("scenery carries NO_COLLISION",
+          all(o.param1 == tg.NO_COLLISION for o in roled.scenery),
+          "param1=3, so it stays out of .bpp")
+    rg, rs = tg.write_graphic(roled), tg.write_surface(roled)
+    check("scenery reaches the graphic file but not the surface file",
+          "wall0_s0" in rg and "wall0_s0" not in rs, "drawn, not driven on")
 
     # Walls. .sol was long treated as unwritable because its spatial tail is
     # not understood -- but it does not have to be synthesised: the surface file

@@ -1199,12 +1199,8 @@ def main(argv: list[str] | None = None) -> int:
             line = _tg.resample(line, args.spacing, closed=closed)
         if args.keep_geometry:
             meshes = _tg.read_meshes(args.centreline)
-            # The author's own surface settings, if the exporter wrote any --
-            # BTB ships them in special.ini beside the model.
-            patterns = _tg.read_surface_patterns(args.centreline)
             scene = _tg.scene_from_meshes(meshes, centreline=line,
-                                          chunk_size=args.chunk_size,
-                                          patterns=patterns)
+                                          chunk_size=args.chunk_size)
             half = _tg.road_half_width(scene) or args.road_width / 2.0
         else:
             scene = _tg.sweep(
@@ -1232,12 +1228,17 @@ def main(argv: list[str] | None = None) -> int:
         print()
         print(f"{len(scene.driveables)} driveable objects, written identically "
               f"to both scene files.")
+        if scene.scenery:
+            walls = sum(1 for o in scene.scenery
+                        if o.name.lower().startswith(("wall", "barrier", "fence")))
+            print(f"{len(scene.scenery)} scenery objects, graphic file only, "
+                  f"drawn but not solid.")
+            if walls:
+                print(f"  of which {walls} look like barriers -- they are DRAWN "
+                      f"only. Use --walls for collision.")
         if wall_count:
             print(f"{wall_count} wall quads, surface file only -- MKWORLD turns each "
                   f"into one .sol primitive.")
-        if args.keep_geometry and patterns:
-            print(f"surface patterns read from the model's own special.ini: "
-                  f"{', '.join(g for g, _ in patterns)}")
         if args.keep_geometry:
             print(f"road half-width measured from the model: {half:.2f} m "
                   f"(racing-line corridor {ili.corridor_for(half * 2.0):.1f} m)")
