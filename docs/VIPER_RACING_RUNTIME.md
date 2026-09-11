@@ -195,6 +195,25 @@ somewhere between 40 and 60 mph of the approaching car's own speed. The 2 s itse
 possibility that it is a fixed distance that merely looked like a time in a
 narrow speed band.
 
+**What the panic is.** Its five calls resolve through the same linker map to the
+whole manoeuvre:
+
+```
+Car::SetBraking (0.1f)      10% brake
+Car::SetEBrake  (1.0f)      handbrake FULL ON
+Car::SetThrottle(0)         throttle closed
+Car::SetClutch  (0)         clutch out
+Car::SetSteering(+/-1.0f)   full lock, the sign from [esi+0xf18]
+```
+
+A deliberate handbrake spin, then — not an avoidance line that overshoots. The
+car stamps the handbrake, lifts, dumps the clutch and throws full lock.
+
+`vrmod headon --disable` writes a single `RET` at the function's entry, skipping
+all five. **Confirmed in game:** the panic stops and ordinary object avoidance
+continues — the first direct evidence that `headon_panic`, `passer` and
+`slow_interact` really are independent rather than one behaviour with thresholds.
+
 Worth knowing when placing obstacles: this is a **car-to-car** response. Static
 solids are handled elsewhere — `.sol` primitives reach the AI's own avoidance, so
 an opponent will steer around a barrier that did not exist when its racing line
