@@ -46,7 +46,7 @@ import threading
 import webbrowser
 from pathlib import Path
 
-from . import aifield, archive, carshot, cf, doctor, envelope, grf, hornball, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch
+from . import aifield, archive, carshot, cf, doctor, envelope, grf, hornball, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch, headon
 
 _PAGE = r"""<!doctype html>
 <meta charset="utf-8"><title>Viper Racing -- Mod Manager</title>
@@ -826,6 +826,7 @@ async function renderGame(){
   const kb = b => (b/1024 | 0).toLocaleString();
   const dr = await api('/api/doctor');
   const hb = await api('/api/hornball');
+  const ho = await api('/api/headon');
 
   const opponents = `
    <div class="panel">
@@ -987,6 +988,22 @@ async function renderGame(){
      </div>`;
   }
 
+  const hoOn = ho.state === 'enabled';
+  const hoPanel = (ho.state === 'unknown' || ho.state === 'missing') ? '' : `
+   <div class="panel">
+     <div class="panel-head"><h2>AI head-on reaction</h2>
+       <span class="note">${hoOn ? 'panic on (stock)' : 'panic off'}</span></div>
+     <p class="lede">Come at an AI car fast enough and it stamps the handbrake, lifts and
+       throws full lock &mdash; a deliberate spin rather than a line past you. Turning it off
+       leaves ordinary avoidance alone: they still steer around you and around obstacles.</p>
+     <div class="ai-row" style="margin-top:14px">
+       <button class="mini ${hoOn ? 'on' : ''}" onclick="setHeadon(${hoOn})"
+         >${hoOn ? 'Turn the panic off' : 'Restore the panic'}</button>
+       <span class="note" style="margin-left:10px">${
+         hoOn ? 'One byte in race.bin, backed up first.' : 'Restores byte for byte.'}</span>
+     </div>
+   </div>`;
+
   const fixBtn = {vram:'Apply', dpi:'Set DPI-aware', patch:'Apply'};
   const fixes = `
    <div class="panel">
@@ -1006,7 +1023,15 @@ async function renderGame(){
      </div>
    </div>`;
 
-  el$('config').innerHTML = opponents + aiCar + cars + tracks + hbPanel + resPanel + fixes;
+  el$('config').innerHTML = opponents + aiCar + cars + tracks + hbPanel + hoPanel
+                          + resPanel + fixes;
+}
+
+async function setHeadon(disable){
+  const r = await api('/api/headon', disable ? {} : {enable:true});
+  if(!r.ok) return toast(r.error, 'bad');
+  toast(r.message);
+  renderGame();
 }
 
 async function applyHornball(){
@@ -1133,6 +1158,13 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                               "fix": f.fix, "action": f.action, "link": f.link}
                              for f in rep.findings],
             })
+        if self.path == "/api/headon":
+            try:
+                state = headon.status(d)
+                at = headon.site(d) if state == headon.ENABLED else None
+            except headon.PatchError:
+                state, at = headon.UNKNOWN, None
+            return self._json({"state": state, "site": at})
         if self.path == "/api/hornball":
             if not hornball.available(d):
                 return self._json({"available": False})
@@ -1343,6 +1375,19 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 shot = d / f"{track.stem}.stp"
                 shot.write_bytes(stp.to_loose(stp.build_from_rgb(rgb, w, h)))
                 return self._json({"ok": True, "wrote": shot.name})
+            if self.path == "/api/headon":
+                try:
+                    if req.get("enable"):
+                        headon.revert(d)
+                        msg = "Head-on panic restored."
+                    else:
+                        headon.apply(d)
+                        msg = ("Head-on panic off (race.bin.headon-backup saved). "
+                               "Ordinary avoidance is untouched.")
+                except headon.PatchError as e:
+                    return self._json({"ok": False, "error": str(e)}, 400)
+                return self._json({"ok": True, "message": msg,
+                                   "state": headon.status(d)})
             if self.path == "/api/fix":
                 # Only named, understood repairs -- never an arbitrary write.
                 action = req.get("action")
