@@ -413,6 +413,40 @@ confirmed `NILI`-tagged and structurally identical to `.ili`/`.ild`).
         field[16] = NOT a float: `0xFEEDBEEF`
 ```
 
+**What the AI actually does with these lines**, from the readme of Sucahyo's `trkaitweaker` —
+the only first-hand account of the AI's behaviour recovered so far:
+
+> *"AI in viper racing driving using path defined either by some ilg or default.ili or rdefault.ili
+> (reverse). This file define path, speed, and direction."*
+
+Its two pairs of controls describe the model:
+
+- **mult & add** — *"decide how fast the AI do on straight or on tight corner"*: the speed field is
+  computed from the path's curvature through a multiplier and an offset.
+- **forward lookup & backward lookup** — *"I limit the AI speed based from this two parameter. The AI
+  action will be using the slowest speed needed on this range. For instance, if my algorithm detected
+  a tight corner 20 meter ahead, then it will use that corner speed right now (as brake) if the
+  forward lookup is more than 20 meter. Increase forward lookup if AI braking too late… increase
+  backward lookup if AI accelerate too soon on corner exit."*
+
+That is a direct description of the shape fields **12 and 13** carry: a distance ahead and a distance
+behind, measured from each station, resetting in blocks. This document had them recorded as
+"distances to the boundaries of a segmentation whose rule is not known" — the rule is a braking
+lookahead, and the blocks are the stretches over which one corner governs the speed. `vrmod`
+approximates them with distance-to-next-checkpoint, which is why generated lines drive but do not
+brake like a shipped track.
+
+He also notes the author-side tool: *"AI-tweaker (also known as debug version race.bin ctrl-A)"*,
+which writes `aidriver.adr` — the single member inside `drivers.res` that is not an `.ilg` or `.dnt`.
+
+> **Reported, partly corroborated:** the same readme says `track.sol` holds pit markers as the int32
+> values 1000 (`pit_entry`), 1002 (`pit_exit`) and 1004 (`pit_reentry`), *"usually at begining or end
+> of file"*. Searching the shipped files finds them clustered in the tail region past the primitives
+> on heaven (1×1000, 2×1002, 2×1004 around offset 120k) and nfield (2×1000, 4×1002 around 143k), but
+> not at all on bemidji, hastings, uptown or Kyalami — so the values are real but not universal.
+> He also records that he never worked out how to edit `.sol`, and that `track.txt` carries a
+> `pit_side` variable.
+
 **Field 5 is a corridor half-width, not a sentinel — ✅ CONFIRMED in game.** In `default.ili` and
 `rdefault.ili` it is `-20000.0` in every record of every track that shipped with the game, which reads
 like an obvious "unset" marker and was recorded here as one. It is not. In `track.ild` it is *never*
