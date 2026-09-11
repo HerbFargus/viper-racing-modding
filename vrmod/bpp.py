@@ -55,17 +55,39 @@ What each bit MEANS is unconfirmed -- surface material, off-track, wall and pit
 are all plausible -- so this module keeps the flag as an integer and does not
 pretend to interpret it.
 
-WHAT `tri0` AND `tri1` MEAN IS STILL OPEN. They are triangle indices -- their
-range is exactly `0..n_triangles-1` -- but they are not a range (`tri0 > tri1`
-about half the time), not the same triangle twice (never), and not the triangle
-whose plane produced the split (the node's line is parallel to `tri0`'s plane
-only 5-10% of the time). `fixup_tree` does not touch them, so they are consumed
-at query time. This module round-trips them as opaque integers, which is why it
-can be byte-exact without knowing the answer.
+`tri0` AND `tri1` ARE THE LEAF PAYLOADS -- ✅ SOLVED, from the symbolised 1998
+build. A leaf is not a node of its own. When a node's child pointer on one side
+is null, that side's triangle index IS the answer: `tri0` for `less`, `tri1` for
+`greater`. `bpp_find_point` is the whole story, a descent with no backtracking:
+
+    d = a*x + b*z + c
+    d <= 0 -> `less` child;    null => the answer is tri0
+    d >  0 -> `greater` child; null => the answer is tri1
+
+which is why they looked like nothing in particular: on an INNER node the slot is
+dead, and about half of them carry a stale index the traversal never reads.
+
+`.bpp` IS A 2.5D SURFACE, NOT A TRIANGLE SOUP -- ✅ CONFIRMED by measurement.
+Across the shipped tracks no triangle has a downward normal, the median
+|normal.y| is 0.99, and vertical faces number 0 to 45 per track (dundas, limbo
+and uptown have none). No two triangles overlap in the XZ plane. That is what
+makes an exact 2D point location possible at all: for any (x, z) there is at most
+one collision triangle. Everything vertical -- walls, barriers -- is a `.sol`
+primitive instead. Sampling 400 interior points per track on all eight, the
+descent returns the exact containing triangle every time.
+
+The segment query `bpp_find` adds backtracking to the same structure: descend the
+side holding the first endpoint, then the other side if the second endpoint is
+across the line, with |d| < 0.001 snapped to zero so a point on the line is
+searched both ways. `BPPFinder::test_poly` then does the real 3D work, calling
+`intersect_plane` and `point_in_poly`.
 """
 from __future__ import annotations
 
+import math
+import random
 import struct
+import sys
 from dataclasses import dataclass, field
 
 HEADER = 20
@@ -164,6 +186,326 @@ def build(b: Bpp) -> bytes:
         out += struct.pack("<3f", n.a, n.b, n.c)
         out += struct.pack("<4i", n.tri0, n.tri1, n.less, n.greater)
     return bytes(out)
+
+
+# ---------------------------------------------------------------------------
+# Building a tree
+#
+# WHAT THE GAME DOES WITH IT, read from the symbolised 1998 build. `bpp_find_point`
+# is a plain descent with no backtracking:
+#
+#     d = a*x + b*z + c
+#     d <= 0 -> `less` child;    null => the answer is this node's tri0
+#     d >  0 -> `greater` child; null => the answer is this node's tri1
+#
+# So a leaf is not a node of its own: the triangle lives on the PARENT, in the
+# slot for the side whose child pointer is null. That is what tri0 and tri1 are,
+# a question this module's header used to leave open. `bpp_find`, the segment
+# query, adds backtracking -- descend the side holding the first endpoint, then
+# the other side if the second endpoint is across the line, with |d| < 0.001
+# snapped to zero so a point on the line is searched both ways.
+#
+# WHY A 2D TREE IS ENOUGH. Collision triangles do not overlap in the XZ plane.
+# Measured across the shipped tracks: no triangle has a downward normal, the
+# median |normal.y| is 0.99, and vertical faces number 0 to 45 per track (three
+# tracks have none at all). The .bpp is the drivable ground -- a 2.5D surface --
+# and everything vertical is a .sol primitive instead. That is why an exact point
+# location is possible at all, and it is the assumption this builder rests on.
+#
+# THE SPLITTING LINES the original compiler used are the triangles' own edges:
+# 98.0%-99.3% of nodes across the shipped tracks lie exactly on the XZ line
+# through some triangle edge. This builder does the same.
+#
+# It does NOT try to reproduce `nhmkworld`'s exact output -- tree shape is not
+# observable to the game, only the answers are. Correctness here means every
+# query returns what the geometry says it should, which is what check_bpp.py
+# tests against the shipped trees.
+
+_ON_EPS = 1e-6
+
+
+def _edge_line(t: Triangle, i: int) -> tuple[float, float, float] | None:
+    """The XZ line through edge i of a triangle, as (a, b, c)."""
+    (x0, _, z0) = t.v[i]
+    (x1, _, z1) = t.v[(i + 1) % 3]
+    a, b = (z1 - z0), -(x1 - x0)
+    if abs(a) < 1e-12 and abs(b) < 1e-12:
+        return None                       # degenerate edge in projection
+    return (a, b, -(a * x0 + b * z0))
+
+
+def _normalise(line: tuple[float, float, float]) -> tuple[float, float, float]:
+    """Scale to |c| = 1, or to unit (a, b) for a line through the origin.
+
+    Only the SIGN of a*x + b*z + c matters to the game, so this is cosmetic --
+    but it is the convention the shipped files use, so output looks like input.
+    """
+    a, b, c = line
+    if abs(c) > 1e-9:
+        return (a / abs(c), b / abs(c), 1.0 if c > 0 else -1.0)
+    m = math.hypot(a, b) or 1.0
+    return (a / m, b / m, 0.0)
+
+
+def _classify(t: Triangle, line: tuple[float, float, float]) -> int:
+    """-1 entirely on the `less` side, +1 entirely `greater`, 0 straddling.
+
+    The query sends d <= 0 to `less`, so a triangle whose largest d is <= 0 sits
+    wholly in the less region -- the boundary belongs to less.
+    """
+    a, b, c = line
+    ds = [a * x + b * z + c for (x, _, z) in t.v]
+    if max(ds) <= _ON_EPS:
+        return -1
+    if min(ds) > _ON_EPS:
+        return 1
+    return 0
+
+
+def _clip(poly, line, keep_less):
+    """Sutherland-Hodgman: the part of `poly` on one side of `line`.
+
+    Points exactly on the line are kept by both sides, which matches the query
+    rule (d <= 0 goes left) and keeps shared edges intact.
+    """
+    a, b, c = line
+    out = []
+    n = len(poly)
+    for i in range(n):
+        x0, z0 = poly[i]
+        x1, z1 = poly[(i + 1) % n]
+        d0 = a * x0 + b * z0 + c
+        d1 = a * x1 + b * z1 + c
+        if not keep_less:
+            d0, d1 = -d0, -d1
+        in0, in1 = d0 <= _ON_EPS, d1 <= _ON_EPS
+        if in0:
+            out.append((x0, z0))
+        if in0 != in1:
+            t = d0 / (d0 - d1) if (d0 - d1) else 0.0
+            out.append((x0 + t * (x1 - x0), z0 + t * (z1 - z0)))
+    return out
+
+
+def _area(poly) -> float:
+    if len(poly) < 3:
+        return 0.0
+    s2 = 0.0
+    for i in range(len(poly)):
+        x0, z0 = poly[i]
+        x1, z1 = poly[(i + 1) % len(poly)]
+        s2 += x0 * z1 - x1 * z0
+    return abs(s2) / 2.0
+
+
+def build_tree(triangles: list[Triangle], *, seed: int = 0,
+               candidates: int = 10, min_area: float = 1e-4,
+               max_depth: int = 160, max_nodes: int | None = None,
+               strict: bool = True) -> Bpp:
+    """Build a .bpp tree over `triangles`, ready for `build()` to encode.
+
+    The triangles must not overlap in the XZ plane -- see the note above.
+
+    This is a planar-subdivision BSP: a cell carries the triangles' CLIPPED
+    fragments, not whole triangles. Clipping is what makes it terminate --
+    classifying whole triangles against each line instead leaves distant ones
+    straddling every line forever.
+
+    TERMINATION rests on one property: a triangle lies entirely on one side of
+    the line through its own edge. So splitting on an edge of some fragment in
+    the cell always removes that triangle from one side, and that side's
+    distinct-triangle count strictly drops. `choose` requires exactly that.
+
+    A cell holding one triangle becomes a leaf -- which is a null child on the
+    parent, with the index in that side's tri0/tri1.
+
+    KNOWN LIMIT. Exact on well-shaped geometry -- bemidji and hastings build to
+    depth 11-12 at ~1.5 nodes per triangle, tighter than the shipped 3.3, and
+    answer every sampled query correctly. Sliver-heavy geometry defeats it:
+    dundas (median XZ aspect 4.4 against bemidji's 2.2, max 157) runs to the
+    depth cap and drops fragments. `strict` refuses to return such a tree,
+    because the wrong triangle at a query point means the car lands on the wrong
+    surface there. Raising `candidates` does not help -- an exhaustive search
+    picks the same lines -- so the fix is a better splitting heuristic than
+    "lines through triangle edges, plus axis-aligned bisectors".
+
+    `min_area` discards fragments slimmer than the geometry's own precision.
+    Adjacent triangles that share an edge can otherwise leave sub-millimetre
+    slivers in a cell that no line usefully separates. `max_depth` is a backstop
+    for the same pathology: past it, the largest fragment in the cell wins and
+    the rest are dropped. Both are reported in `build_report`.
+    """
+    if not triangles:
+        raise BppError("no triangles to build a tree from")
+
+    rng = random.Random(seed)
+    nodes: list[Node] = []
+    report = {"dropped_slivers": 0, "depth_capped": 0, "max_depth": 0}
+    # Capping depth alone does not bound the work: a bad split sequence branches
+    # wide instead of deep and the builder runs for hours. The shipped trees sit
+    # at ~3.3 nodes per triangle, so this ceiling is generous and still finite.
+    budget = max_nodes if max_nodes is not None else 64 * len(triangles) + 1024
+
+    class _Budget(BppError):
+        pass
+
+    def choose(items, distinct):
+        """A line whose sides each hold strictly fewer distinct triangles."""
+        best, best_score = None, None
+        n = len(distinct)
+        pool = items if len(items) <= candidates else rng.sample(items, candidates)
+
+        def consider(line):
+            nonlocal best, best_score
+            lo, hi, both = set(), set(), 0
+            for ti, poly in items:
+                la = _area(_clip(poly, line, True))
+                ga = _area(_clip(poly, line, False))
+                if la > min_area:
+                    lo.add(ti)
+                if ga > min_area:
+                    hi.add(ti)
+                both += la > min_area and ga > min_area
+            if not lo or not hi:
+                return
+            # Both sides must be simpler than the parent, or the recursion can
+            # hand a child the whole set again and never bottom out.
+            if len(lo) >= n or len(hi) >= n:
+                return
+            score = (max(len(lo), len(hi)), abs(len(lo) - len(hi)) + 3 * both)
+            if best_score is None or score < best_score:
+                best, best_score = line, score
+
+        for ti, _poly in pool:
+            for e in range(3):
+                line = _edge_line(triangles[ti], e)
+                if line is not None:
+                    consider(line)
+
+        # Axis-aligned candidates are considered ALONGSIDE the edges, not merely
+        # as a fallback. A long thin triangle's edge line slices the whole cell
+        # and peels one triangle at a time; an axis split bisects a cluster
+        # whatever shape its triangles are. Tracks differ sharply here -- dundas
+        # has a median XZ aspect ratio of 4.4 against bemidji's 2.2 -- and
+        # without these the sliver-heavy ones run to hundreds of levels deep.
+        xs = sorted(pt[0] for _t, poly in items for pt in poly)
+        zs = sorted(pt[1] for _t, poly in items for pt in poly)
+        for frac in (0.5, 0.3, 0.7):
+            consider((1.0, 0.0, -xs[int(len(xs) * frac)]))
+            consider((0.0, 1.0, -zs[int(len(zs) * frac)]))
+
+        if best is None and len(items) > len(pool):
+            for ti, _poly in items:
+                for e in range(3):
+                    line = _edge_line(triangles[ti], e)
+                    if line is not None:
+                        consider(line)
+        return best
+
+    def biggest(items) -> int:
+        return max(items, key=lambda it: _area(it[1]))[0]
+
+    def split(items, depth):
+        report["max_depth"] = max(report["max_depth"], depth)
+        distinct = {ti for ti, _ in items}
+        if len(distinct) == 1:
+            return ("tri", items[0][0])
+        if depth >= max_depth:
+            report["depth_capped"] += 1
+            report["dropped_slivers"] += len(distinct) - 1
+            return ("tri", biggest(items))
+        line = choose(items, distinct)
+        if line is None:
+            # Nothing separates them. With non-overlapping input this is a
+            # numerical sliver, so keep the largest and account for the rest.
+            report["dropped_slivers"] += len(distinct) - 1
+            return ("tri", biggest(items))
+        a, b, c = _normalise(line)
+        line = (a, b, c)
+        less, greater = [], []
+        for ti, poly in items:
+            lp = _clip(poly, line, True)
+            if _area(lp) > min_area:
+                less.append((ti, lp))
+            gp = _clip(poly, line, False)
+            if _area(gp) > min_area:
+                greater.append((ti, gp))
+        if not less or not greater:
+            report["dropped_slivers"] += len(distinct) - 1
+            return ("tri", biggest(items))
+        if len(nodes) >= budget:
+            raise _Budget(
+                f"gave up after {len(nodes)} nodes for {len(triangles)} triangles "
+                f"({len(nodes)/max(1,len(triangles)):.1f} per triangle; the shipped "
+                f"trees run about 3.3). The geometry has slivers this splitter "
+                f"cannot separate -- simplify it, or raise max_nodes")
+        n = Node(a=a, b=b, c=c, tri0=NO_TRI, tri1=NO_TRI,
+                 less=NO_CHILD, greater=NO_CHILD)
+        nodes.append(n)
+        here = len(nodes) - 1
+        kind, val = split(less, depth + 1)
+        if kind == "tri":
+            n.tri0 = val
+        else:
+            n.less = val
+        kind, val = split(greater, depth + 1)
+        if kind == "tri":
+            n.tri1 = val
+        else:
+            n.greater = val
+        return ("node", here)
+
+    items = []
+    for i, t in enumerate(triangles):
+        poly = [(t.v[0][0], t.v[0][2]), (t.v[1][0], t.v[1][2]), (t.v[2][0], t.v[2][2])]
+        if _area(poly) > min_area:
+            items.append((i, poly))
+    if not items:
+        raise BppError("every triangle is degenerate in the XZ plane")
+
+    limit = sys.getrecursionlimit()
+    sys.setrecursionlimit(max(limit, max_depth * 8 + 1000))
+    try:
+        kind, val = split(items, 1)
+    except _Budget as e:
+        raise BppError(str(e)) from None
+    finally:
+        sys.setrecursionlimit(limit)
+    if kind == "tri":
+        nodes.append(Node(a=1.0, b=0.0, c=0.0, tri0=val, tri1=val,
+                          less=NO_CHILD, greater=NO_CHILD))
+        val = len(nodes) - 1
+    out = Bpp(root=val, reserved=(0, 0), triangles=list(triangles), nodes=nodes)
+    out.build_report = report        # type: ignore[attr-defined]
+    # A tree that had to discard fragments answers some queries with the wrong
+    # triangle -- the car would fall through or land on the wrong surface there.
+    # That must not be shippable by accident, so it raises unless asked for.
+    if strict and (report["dropped_slivers"] or report["depth_capped"]):
+        raise BppError(
+            f"could not build an exact tree: {report['dropped_slivers']} fragments "
+            f"dropped across {report['depth_capped']} depth-capped cells. The "
+            f"geometry has slivers this splitter cannot separate; simplify it, or "
+            f"pass strict=False to accept an approximate tree")
+    return out
+
+
+def find_point(b: Bpp, x: float, z: float) -> int:
+    """The game's `bpp_find_point`: the triangle index at (x, z), or NO_TRI.
+
+    Kept here so a built tree can be checked against the geometry it came from.
+    """
+    n = b.root
+    for _ in range(len(b.nodes) + 2):
+        node = b.nodes[n]
+        if node.side(x, z) <= 0.0:
+            if node.less == NO_CHILD:
+                return node.tri0
+            n = node.less
+        else:
+            if node.greater == NO_CHILD:
+                return node.tri1
+            n = node.greater
+    raise BppError("descent did not terminate -- the tree has a cycle")
 
 
 def walk(b: Bpp):
