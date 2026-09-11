@@ -329,6 +329,18 @@ def box_from_segment(template: "Primitive", a, b, *, height: float,
     meaning is established get written: the orientation at +0x00, the centre at
     +0x24, and the half-extents at +0x5c.
 
+    CONFIRMED IN GAME 2026-09-11: a generated track carrying 148 of these stops
+    the car, on both sides of the road, from a `.sol` MKWORLD never touched.
+
+    ONE OPEN FAULT. That same session panicked on EXIT with "Memory still
+    allocated: 2912084 bytes" -- the build's shutdown leak check. Stock bemidji
+    exits clean, so it is ours. It is not the load path: `StaticObjectListGet`
+    allocates nothing per primitive (its two virtual calls are `Update` and
+    `SetSurfaceType`), and `StaticObjectListForget` releases the whole `.sol`
+    through `ResourceForget` as one resource. Whether the walls cause it at all
+    is not yet established -- the discriminating test is a generated track with
+    no walls, exited the same way.
+
     THE CONVENTIONS, read off bemidji's barrier boxes:
 
         row 1 of the matrix is (0, 1, 0)        -- up
