@@ -20,6 +20,10 @@ triangles, except along the outer perimeter. So:
     largest is a HOLE.
   * an edge used THREE or more times is non-manifold: surfaces meeting in a way
     a single-valued heightfield cannot represent.
+  * two triangles covering the same ground are an OVERLAP, and this is the fault
+    that actually makes a track unrepresentable -- a 2D tree stores one triangle
+    per point. Finding them costs more than the rest of this module put together,
+    so it is opt-in: pass `find_overlapping=True`.
   * a vertex lying on another edge's interior is a T-JUNCTION. It is the usual
     cause of a crack: split one triangle's edge without splitting its neighbour
     and the two no longer share an edge at all, so both sides report as boundary.
@@ -86,6 +90,16 @@ class TJunction:
 
 
 @dataclass
+class Overlap:
+    """Two triangles covering the same ground, which .bpp cannot represent."""
+
+    a: int
+    b: int
+    area: float
+    height_gap: float                 # how far apart the two surfaces are there
+
+
+@dataclass
 class SurfaceReport:
     triangles: int = 0
     vertices: int = 0
@@ -96,6 +110,8 @@ class SurfaceReport:
     non_manifold: list[tuple[tuple[float, float], tuple[float, float], int]] = \
         field(default_factory=list)
     t_junctions: list[TJunction] = field(default_factory=list)
+    overlaps: list[Overlap] = field(default_factory=list)
+    overlaps_checked: bool = False
 
     @property
     def rim(self) -> Loop | None:
@@ -120,7 +136,8 @@ class SurfaceReport:
 
     @property
     def closed(self) -> bool:
-        return not self.holes and not self.non_manifold and not self.t_junctions
+        return (not self.holes and not self.non_manifold and not self.t_junctions
+                and not self.overlaps)
 
     def summary(self) -> str:
         if self.closed:
@@ -136,6 +153,9 @@ class SurfaceReport:
             bits.append(f"{len(self.t_junctions)} T-junction(s)")
         if self.non_manifold:
             bits.append(f"{len(self.non_manifold)} non-manifold edge(s)")
+        if self.overlaps:
+            bits.append(f"{len(self.overlaps)} overlap(s), "
+                        f"{sum(o.area for o in self.overlaps):.3f} m2")
         return "; ".join(bits)
 
 
@@ -150,8 +170,119 @@ def _tri_area(p):
                - (p[2][0] - p[0][0]) * (p[1][1] - p[0][1])) / 2.0
 
 
+def _clip_half(poly, line):
+    """The part of `poly` on the <= 0 side of `line`."""
+    a, b, c = line
+    out = []
+    n = len(poly)
+    for i in range(n):
+        x0, z0 = poly[i]
+        x1, z1 = poly[(i + 1) % n]
+        d0 = a * x0 + b * z0 + c
+        d1 = a * x1 + b * z1 + c
+        if d0 <= 0:
+            out.append((x0, z0))
+        if (d0 <= 0) != (d1 <= 0):
+            t = d0 / (d0 - d1) if (d0 - d1) else 0.0
+            out.append((x0 + t * (x1 - x0), z0 + t * (z1 - z0)))
+    return out
+
+
+def _poly_area(poly):
+    if len(poly) < 3:
+        return 0.0
+    s2 = 0.0
+    for i in range(len(poly)):
+        x0, z0 = poly[i]
+        x1, z1 = poly[(i + 1) % len(poly)]
+        s2 += x0 * z1 - x1 * z0
+    return abs(s2) / 2.0
+
+
+def _height_at(t, x, z):
+    n = getattr(t, "normal", None)
+    if not n or abs(n[1]) < 1e-9:
+        return _xz_y(t)
+    return -(n[0] * x + n[2] * z + getattr(t, "d", 0.0)) / n[1]
+
+
+def _xz_y(t):
+    v = getattr(t, "v", t)
+    return sum(p[1] for p in v) / 3.0
+
+
+def find_overlaps(triangles, *, min_area: float = 0.01, cell: float = 60.0):
+    """Pairs of triangles covering the same ground.
+
+    THE FAULT THAT ACTUALLY BREAKS .bpp. A 2D tree stores one triangle per point,
+    so two surfaces over the same (x, z) cannot both be represented -- the
+    collision builder has to discard one, and the car then meets the wrong
+    surface, or the wrong height.
+
+    `min_area` matters more than it looks. Sweeping the shipped tracks at 1 m2
+    reported hastings as clean; its real overlaps are 0.039 and 0.069 m2, and
+    they are exactly what the builder refuses it for. Default 0.01 m2, which is
+    a 10 cm square.
+    """
+    from collections import defaultdict
+
+    polys = []
+    for t in triangles:
+        v = getattr(t, "v", t)
+        polys.append([(p[0], p[2]) for p in v])
+
+    grid = defaultdict(list)
+    for i, poly in enumerate(polys):
+        xs = [p[0] for p in poly]
+        zs = [p[1] for p in poly]
+        for gx in range(int(min(xs) // cell), int(max(xs) // cell) + 1):
+            for gz in range(int(min(zs) // cell), int(max(zs) // cell) + 1):
+                grid[(gx, gz)].append(i)
+
+    def clip_to(sub, j):
+        p = polys[j]
+        s2 = sum(p[k][0] * p[(k + 1) % 3][1] - p[(k + 1) % 3][0] * p[k][1]
+                 for k in range(3))
+        if s2 < 0:
+            p = p[::-1]
+        out = sub
+        for k in range(3):
+            x0, z0 = p[k]
+            x1, z1 = p[(k + 1) % 3]
+            a, b = (z1 - z0), -(x1 - x0)
+            out = _clip_half(out, (a, b, -(a * x0 + b * z0)))
+            if len(out) < 3:
+                return []
+        return out
+
+    seen = set()
+    found = []
+    for ids in grid.values():
+        if len(ids) > 400:                  # a huge triangle spans many cells
+            continue
+        for ai in range(len(ids)):
+            for bi in range(ai + 1, len(ids)):
+                i, j = ids[ai], ids[bi]
+                if (i, j) in seen:
+                    continue
+                seen.add((i, j))
+                region = clip_to(polys[i], j)
+                area = _poly_area(region)
+                if area <= min_area:
+                    continue
+                cx = sum(p[0] for p in region) / len(region)
+                cz = sum(p[1] for p in region) / len(region)
+                gap = abs(_height_at(triangles[i], cx, cz)
+                          - _height_at(triangles[j], cx, cz))
+                found.append(Overlap(a=i, b=j, area=area, height_gap=gap))
+    found.sort(key=lambda o: -o.area)
+    return found
+
+
 def check_closed(triangles, *, weld: float = DEFAULT_WELD,
-                 find_t_junctions: bool = True) -> SurfaceReport:
+                 find_t_junctions: bool = True,
+                 find_overlapping: bool = False,
+                 overlap_min_area: float = 0.01) -> SurfaceReport:
     """Report whether a set of surface triangles closes.
 
     `triangles` may be `bpp.Triangle`s or plain 3-tuples of points; only the XZ
@@ -269,4 +400,10 @@ def check_closed(triangles, *, weld: float = DEFAULT_WELD,
                             rep.t_junctions.append(TJunction(
                                 at=p, edge=(pa, pb), offset=t, gap=gap,
                                 end_gap=min(t, 1.0 - t) * span))
+
+    # Off by default: this is the expensive pass, O(n^2) within a grid cell
+    # rather than the edge-adjacency the rest of this module runs on.
+    if find_overlapping:
+        rep.overlaps = find_overlaps(triangles, min_area=overlap_min_area)
+        rep.overlaps_checked = True
     return rep

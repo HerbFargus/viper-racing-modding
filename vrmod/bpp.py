@@ -346,12 +346,20 @@ def build_tree(triangles: list[Triangle], *, seed: int = 0,
     whole -- bemidji, dundas, heaven, limbo and uptown -- at depth 17-18 and
     1.93-2.47 nodes per triangle, TIGHTER than the shipped trees' 3.08-3.56,
     with 1,500/1,500 sampled queries correct on each. Both generated test tracks
-    build. Three are still refused, and the sizes say they are not one problem:
-    hastings loses 0.47 m^2, kenyon 31.71 m^2, and nfield 1,776 m^2 across four
-    fragments. Fragments that big suggest nfield genuinely overlaps in XZ rather
-    than merely being awkward to split, which would put it outside what this
-    structure can represent at all -- worth measuring before assuming the
-    splitter is at fault.
+    build. Three are still refused, and EVERY ONE is geometry this structure
+    cannot represent rather than a splitter fault. Measured with
+    surface.find_overlaps():
+
+        nfield   Sunset Mesa   2 overlaps  81.678 m^2
+        kenyon   Rock Island   2 overlaps  17.251 m^2  worst height gap 2.53 m
+        hastings Ridge Valley  2 overlaps   0.108 m^2  worst height gap 3.09 m
+
+    Ridge Valley read as a splitter fault for a while only because a sweep at a
+    1 m^2 threshold reported it clean -- its overlaps are 0.039 and 0.069 m^2,
+    and they are exactly the triangles refused. bemidji overlaps too, by
+    0.542 m^2, MORE than Ridge Valley, and builds fine: its two surfaces are
+    coplanar there. The height gap is the discriminator, which is what strict
+    already weighs.
 
     `min_area` discards fragments slimmer than the geometry's own precision.
     Adjacent triangles that share an edge can otherwise leave sub-millimetre

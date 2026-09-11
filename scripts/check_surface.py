@@ -128,6 +128,47 @@ def main() -> int:
     check("jitter beyond the tolerance opens the seams", not r.closed,
           f"{len(r.holes)} holes once weld is 1 mm")
 
+    print("\nsurface closure -- overlaps")
+    # THE fault that actually makes a track unrepresentable: .bpp stores one
+    # triangle per point, so two surfaces over the same ground cannot both be
+    # kept. This was missing from the module at first, which is how three
+    # shipped tracks got diagnosed as splitter faults when every one of them is
+    # an overlap.
+    stacked = grid(4) + [tri(5, 5, 25, 5, 25, 25, y=4.0),
+                         tri(5, 5, 25, 25, 5, 25, y=4.0)]
+    ov = surface.find_overlaps(stacked)
+    check("a surface laid over another is found", len(ov) >= 2,
+          f"{len(ov)} overlapping pair(s), {sum(o.area for o in ov):.0f} m2")
+    check("and the height between them is measured",
+          bool(ov) and abs(max(o.height_gap for o in ov) - 4.0) < 1e-6,
+          f"{max(o.height_gap for o in ov):.2f} m apart" if ov else "none")
+
+    # Coplanar overlap is harmless -- which triangle answers does not matter.
+    flat = grid(4) + [tri(5, 5, 25, 5, 25, 25), tri(5, 5, 25, 25, 5, 25)]
+    ovf = surface.find_overlaps(flat)
+    check("a coplanar overlap reads as zero height gap",
+          bool(ovf) and max(o.height_gap for o in ovf) < 1e-6,
+          "the car cannot tell which it lands on")
+
+    check("a clean grid has none", not surface.find_overlaps(grid(5)), "0 pairs")
+
+    # The threshold is the whole game. Sweeping at 1 m2 reported Ridge Valley as
+    # clean; its real overlaps are 0.039 and 0.069 m2, and they are exactly what
+    # the collision builder refuses it for.
+    small = [tri(0, 0, 10, 0, 10, 10), tri(9.7, 0.1, 10, 0, 10, 0.4, y=2.0)]
+    check("a small overlap is found at the default threshold",
+          bool(surface.find_overlaps(small)),
+          f"{surface.find_overlaps(small)[0].area:.3f} m2"
+          if surface.find_overlaps(small) else "missed")
+    check("and is missed at a coarse one",
+          not surface.find_overlaps(small, min_area=1.0),
+          "which is the mistake that hid Ridge Valley")
+
+    check("check_closed leaves the expensive pass off by default",
+          not surface.check_closed(stacked).overlaps_checked
+          and surface.check_closed(stacked, find_overlapping=True).overlaps_checked,
+          "opt in with find_overlapping=True")
+
     # --- optional: the shipped tracks ---------------------------------------
     roots = [Path(p) for a in sys.argv[1:] for p in glob.glob(a)]
     files = sorted({f for r_ in roots for f in r_.glob("*.bpp")})

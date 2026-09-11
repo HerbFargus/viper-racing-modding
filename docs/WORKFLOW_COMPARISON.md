@@ -10,8 +10,11 @@ what it takes now. It is not a tutorial, and it is not a tool chart — the char
 document, and the formats are in [VIPER_RACING_FILE_FORMATS.md](VIPER_RACING_FILE_FORMATS.md).
 
 **The bottom line.** Every stage of both pipelines now runs from one cross-platform Python library,
-with no exceptions left. Geometry, textures, surface codes, the collision tree, racing lines,
-timing gates, the starting grid, packaging, installation — all `vrmod`. Both pipelines are confirmed
+with one exception, and it is a smaller one than it was: **barriers**. A track's `.sol` is still
+compiled by MKWORLD from the wall quads in the surface scene, so a track WITH barriers needs it.
+Everything else — geometry, textures, surface codes, the collision tree, racing lines,
+timing gates, the starting grid, packaging, installation — is `vrmod`, and a track without
+barriers needs no original binary at all. Both pipelines are confirmed
 in game: a car with a custom model on 2026-09-07, a track generated from a centreline on 2026-09-09,
 a Bob's Track Builder track imported with its own geometry on 2026-09-10, and on 2026-09-11 a track
 built end to end with no original binary anywhere in the chain — `vrmod trackgen --bpp`, then
