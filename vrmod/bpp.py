@@ -235,16 +235,19 @@ def _edge_line(t: Triangle, i: int) -> tuple[float, float, float] | None:
 
 
 def _normalise(line: tuple[float, float, float]) -> tuple[float, float, float]:
-    """Scale to |c| = 1, or to unit (a, b) for a line through the origin.
+    """Scale to unit (a, b), so a*x + b*z + c is a true signed distance.
 
-    Only the SIGN of a*x + b*z + c matters to the game, so this is cosmetic --
-    but it is the convention the shipped files use, so output looks like input.
+    The shipped files mostly scale to |c| = 1 instead, and this used to copy
+    them on the grounds that only the SIGN matters so the choice is cosmetic.
+    It is not. A cell out at x = -1026 has |c| ~ 8099, and dividing through by it
+    leaves a ~ 0.001 against c = 1 -- the evaluation then cancels three digits
+    and a collapsed sliver comes out on BOTH sides of its own edge. Cells like
+    that could never be separated, so they recursed to the depth cap. With unit
+    (a, b) every term stays the same magnitude and the sign is reliable.
     """
     a, b, c = line
-    if abs(c) > 1e-9:
-        return (a / abs(c), b / abs(c), 1.0 if c > 0 else -1.0)
     m = math.hypot(a, b) or 1.0
-    return (a / m, b / m, 0.0)
+    return (a / m, b / m, c / m)
 
 
 def _classify(t: Triangle, line: tuple[float, float, float]) -> int:
@@ -334,14 +337,16 @@ def build_tree(triangles: list[Triangle], *, seed: int = 0,
     query points in 4,000 return a different index, and the height error at
     those points is 0.000 m.
 
-    KNOWN LIMIT, at full track scale. Every shipped track builds over its first
-    2,000 triangles, and bemidji builds whole (10,431 triangles, 4.7 nodes per
-    triangle against the shipped 3.3, 1,500/1,500 queries correct, 29 s). But
-    kenyon and dundas whole hit `max_depth` on crowded cells and there drop
-    fragments of 25-29 m^2 -- squarely material, and refused. The splitter
-    degenerating to 160 levels is the cause; a better heuristic than "lines
-    through triangle edges plus axis-aligned bisectors" is what would fix it.
-    Raising `candidates` does not: an exhaustive search picks the same lines.
+    KNOWN LIMIT, at full track scale. Five of the eight shipped tracks build
+    whole -- bemidji, dundas, heaven, limbo and uptown -- at depth 17-18 and
+    1.93-2.47 nodes per triangle, TIGHTER than the shipped trees' 3.08-3.56,
+    with 1,500/1,500 sampled queries correct on each. Both generated test tracks
+    build. Three are still refused, and the sizes say they are not one problem:
+    hastings loses 0.47 m^2, kenyon 31.71 m^2, and nfield 1,776 m^2 across four
+    fragments. Fragments that big suggest nfield genuinely overlaps in XZ rather
+    than merely being awkward to split, which would put it outside what this
+    structure can represent at all -- worth measuring before assuming the
+    splitter is at fault.
 
     `min_area` discards fragments slimmer than the geometry's own precision.
     Adjacent triangles that share an edge can otherwise leave sub-millimetre
@@ -374,6 +379,10 @@ def build_tree(triangles: list[Triangle], *, seed: int = 0,
 
         def consider(line):
             nonlocal best, best_score
+            # Score the normalised line, because that is the one split() will
+            # clip with. Scoring the raw line and clipping with another is how
+            # an accepted split turned into a rejected one further down.
+            line = _normalise(line)
             lo, hi = set(), set()
             area_lo = area_hi = area_cut = 0.0
             for ti, poly in items:
@@ -487,8 +496,7 @@ def build_tree(triangles: list[Triangle], *, seed: int = 0,
             # numerical sliver, so keep the largest and account for the rest.
             report["dropped_slivers"] += len(distinct) - 1
             return ("tri", biggest(items))
-        a, b, c = _normalise(line)
-        line = (a, b, c)
+        a, b, c = line          # already normalised by choose()
         less, greater = [], []
         for ti, poly in items:
             lp = _clip(poly, line, True)
