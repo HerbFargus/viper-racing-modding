@@ -24,9 +24,23 @@ which contains no relocations:
     8b f1                 mov  esi, ecx
     89 81 d0 0f 00 00     mov  [ecx+0xfd0], eax
 
-and the function ends by choosing between +1.0 and -1.0 on the sign of
-`[esi+0xf18]` and handing that to a steering call -- the wheel going fully one
-way or the other, which is what it looks like from the cockpit.
+**What the panic actually is.** Resolving the five calls in its body through the
+same map gives the whole manoeuvre:
+
+    Car::SetBraking (0.1f)     10% brake
+    Car::SetEBrake  (1.0f)     handbrake FULL ON
+    Car::SetThrottle(0)        throttle closed
+    Car::SetClutch  (0)        clutch out
+    Car::SetSteering(+/-1.0f)  full lock, the sign from [esi+0xf18]
+
+That is a deliberate handbrake spin, not an avoidance line that overshoots -- the
+car stamps the handbrake, lifts, dumps the clutch and throws full lock. Which is
+what it looks like from the cockpit.
+
+This patch skips ALL of it, not just the steering. A more surgical variant would
+be to leave the function running and write 0.0 into the two steering constants
+(`c7 44 24 04 00 00 80 3f` / `...bf`), keeping the brake and throttle behaviour
+while stopping the spin; nothing here needs that yet.
 
 **Why a bare RET is safe here.** The mangled name says `IAEXXZ`: private,
 `__thiscall`, returning void, taking NO arguments. `this` arrives in ECX and the
@@ -35,6 +49,8 @@ the stack exactly as it was found.
 
 What this does NOT do is stop the AI reacting to you at all. Ordinary avoidance
 is a different code path and is untouched; so is `.sol` obstacle avoidance.
+**Confirmed in game**: with the panic gone, AI cars still perform their usual
+object avoidance, which is what separate handlers predicted.
 """
 from __future__ import annotations
 
