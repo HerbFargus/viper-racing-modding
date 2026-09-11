@@ -181,6 +181,54 @@ def main() -> int:
           lossy.build_report["dropped_slivers"] > 0,
           f"{lossy.build_report['dropped_slivers']} fragments dropped")
 
+    print("\ncollision tree -- far from the origin")
+    # THE regression that matters. Splitting lines used to be scaled to |c| = 1,
+    # which is fine near the origin and ruinous away from it: at x = -1026 that
+    # leaves a ~ 0.001 against c = 1, the evaluation cancels three digits, and a
+    # collapsed sliver lands on BOTH sides of its own edge. Cells like that could
+    # never be separated and recursed to the depth cap -- on kenyon, 76 of them
+    # ran the tree to 160 levels. A grid far from the origin must build like one
+    # at the origin.
+    import math
+
+    near = bpp.build_tree(grid(6), seed=1)
+    shift_x, shift_z = -4000.0, 2500.0
+    far_tris = [bpp.Triangle(
+        normal=t.normal,
+        d=t.d - (t.normal[0] * shift_x + t.normal[2] * shift_z),
+        v=tuple((x + shift_x, y, z + shift_z) for x, y, z in t.v),
+        flag=t.flag) for t in grid(6)]
+    far = bpp.build_tree(far_tris, seed=1)
+    check("a grid far from the origin builds like one at the origin",
+          far.build_report["max_depth"] <= near.build_report["max_depth"] + 4
+          and len(far.nodes) <= len(near.nodes) * 2,
+          f"depth {near.build_report['max_depth']} near vs "
+          f"{far.build_report['max_depth']} far; "
+          f"{len(near.nodes)} vs {len(far.nodes)} nodes")
+    hits = sum(1 for i, t in enumerate(far_tris)
+               if bpp.find_point(far, *centroid(t)) == i)
+    check("and it answers correctly out there", hits == len(far_tris),
+          f"{hits}/{len(far_tris)} centroids")
+    check("splitting lines are scaled to unit (a, b)",
+          all(abs(math.hypot(n.a, n.b) - 1.0) < 1e-6 for n in far.nodes),
+          "so a*x + b*z + c is a true signed distance")
+
+    # The shape that actually broke: thin triangles far from the origin, where
+    # clipping collapses fragments to near-lines. On kenyon these were cells of
+    # 0.05 m2 at x = -1026 that ran the tree to 160 levels. A clean grid out
+    # there does NOT reproduce it -- the slivers are the point.
+    X, Z = -1026.5, -149.0
+    thin = []
+    for i in range(28):
+        x = X + i * 0.13
+        thin.append(tri(x, Z, x + 0.13, Z + 0.77, x + 0.26, Z))
+        thin.append(tri(x + 0.13, Z + 0.77, x + 0.26, Z, x + 0.39, Z + 0.77))
+    sl = bpp.build_tree(thin, seed=1, strict=False)
+    check("thin geometry far from the origin does not run away",
+          sl.build_report["max_depth"] <= 40 and len(sl.nodes) < len(thin) * 8,
+          f"depth {sl.build_report['max_depth']}, {len(sl.nodes)} nodes "
+          f"for {len(thin)} triangles")
+
     print("\ncollision tree -- which losses actually matter")
     # Not every dropped fragment is a defect. Where the replacement is the same
     # surface code at the same height, the query returns a different index for
@@ -285,6 +333,24 @@ def main() -> int:
             check("code 10 (grass) sits outside it",
                   max(near_grass) < 0.20,
                   f"{min(near_grass):.0%}-{max(near_grass):.0%} within 12 m")
+
+        # Building over REAL geometry is the only thing that catches the
+        # normalisation pathology behaviourally -- synthetic slivers do not
+        # reproduce it, and neither does every track: under the old scaling
+        # bemidji still built to depth 16 while kenyon ran to 160 with
+        # 15,116 nodes. So this sweeps them all and reports the worst. It is
+        # the slow check here; skip it by running with no path argument.
+        worst, worst_name, worst_nodes = 0, '', 0
+        for path in files:
+            sample = bpp.parse(envelope.parse(path.read_bytes()).payload)
+            built = bpp.build_tree(sample.triangles[:4000], seed=1,
+                                   strict=False)
+            d = built.build_report["max_depth"]
+            if d > worst:
+                worst, worst_name, worst_nodes = d, path.parent.name, len(built.nodes)
+        check("every real 4,000-triangle set builds to a sane depth",
+              worst <= 40,
+              f"worst is {worst_name} at depth {worst}, {worst_nodes} nodes")
 
     print(f"\n{PASS}/{PASS + FAIL} passed")
     return 1 if FAIL else 0
