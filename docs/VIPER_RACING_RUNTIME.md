@@ -172,18 +172,26 @@ So the model is **a speed threshold AND a proximity condition, whichever is
 satisfied last**. Well above the threshold the ~2 s proximity is what you wait
 for; right at it, the speed is.
 
-**Still not separated:** whether that threshold is on the player's speed or the
-closing speed. Both cars ran their normal pace throughout, so closing speed moved
-in lockstep with the player's. Closing speed is the more natural quantity for an
-engine to use, and the pack behaviour above leans that way, but the experiment
-that distinguishes them has not been run: approach a **lone slow car** — one
-dropped off the back, or on a corner exit — at a player speed that panics a fast
-one. If it stays calm, the scale is closing speed.
+**The threshold is on the approaching car's own speed, not the closing speed.**
+Two observations settle it between them:
+
+| | player | AI | closing | panic? |
+|---|---|---|---|---|
+| the 40 mph hold above | 40 mph | ~125 mph | **~165 mph** | no |
+| driving hard at a car that has just reset | fast | slow | **~150 mph** | yes |
+
+The closing speeds are comparable — higher, in fact, in the case that does *not*
+panic — so closing speed cannot be what is tested. What differs is how fast the
+car doing the approaching is going. A slow car being charged down panics; a fast
+car being crawled at does not.
+
+That also explains the pack behaviour without needing the follower confound: the
+cars behind were not calm because *they* had slowed, they were calm because
+nothing about the player had changed.
 
 So the working model is **a speed-dependent choice between ordinary avoidance and
 a panic swerve, the panic firing about 2 s before contact**, with the switch
-somewhere between 40 and 60 mph of player speed against ~125 mph of AI, on a
-scale that is most likely the closing speed. The 2 s itself is eyeballed, and remains untested against the
+somewhere between 40 and 60 mph of the approaching car's own speed. The 2 s itself is eyeballed, and remains untested against the
 possibility that it is a fixed distance that merely looked like a time in a
 narrow speed band.
 
