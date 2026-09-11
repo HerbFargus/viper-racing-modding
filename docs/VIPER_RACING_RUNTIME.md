@@ -155,13 +155,30 @@ It also points at the scale being **closing** speed rather than the player's,
 since what differs between the panicking car and the calm ones behind it is their
 own speed.
 
-One confound stops that being conclusive: a car behind one that has just panicked
-is no longer only reacting to the player. It has a disrupted car directly ahead,
-so `passer`/`slow_interact` against *that* may be what is being watched, and its
-calm would say nothing about the head-on threshold. The clean test is a **lone
-slow car with nothing in front of it** — one dropped off the back of the pack, or
-on a corner exit — approached at 50 mph with clear line of sight. If it stays calm
-where a fast car panics, closing speed is confirmed with no confound.
+Re-run with the field cut to **two cars**, removing the chance that a follower is
+reacting to the car ahead rather than to the player:
+
+- hold 40 mph — nothing happens at all;
+- **accelerate from 40 to 50 on the approach — the panic fires partway through
+  the acceleration**;
+- at full speed it fires a clear 2+ seconds out.
+
+The middle case is the informative one. Firing *during* the acceleration, at a
+speed rather than at a place, rules out a pure distance-or-time trigger and shows
+the condition is evaluated continuously: it becomes true as the speed crosses a
+threshold while the cars are already closing.
+
+So the model is **a speed threshold AND a proximity condition, whichever is
+satisfied last**. Well above the threshold the ~2 s proximity is what you wait
+for; right at it, the speed is.
+
+**Still not separated:** whether that threshold is on the player's speed or the
+closing speed. Both cars ran their normal pace throughout, so closing speed moved
+in lockstep with the player's. Closing speed is the more natural quantity for an
+engine to use, and the pack behaviour above leans that way, but the experiment
+that distinguishes them has not been run: approach a **lone slow car** — one
+dropped off the back, or on a corner exit — at a player speed that panics a fast
+one. If it stays calm, the scale is closing speed.
 
 So the working model is **a speed-dependent choice between ordinary avoidance and
 a panic swerve, the panic firing about 2 s before contact**, with the switch
