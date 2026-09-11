@@ -1079,6 +1079,30 @@ def scene_from_meshes(
             return role_from_flags(flags[stem])
         return mesh_role(name, [m.name for m in mesh.materials])
 
+    # Where the exporter supplied a collision volume, the object it covers must
+    # not also collide through its own mesh, or a cone gets both its proxy's
+    # three quads and twenty more shaped like the cone. BTB emits a proxy for a
+    # collidable OBJECT but none for a wall -- the wall's own mesh is its
+    # collider -- so which is which is decided by whether a proxy actually
+    # covers it, not by what it is called.
+    proxied: list[tuple[float, float, float]] = []
+    for name, mesh in meshes.items():
+        if role_of(name, mesh) == COLLIDER and mesh.vertices:
+            xs = [v.x for v in mesh.vertices]
+            zs = [v.z for v in mesh.vertices]
+            proxied.append((sum(xs) / len(xs), sum(zs) / len(zs),
+                            max(max(xs) - min(xs), max(zs) - min(zs))))
+
+    def has_proxy(mesh: "mod.Mesh") -> bool:
+        if not proxied or not mesh.vertices:
+            return False
+        xs = [v.x for v in mesh.vertices]
+        zs = [v.z for v in mesh.vertices]
+        cx, cz = sum(xs) / len(xs), sum(zs) / len(zs)
+        span = max(max(xs) - min(xs), max(zs) - min(zs))
+        return any(math.dist((cx, cz), (px, pz)) <= max(span, pspan)
+                   for px, pz, pspan in proxied)
+
     for name in sorted(meshes):
         mesh = meshes[name]
         role = role_of(name, mesh)
@@ -1087,6 +1111,12 @@ def scene_from_meshes(
             # drawn at all -- it has no texture to draw with
             scene.walls.extend(mesh_to_wall_quads(mesh))
             continue
+        if role == WALL and not has_proxy(mesh):
+            # A barrier is BOTH halves: its vertical faces become the .sol
+            # solids while the mesh itself is still drawn, at NO_COLLISION like
+            # any other scenery. Without this a wall with "Collide" ticked in
+            # BTB is drawn and driven straight through.
+            scene.walls.extend(mesh_to_wall_quads(mesh))
         code = _code_for(name, mesh, codes)
         base = re.sub(r"[^A-Za-z0-9_]", "", Path(name).stem) or "mesh"
         for n, piece in enumerate(chunk_mesh(mesh, size=chunk_size)):
@@ -1578,6 +1608,16 @@ def role_from_flags(flags: int) -> str:
     return PROP
 
 
+def _upright_rect(points: list[Point]) -> list[Point]:
+    """The vertical rectangle spanning a set of points in a vertical plane."""
+    lo = min(p[2] for p in points)
+    hi = max(p[2] for p in points)
+    # the two points furthest apart on the ground give the rectangle's base
+    a, b = max(((p, q) for p in points for q in points),
+               key=lambda pair: math.dist(pair[0][:2], pair[1][:2]))
+    return [(a[0], a[1], lo), (b[0], b[1], lo), (b[0], b[1], hi), (a[0], a[1], hi)]
+
+
 def mesh_to_wall_quads(mesh: "mod.Mesh", *, max_tilt: float = 0.5) -> list[list[Point]]:
     """Turn a collision mesh's vertical faces into wall quads.
 
@@ -1588,6 +1628,10 @@ def mesh_to_wall_quads(mesh: "mod.Mesh", *, max_tilt: float = 0.5) -> list[list[
     Triangles that share an edge and face the same way are merged back into the
     quad they were split from; anything left over is emitted as a triangle with
     its last corner repeated, which is a quad MKWORLD accepts.
+
+    Quads smaller than a centimetre on either axis are dropped: they carry no
+    collision worth having, and MKWORLD warns about each one ("wall, degenerate
+    polygon").
 
     Returns SOURCE-frame points, ready for `TrackScene.walls`.
     """
@@ -1633,8 +1677,16 @@ def mesh_to_wall_quads(mesh: "mod.Mesh", *, max_tilt: float = 0.5) -> list[list[
                 break
         used.add(i)
         if partner is None:
-            quads.append([to_source(mesh.vertices[k]) for k in face]
-                         + [to_source(mesh.vertices[face[2]])])
+            # A triangle with no matching partner still has to become a QUAD,
+            # and repeating a corner is not a quad: MKWORLD rejects it outright
+            # with "wall: <name> yaxis zero" and writes no .sol at all -- so one
+            # degenerate face costs the whole track its collision.
+            #
+            # The upright rectangle spanning the triangle is valid and leaves no
+            # gap. It over-covers slightly, which for a barrier is the harmless
+            # direction to err in.
+            quads.append(_upright_rect(
+                [to_source(mesh.vertices[k]) for k in face]))
             continue
         j, other, shared = partner
         used.add(j)
@@ -1642,4 +1694,10 @@ def mesh_to_wall_quads(mesh: "mod.Mesh", *, max_tilt: float = 0.5) -> list[list[
         lone_b = next(v for v in other if v not in shared)
         ring = [lone_a, shared[0], lone_b, shared[1]]
         quads.append([to_source(mesh.vertices[k]) for k in ring])
-    return quads
+
+    def worth_keeping(q: list[Point]) -> bool:
+        ground = max(math.dist(a[:2], b[:2]) for a in q for b in q)
+        height = max(p[2] for p in q) - min(p[2] for p in q)
+        return ground >= 0.01 and height >= 0.01 and len(set(q)) == 4
+
+    return [q for q in quads if worth_keeping(q)]

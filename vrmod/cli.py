@@ -1233,13 +1233,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{len(scene.walls)} wall quads from the model's own collision "
                   f"objects -- MKWORLD turns each into one .sol primitive.")
         if scene.scenery:
-            walls = sum(1 for o in scene.scenery
+            solid = sum(1 for o in scene.scenery
                         if o.name.lower().startswith(("wall", "barrier", "fence")))
-            print(f"{len(scene.scenery)} scenery objects, graphic file only, "
-                  f"drawn but not solid.")
-            if walls:
-                print(f"  of which {walls} look like barriers -- they are DRAWN "
-                      f"only. Use --walls for collision.")
+            print(f"{len(scene.scenery)} scenery objects drawn in the graphic "
+                  f"file; {len(scene.scenery) - solid} of them cosmetic.")
+            if solid:
+                print(f"  {solid} are barriers -- drawn, and solid through "
+                      f"their own .sol quads.")
         if wall_count:
             print(f"{wall_count} wall quads, surface file only -- MKWORLD turns each "
                   f"into one .sol primitive.")

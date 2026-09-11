@@ -393,6 +393,36 @@ def check_invariants() -> None:
     collided = tg.scene_from_meshes(
         {"objc0000.mod": prism, "road_a.mod": road_mesh},
         centreline=circle, chunk_size=50.0, flags={"objc0000": 18, "road_a": 774})
+    # A wall is its own collider -- BTB emits no objc* proxy for one -- so its
+    # vertical faces must become .sol quads or a wall with "Collide" ticked is
+    # drawn and driven straight through.
+    walled_mesh = tg.scene_from_meshes(
+        {"wall0_s0.mod": prism, "road_a.mod": road_mesh},
+        centreline=circle, chunk_size=50.0, flags={"wall0_s0": 770, "road_a": 774})
+    check("a wall is drawn AND solid",
+          len(walled_mesh.walls) == 3
+          and any(o.name.startswith("wall") for o in walled_mesh.scenery),
+          f"{len(walled_mesh.walls)} quads, and still in the graphic file")
+
+    # ... but an object the exporter already gave a proxy for must not also
+    # collide through its own mesh, or a cone gets its proxy's quads plus twenty
+    # more shaped like the cone.
+    import copy as _copy
+    twin = _copy.deepcopy(prism)
+    both = tg.scene_from_meshes(
+        {"objc0000.mod": prism, "obj00001.mod": twin, "road_a.mod": road_mesh},
+        centreline=circle, chunk_size=50.0,
+        flags={"objc0000": 18, "obj00001": 2, "road_a": 774})
+    check("an object covered by a proxy does not collide twice",
+          len(both.walls) == 3, f"{len(both.walls)} quads, not 6")
+
+    # MKWORLD rejects a quad with a repeated corner outright -- "yaxis zero" --
+    # and writes NO .sol at all, so one degenerate face costs the whole track
+    # its collision.
+    check("no wall quad is degenerate",
+          all(len(set(q)) == 4 for q in walled_mesh.walls + both.walls),
+          "four distinct corners each")
+
     check("a collision proxy becomes walls, not geometry",
           len(collided.walls) == 3
           and not any("objc" in o.name for o in collided.driveables + collided.scenery),
