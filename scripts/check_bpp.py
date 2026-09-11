@@ -18,7 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from vrmod import bpp, envelope  # noqa: E402
+from vrmod import bpp, envelope, ili  # noqa: E402
 
 PASS = FAIL = 0
 
@@ -61,6 +61,49 @@ def inside_xz(t, x, z, eps=1e-6):
     a = ((z1 - z2) * (x - x2) + (x2 - x1) * (z - z2)) / d
     b = ((z2 - z0) * (x - x2) + (x0 - x2) * (z - z2)) / d
     return a >= -eps and b >= -eps and (1.0 - a - b) >= -eps
+
+
+def _near_fractions(b, line, within):
+    """Per surface code, the fraction of triangles within `within` of the line."""
+    import math
+    from collections import defaultdict
+
+    cell = 40.0
+    grid = defaultdict(list)
+    for i, (x, z) in enumerate(line):
+        bx, bz = line[(i + 1) % len(line)]
+        for k in range(11):
+            mx, mz = x + (bx - x) * k / 10.0, z + (bz - z) * k / 10.0
+            grid[(int(mx // cell), int(mz // cell))].append(i)
+
+    def dist(px, pz):
+        best = float("inf")
+        gx, gz = int(px // cell), int(pz // cell)
+        for r in range(6):
+            for ix in range(gx - r, gx + r + 1):
+                for iz in range(gz - r, gz + r + 1):
+                    if r and max(abs(ix - gx), abs(iz - gz)) != r:
+                        continue
+                    for i in grid.get((ix, iz), ()):
+                        ax, az = line[i]
+                        bx2, bz2 = line[(i + 1) % len(line)]
+                        vx, vz = bx2 - ax, bz2 - az
+                        L = vx * vx + vz * vz
+                        t = 0.0 if L < 1e-12 else max(0.0, min(
+                            1.0, ((px - ax) * vx + (pz - az) * vz) / L))
+                        best = min(best, math.hypot(px - ax - t * vx, pz - az - t * vz))
+            if best < (r + 1) * cell:
+                break
+        return best
+
+    tally = defaultdict(lambda: [0, 0])
+    for t in b.triangles:
+        cx = sum(v[0] for v in t.v) / 3.0
+        cz = sum(v[2] for v in t.v) / 3.0
+        rec = tally[t.flag]
+        rec[1] += 1
+        rec[0] += dist(cx, cz) <= within
+    return {fl: hit / n for fl, (hit, n) in tally.items() if n >= 20}
 
 
 def main() -> int:
@@ -170,6 +213,35 @@ def main() -> int:
               f"{exact}/{total} across {len(files)} tracks")
         check("no shipped triangle faces downward", flat,
               "so .bpp is a 2.5D surface, not a soup")
+
+        # Surface codes have a spatial signature: the road is ON the driving
+        # line and grass is the band just outside it. The format reference
+        # settles what the codes MEAN from engine code; this is an independent
+        # check that they are laid out the way that meaning implies -- and the
+        # same invariant a generated track has to satisfy.
+        near_road, near_grass, tracks = [], [], 0
+        for path in files:
+            ild = path.parent / "track.ild"
+            if not ild.is_file():
+                continue
+            line = [(w.x, w.z) for w in ili.parse(ild.read_bytes())]
+            if len(line) < 8:
+                continue
+            b = bpp.parse(envelope.parse(path.read_bytes()).payload)
+            frac = _near_fractions(b, line, 12.0)
+            if frac.get(0) is None or frac.get(10) is None:
+                continue
+            tracks += 1
+            near_road.append(frac[0])
+            near_grass.append(frac[10])
+        if tracks:
+            check("code 0 (road) hugs the driving line",
+                  min(near_road) > 0.80,
+                  f"{min(near_road):.0%}-{max(near_road):.0%} within 12 m, "
+                  f"{tracks} tracks")
+            check("code 10 (grass) sits outside it",
+                  max(near_grass) < 0.20,
+                  f"{min(near_grass):.0%}-{max(near_grass):.0%} within 12 m")
 
     print(f"\n{PASS}/{PASS + FAIL} passed")
     return 1 if FAIL else 0

@@ -45,15 +45,19 @@ arithmetic. `fixup_tree` at `0x468B80` divides pointer differences by `0x1c` to
 recover node indices, and rewrites `+0x14`/`+0x18` from indices into pointers,
 leaving `+0x00`..`+0x10` alone. The traversal test computes `a*x + b*z + c`.
 
-THE TRIANGLE FLAG IS A BITFIELD, not an enum -- bits 0..4 appear, in combinations,
-and the values are wildly non-uniform. Two dominate and appear in every track
-(`0` with 72,103 triangles and `10` with 19,081); the rest are rare and
-track-specific (4 to 1,033 triangles, in one to three tracks). It correlates with
-orientation, which is what suggests a surface classification rather than
-bookkeeping: flag `14` is 99.2% horizontal while flag `16` is 91% non-horizontal.
-What each bit MEANS is unconfirmed -- surface material, off-track, wall and pit
-are all plausible -- so this module keeps the flag as an integer and does not
-pretend to interpret it.
+THE TRIANGLE FLAG IS THE SURFACE CODE, the same value MKWORLD writes as the third
+`modobject` parameter in the scene source. The format reference carries the full
+table; the two that dominate are `0` asphalt/road (72,103 triangles) and `10`
+grass (19,081), both in all eight tracks, with `14` water and `20` dirt among the
+rare, track-specific ones. Codes 0 and 14 are confirmed from engine code, via the
+"Pave the World" hack's single caller in the contact-point physics.
+
+Their LAYOUT corroborates the table independently: measured against each track's
+own `track.ild` centreline, code 0 sits on the driving line (86-99% of it within
+12 m, median 5-8 m) and code 10 in the band just outside (0-10% within 12 m,
+median 13-26 m), while every rarer code is far-field at medians of 35-180 m.
+That is a useful invariant for generated tracks too -- it is what `check_bpp.py`
+asserts -- but this module still keeps the flag as a plain integer.
 
 `tri0` AND `tri1` ARE THE LEAF PAYLOADS -- ✅ SOLVED, from the symbolised 1998
 build. A leaf is not a node of its own. When a node's child pointer on one side
