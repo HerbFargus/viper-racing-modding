@@ -131,19 +131,35 @@ AICar::checker / dont_push / dont_check / add_contact
   straight makes no difference;
 - but it **does not really happen at low speed**.
 
-That last point is the interesting one, because a pure time-to-contact test would
-still fire when closing slowly — just nearer. It not firing means something gates
-the behaviour on speed *before* the timer is consulted, which is what the two
-entry points suggest: `fast_interact` and `slow_interact` are separate functions,
-and `headon_panic` plausibly sits behind the fast one only. Below the gate an
-encounter takes the slow path — ordinary nudging and line-sharing — and no panic
-is available to it.
+Sweeping the player's speed against AI running a steady ~120–130 mph:
 
-So the working model is **a closing-speed gate, then a time-to-contact threshold
-of about 2 s**. Neither constant is measured: the ~2 s is eyeballed at
-bemidji's 131–159 mph, and the gate's value is unknown. A slow track would pin
-both down, and would also settle whether the 2 s is genuinely a time or a
-distance that merely looked like one in a narrow speed band.
+| player | closing speed | reaction |
+|---|---|---|
+| 40 mph (18 m/s) | ~165 mph (74 m/s) | none |
+| 50 mph (22 m/s) | ~175 mph (78 m/s) | swerves, noticeably muted |
+| 60 mph (27 m/s) | ~185 mph (83 m/s) | the full swerve, ~2 s ahead |
+
+Two things follow. The response is **graded, not switched** — 50 mph produces a
+real but smaller reaction — so this is a magnitude that scales with speed rather
+than a boolean gate. And a pure time-to-contact test cannot be the whole story,
+because it would still fire at 40 mph, merely closer.
+
+That fits the two entry points: `fast_interact` and `slow_interact` are separate
+functions, and `headon_panic` plausibly sits behind the fast one, with an
+encounter below the threshold taking the slow path — ordinary nudging and
+line-sharing — where no panic is available.
+
+**What these numbers cannot separate** is whether the scale is the player's own
+speed or the *closing* speed, because the AI held ~125 mph throughout. On closing
+speed the transition occupies a suspiciously narrow 165→185 mph; on the player's
+own speed it is a clean ramp across 40→60 mph. Running the same sweep where the
+AI is slow — a track whose corners drop them to ~60 mph — would settle it: if the
+scale is closing speed, the player-speed thresholds should roughly double.
+
+So the working model is **a graded response scaling with speed above roughly
+40 mph, reaching full strength by 60, and firing about 2 s before contact**. The
+2 s itself is eyeballed, and remains untested against the possibility that it is
+a fixed distance that merely looked like a time in a narrow speed band.
 
 Worth knowing when placing obstacles: this is a **car-to-car** response. Static
 solids are handled elsewhere — `.sol` primitives reach the AI's own avoidance, so
