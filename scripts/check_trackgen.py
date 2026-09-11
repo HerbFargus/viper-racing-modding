@@ -267,6 +267,16 @@ def check_invariants() -> None:
     # loads. wrap 1 belongs to opaque textures only.
     from vrmod import tex as _tex
     _alpha = _tex.encode_to_tex(bytes(8 * 8 * 4), 8, mode="alpha", wrap=0)
+    # flags 0x03 is a FOUR-byte-per-pixel format: its shipped payloads are
+    # exactly twice the others at the same size (128 -> 87,512 against 43,756)
+    # and it never ships above 128. ARGB4444 is 0x02. Writing 2 bytes under
+    # flags 3 hands the game half the data and it panics on load.
+    check("an alpha texture is written as flags 2, not 3",
+          _tex.parse(_alpha).flags == 2, "0x03 is a 4-byte format we cannot write")
+    check("an alpha texture's payload matches the shipped size for 2 bytes/px",
+          len(_alpha) - 20 == len(_tex.encode_to_tex(bytes(8 * 8 * 3), 8,
+                                                     mode="opaque", wrap=0)) - 20,
+          "same bytes per pixel as opaque, as every shipped flags 0/1/2 is")
     _opaque = _tex.encode_to_tex(bytes(8 * 8 * 3), 8, mode="opaque", wrap=1)
     check("an alpha texture is written untiled",
           _tex.parse(_alpha).wrap == 0, "wrap 0, as all 78 shipped flags=3 are")
