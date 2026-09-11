@@ -141,11 +141,11 @@ def main() -> int:
             x, z = px + rng.uniform(-30, 30), pz + rng.uniform(-30, 30)
             if set(sol.find(s, x, z)) <= set(sol.find(mine, x, z)):
                 ok += 1
-        # NOT asserted at 100%: measured at 99.4% across the eight shipped
-        # tracks, and the residual is not understood. Recorded so a change that
+        # NOT asserted at 100%: measured at 98.6% across the eight shipped
+        # tracks (4,732 of 4,800 probes), and the residual is not understood. Recorded so a change that
         # makes it worse is visible.
         check("a built tree covers what the shipped one does", ok >= 570,
-              f"{ok}/600 on {name} -- measured 99.4% across all eight, not exact")
+              f"{ok}/600 on {name} -- measured 98.6% across all eight, not exact")
 
     print(f"\n{PASS}/{PASS + FAIL} passed")
     return 1 if FAIL else 0

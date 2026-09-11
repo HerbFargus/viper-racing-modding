@@ -185,7 +185,7 @@ def _xz_bounds(prim: "Primitive") -> tuple[float, float, float, float]:
     # field entirely.
     # A CIRCUMSCRIBING radius rather than the exact oriented box. The tight
     # bound is correct for the solid and measurably WORSE here -- 98.7% against
-    # 99.4% -- because MKWORLD's own footprints are looser than the geometry.
+    # 98.7% against 98.6% -- because MKWORLD's own footprints are looser than the geometry.
     # Over-covering costs duplicate index entries; under-covering costs a
     # barrier the game never tests.
     del m
@@ -197,9 +197,16 @@ def build_spatial_index(primitives, *, max_depth: int = MAX_DEPTH,
                         max_per_leaf: int = 32):
     """Build the index list and quadtree tail for a set of primitives.
 
-    Returns `(index_list, tail_bytes)`. A primitive straddling a boundary is
-    listed in every leaf it touches, which is why the shipped index lists are
-    longer than their primitive counts.
+    Returns `(index_list, tail_bytes)`.
+
+    A primitive is listed in every quadrant its footprint touches, which is why
+    the shipped index lists carry about 2.8 entries per primitive rather than
+    one. The descent accumulates along its whole path, so a solid listed on an
+    ancestor is still found from any leaf beneath it.
+
+    NOT EXACT. Coverage against the shipped trees measures 98.6% of probes, and
+    the residual is not understood -- see the module note. Callers that need
+    certainty should keep using MKWORLD's `.sol`.
     """
     boxes = [_xz_bounds(p) for p in primitives]
     ib = [(int(x0 * SCALE), int(z0 * SCALE), int(x1 * SCALE), int(z1 * SCALE))
@@ -208,85 +215,45 @@ def build_spatial_index(primitives, *, max_depth: int = MAX_DEPTH,
     nodes: list[list] = [[0, 0, 0]]        # first, last, child
     index: list[int] = []
 
+    def emit_leaf(node: int, ids: list[int]) -> None:
+        nodes[node][0] = len(index)
+        index.extend(ids)
+        nodes[node][1] = len(index)
+
     def build(node: int, ids: list[int], x0: int, z0: int, x1: int, z1: int,
               depth: int) -> None:
         if not ids:
             return
+        # Enforced DURING the recursion, not on the finished list. Checking the
+        # u16 limit at the end lets a runaway build exhaust memory first, which
+        # it did -- a MemoryError twenty-one frames deep. The .bpp builder has
+        # the same guard for the same reason: a depth cap alone does not bound
+        # the work, because a bad split branches wide rather than deep.
+        if len(index) > 0xFFFF:
+            raise SolError(
+                f"index passed {len(index):,} entries while building, and the "
+                f"field is u16 -- the footprints are duplicating into too many "
+                f"cells. Raise max_per_leaf, or lower max_depth")
         if len(ids) <= max_per_leaf or depth >= max_depth:
-            nodes[node][0] = len(index)
-            index.extend(ids)
-            nodes[node][1] = len(index)
+            emit_leaf(node, ids)
             return
+
         mx, mz = (x0 + x1) // 2, (z0 + z1) // 2
         quads = [(x0, z0, mx, mz), (mx, z0, x1, mz),
                  (x0, mz, mx, z1), (mx, mz, x1, z1)]
-        # A primitive that fits wholly inside ONE quadrant descends; one that
-        # straddles the split stays HERE, on the internal node. That is what the
-        # shipped trees do -- they have internal nodes with a non-empty range --
-        # and it is why a query accumulates along its whole path. Duplicating a
-        # straddler into every quadrant it touches instead is what made the
-        # index explode: dundas went to 21,009 entries and heaven past the u16
-        # field entirely.
         buckets: list[list[int]] = [[], [], [], []]
         for i in ids:
             bx0, bz0, bx1, bz1 = ib[i]
             for q, (qx0, qz0, qx1, qz1) in enumerate(quads):
                 if bx0 <= qx1 and bx1 >= qx0 and bz0 <= qz1 and bz1 >= qz0:
                     buckets[q].append(i)
-        ids = [i for b in buckets for i in b]
-        if not ids:
+
+        # Nothing separated: a primitive spans the whole node, so halving will
+        # never divide it. Keep it here rather than recurse forever.
+        if all(len(b) == len(ids) for b in buckets):
+            emit_leaf(node, ids)
             return
-        if len(ids) <= max_per_leaf or depth >= max_depth:
-            nodes[node][0] = len(index)
-            index.extend(ids)
-            nodes[node][1] = len(index)
-            return
-        mx, mz = (x0 + x1) // 2, (z0 + z1) // 2
-        quads = [(x0, z0, mx, mz), (mx, z0, x1, mz),
-                 (x0, mz, mx, z1), (mx, mz, x1, z1)]
-        # A primitive that fits wholly inside ONE quadrant descends; one that
-        # straddles the split stays HERE, on the internal node. That is what the
-        # shipped trees do -- they have internal nodes with a non-empty range --
-        # and it is why a query accumulates along its whole path. Duplicating a
-        # straddler into every quadrant it touches instead is what made the
-        # index explode: dundas went to 21,009 entries and heaven past the u16
-        # field entirely.
-        buckets: list[list[int]] = [[], [], [], []]
-        stay: list[int] = []
-        for i in ids:
-            bx0, bz0, bx1, bz1 = ib[i]
-            home = None
-            for q, (qx0, qz0, qx1, qz1) in enumerate(quads):
-                if bx0 >= qx0 and bx1 <= qx1 and bz0 >= qz0 and bz1 <= qz1:
-                    home = q
-                    break
-            if home is None:
-                # Straddles the split. Park it HERE -- every query through this
-                # node accumulates it -- and ALSO list it in each quadrant it
-                # touches, which is what makes the shipped index 2.8 entries per
-                # primitive rather than 1.0. Parking alone under-covers.
-                stay.append(i)
-                for q, (qx0, qz0, qx1, qz1) in enumerate(quads):
-                    if bx0 <= qx1 and bx1 >= qx0 and bz0 <= qz1 and bz1 >= qz0:
-                        buckets[q].append(i)
-            else:
-                buckets[home].append(i)
-        if stay:
-            nodes[node][0] = len(index)
-            index.extend(stay)
-            nodes[node][1] = len(index)
-        ids = [i for b in buckets for i in b]
-        if not ids:
-            return
-        # No progress only when ALL FOUR children inherit the whole set, which
-        # means a primitive spans the node and no amount of halving separates
-        # it. One child taking everything IS progress: the box shrank, and the
-        # root is +/-40,000,000 so the first dozen levels always look like that.
-        if all(len(b) == len(ids) for b in buckets) and ids:
-            nodes[node][0] = len(index)
-            index.extend(ids)
-            nodes[node][1] = len(index)
-            return
+
         first_child = len(nodes)
         nodes[node][2] = first_child
         nodes.extend([[0, 0, 0] for _ in range(4)])
