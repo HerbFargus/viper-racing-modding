@@ -2207,6 +2207,61 @@ tachometer needle across row 1024, where a rasteriser bug smashes the stack (§5
 The remaining limit is cosmetic: the HUD's **stamps** stop being drawn past roughly 1.77 M pixels — see
 §5.2.3.
 
+#### 5.2.2b Draw distance — the stored value is a fraction, not a distance ✅ CONFIRMED
+
+`draw_distance` in `Config/options.cfg` ships as `0.500000`, which reads like half of something rather
+than a distance, and it is. The string appears once in `race.bin`; the code that reads it stores to
+`0x540344`, and the transform applied immediately afterwards is:
+
+```
+fld   dword [0x540344]        ; the value as written in options.cfg
+fmul  dword [1700.0]
+fadd  dword [300.0]
+fstp  dword [0x540344]        ; what the renderer uses
+```
+
+so
+
+```
+effective = value * 1700 + 300
+```
+
+| `draw_distance` | Effective | What it is |
+|---|---|---|
+| `0.500000` | 1,150 | The shipped default (`options.def`) |
+| `1.000000` | 2,000 | The in-game slider pushed all the way right |
+| `100.000000` | 170,300 | What the View Extender writes — 85× the slider |
+
+**Nothing clamps it.** This is the whole reason the extender works, and it is visible by comparison:
+`detail_level` is read through the same path a few instructions later and *is* floored —
+
+```
+cmp   [detail_level], 0x3f000000     ; 0.5f
+jge   ...                            ; else force it to 0.5
+```
+
+— while `draw_distance` gets no such treatment. Any positive value is accepted and scaled, so the
+useful range extends far past what the menu can express. The floor is not 0 but **300 units**: the
+`fadd` happens after the multiply, so nothing below that is reachable however small the value.
+
+⚠️ **The game rewrites `options.cfg` on exit.** Change this with the game closed, and expect touching the
+graphics tab in-game to put the slider's value back. The View Extender's instructions say the same
+thing in capitals.
+
+⚠️ **The old tool edited line 92 by number, and the key is not on line 92.** The 2016 batch file
+(and the `.exe` beside it) does a literal `if %%a equ 92` line-number substitution. On every install
+in this project's sample set the key is on line **91** or **83**. Run against a real v1.2.5 config it
+overwrites `effects yes` and leaves this:
+
+```
+line 91: draw_distance 0.500000        <- the real setting, untouched
+line 92: draw_distance 100.000000      <- written over "effects yes"
+```
+
+— a duplicated key, the first occurrence still at the default, and one graphics setting silently
+gone. `vrmod drawdistance` finds the key by name and rewrites only that line's number, preserving the
+file's CRLF endings and every other byte.
+
 #### 5.2.2a Widescreen field of view — ✅ CONFIRMED (Vert−, and fixable)
 
 **All of the game's aspect handling lives in one place**: the `D3DVIEWPORT2` it hands to

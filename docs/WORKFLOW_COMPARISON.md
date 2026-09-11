@@ -147,6 +147,7 @@ format is the interchange point rather than the tool.
 | AI field size | AICarMan | `vrmod aifield` |
 | Run on a modern GPU | Find and install a patched `race.bin` | `vrmod patch-vram`, `vrmod doctor` |
 | Screen resolution | VR Resolution Changer | `vrmod resolution` (with aspect correction) |
+| See further than the slider allows | View Extender (rewrote line 92 of `options.cfg` by number) | `vrmod drawdistance` (finds the key by name) |
 | Identify a `race.bin` build | Ask on a forum | `vrmod racebin`, `vrmod doctor` |
 | Inspect collision | BPP-2-Mod Converter | `vrmod bppinfo`, `bpp2obj`, `bppsurface` |
 | Find collision/render mismatches | By playing | `vrmod collisioncheck` |
