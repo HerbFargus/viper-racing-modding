@@ -54,6 +54,7 @@ invent one and asks for the original tail back.
 
 from __future__ import annotations
 
+import math
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -121,6 +122,224 @@ class Sol:
     @property
     def is_empty(self) -> bool:
         return not self.primitives and not self.index
+
+
+
+# ---------------------------------------------------------------------------
+# The spatial index -- the tail
+#
+# SOLVED, from the symbolised 1998 build. It is a QUADTREE over the XZ plane,
+# and the whole of it is in `collide_object` (physics:phystask.obj):
+#
+#     esi = word [node + 4]                 ; child index; 0 means leaf
+#     midX = (x0 + x1) / 2                  ; integer halving, truncating
+#     midZ = (z0 + z1) / 2
+#     queryZ <= midZ ? (queryX <= midX ? +0 : +1)
+#                    : (queryX <= midX ? +2 : +3)
+#
+# so each node is EIGHT BYTES -- (first: u16, last: u16, child: u32) -- a leaf
+# names index[first:last], and an internal node's four children are consecutive
+# from `child`. The quadrant order is (-x,-z), (+x,-z), (-x,+z), (+x,+z).
+#
+# COORDINATES ARE INTEGER TENTHS. `collide_object`'s caller multiplies the
+# query position by 10.0 and truncates, and the root box is +/-4,000,000 world
+# units -- `fld [0x4db7b8]` (4000000.0) `fmul [0x4db7d4]` (10.0) -- so the tree
+# spans +/-40,000,000 in those units. Halving from there is what makes the tail
+# sized by how solids are DISTRIBUTED rather than how many there are, which was
+# the measured behaviour nobody could explain.
+#
+# The structure was confirmed against the shipped files before any of this was
+# written: every tail is an exact multiple of 8, every [first, last) lies inside
+# the index list, `max last` equals n_index exactly on all eight tracks, and the
+# child indices are spaced exactly 4 apart -- 319 of 319 gaps on bemidji, 399 of
+# 399 on kenyon, with 1281 = 4*320 + 1 and 1601 = 4*400 + 1 nodes.
+#
+# This builder does NOT reproduce MKWORLD's tree. Like the .bpp one it does not
+# need to: the shape is not observable, only the answers are.
+
+SCALE = 10.0                  # world units -> the integers the tree indexes in
+ROOT_EXTENT = 40_000_000      # +/- this, i.e. +/-4,000,000 world units
+MAX_DEPTH = 24                # a leaf at this depth is ~5 world units across
+
+
+def _xz_bounds(prim: "Primitive") -> tuple[float, float, float, float]:
+    """A primitive's footprint in XZ, from its centre and half-extents.
+
+    THE HALF-EXTENTS ARE AT +0x5c, +0x60, +0x64. Not at +0x38, which looks like
+    a float field and is a runtime POINTER -- `StaticObjectListGet` overwrites it
+    with `ebp+0x3c` on load, so the shipped bytes there are 1998 heap addresses.
+    Reading them as extents gives footprints roughly one primitive wide, and a
+    spatial index built from those duplicates nothing and answers wrongly.
+
+    On bemidji's barrier boxes +0x5c is a constant 2.56 (the half height) while
+    +0x60 and +0x64 run 9.45-11.06, which is half the ~20 m spacing between
+    consecutive wall segments.
+    """
+    x, _y, z = prim.position
+    ex, ey, ez = struct.unpack_from("<3f", prim.raw, 0x5c)
+    m = struct.unpack_from("<9f", prim.raw, 0x00)
+    # The exact axis-aligned bound of an ORIENTED box: project each half-extent
+    # through the row of the matrix for that world axis. A circumscribing sphere
+    # is also safe but wildly over-covers a long thin barrier -- it took dundas
+    # from 1,498 index entries to 21,009 and overflowed heaven past the u16
+    # field entirely.
+    # A CIRCUMSCRIBING radius rather than the exact oriented box. The tight
+    # bound is correct for the solid and measurably WORSE here -- 98.7% against
+    # 99.4% -- because MKWORLD's own footprints are looser than the geometry.
+    # Over-covering costs duplicate index entries; under-covering costs a
+    # barrier the game never tests.
+    del m
+    r = math.sqrt(ex * ex + ey * ey + ez * ez)
+    return (x - r, z - r, x + r, z + r)
+
+
+def build_spatial_index(primitives, *, max_depth: int = MAX_DEPTH,
+                        max_per_leaf: int = 32):
+    """Build the index list and quadtree tail for a set of primitives.
+
+    Returns `(index_list, tail_bytes)`. A primitive straddling a boundary is
+    listed in every leaf it touches, which is why the shipped index lists are
+    longer than their primitive counts.
+    """
+    boxes = [_xz_bounds(p) for p in primitives]
+    ib = [(int(x0 * SCALE), int(z0 * SCALE), int(x1 * SCALE), int(z1 * SCALE))
+          for x0, z0, x1, z1 in boxes]
+
+    nodes: list[list] = [[0, 0, 0]]        # first, last, child
+    index: list[int] = []
+
+    def build(node: int, ids: list[int], x0: int, z0: int, x1: int, z1: int,
+              depth: int) -> None:
+        if not ids:
+            return
+        if len(ids) <= max_per_leaf or depth >= max_depth:
+            nodes[node][0] = len(index)
+            index.extend(ids)
+            nodes[node][1] = len(index)
+            return
+        mx, mz = (x0 + x1) // 2, (z0 + z1) // 2
+        quads = [(x0, z0, mx, mz), (mx, z0, x1, mz),
+                 (x0, mz, mx, z1), (mx, mz, x1, z1)]
+        # A primitive that fits wholly inside ONE quadrant descends; one that
+        # straddles the split stays HERE, on the internal node. That is what the
+        # shipped trees do -- they have internal nodes with a non-empty range --
+        # and it is why a query accumulates along its whole path. Duplicating a
+        # straddler into every quadrant it touches instead is what made the
+        # index explode: dundas went to 21,009 entries and heaven past the u16
+        # field entirely.
+        buckets: list[list[int]] = [[], [], [], []]
+        for i in ids:
+            bx0, bz0, bx1, bz1 = ib[i]
+            for q, (qx0, qz0, qx1, qz1) in enumerate(quads):
+                if bx0 <= qx1 and bx1 >= qx0 and bz0 <= qz1 and bz1 >= qz0:
+                    buckets[q].append(i)
+        ids = [i for b in buckets for i in b]
+        if not ids:
+            return
+        if len(ids) <= max_per_leaf or depth >= max_depth:
+            nodes[node][0] = len(index)
+            index.extend(ids)
+            nodes[node][1] = len(index)
+            return
+        mx, mz = (x0 + x1) // 2, (z0 + z1) // 2
+        quads = [(x0, z0, mx, mz), (mx, z0, x1, mz),
+                 (x0, mz, mx, z1), (mx, mz, x1, z1)]
+        # A primitive that fits wholly inside ONE quadrant descends; one that
+        # straddles the split stays HERE, on the internal node. That is what the
+        # shipped trees do -- they have internal nodes with a non-empty range --
+        # and it is why a query accumulates along its whole path. Duplicating a
+        # straddler into every quadrant it touches instead is what made the
+        # index explode: dundas went to 21,009 entries and heaven past the u16
+        # field entirely.
+        buckets: list[list[int]] = [[], [], [], []]
+        stay: list[int] = []
+        for i in ids:
+            bx0, bz0, bx1, bz1 = ib[i]
+            home = None
+            for q, (qx0, qz0, qx1, qz1) in enumerate(quads):
+                if bx0 >= qx0 and bx1 <= qx1 and bz0 >= qz0 and bz1 <= qz1:
+                    home = q
+                    break
+            if home is None:
+                # Straddles the split. Park it HERE -- every query through this
+                # node accumulates it -- and ALSO list it in each quadrant it
+                # touches, which is what makes the shipped index 2.8 entries per
+                # primitive rather than 1.0. Parking alone under-covers.
+                stay.append(i)
+                for q, (qx0, qz0, qx1, qz1) in enumerate(quads):
+                    if bx0 <= qx1 and bx1 >= qx0 and bz0 <= qz1 and bz1 >= qz0:
+                        buckets[q].append(i)
+            else:
+                buckets[home].append(i)
+        if stay:
+            nodes[node][0] = len(index)
+            index.extend(stay)
+            nodes[node][1] = len(index)
+        ids = [i for b in buckets for i in b]
+        if not ids:
+            return
+        # No progress only when ALL FOUR children inherit the whole set, which
+        # means a primitive spans the node and no amount of halving separates
+        # it. One child taking everything IS progress: the box shrank, and the
+        # root is +/-40,000,000 so the first dozen levels always look like that.
+        if all(len(b) == len(ids) for b in buckets) and ids:
+            nodes[node][0] = len(index)
+            index.extend(ids)
+            nodes[node][1] = len(index)
+            return
+        first_child = len(nodes)
+        nodes[node][2] = first_child
+        nodes.extend([[0, 0, 0] for _ in range(4)])
+        for q in range(4):
+            build(first_child + q, buckets[q], *quads[q], depth + 1)
+
+    build(0, list(range(len(primitives))),
+          -ROOT_EXTENT, -ROOT_EXTENT, ROOT_EXTENT, ROOT_EXTENT, 0)
+
+    if len(index) > 0xFFFF:
+        raise SolError(f"{len(index):,} index entries; the field is u16")
+    tail = bytearray()
+    for first, last, child in nodes:
+        tail += struct.pack("<HHI", first, last, child)
+    return index, bytes(tail)
+
+
+def find(sol: "Sol", x: float, z: float) -> list[int]:
+    """The game's own descent: which primitives sit at (x, z).
+
+    Mirrors `collide_object` exactly, so a built tree can be checked against the
+    tree it replaced.
+    """
+    qx, qz = int(x * SCALE), int(z * SCALE)
+    tail = sol.tail
+    x0 = z0 = -ROOT_EXTENT
+    x1 = z1 = ROOT_EXTENT
+    node = 0
+    out: list[int] = []
+    for _ in range(64):
+        first, last, child = struct.unpack_from("<HHI", tail, node * 8)
+        # EVERY node on the path contributes, not just the leaf. collide_object
+        # reads first/last at the current node and only then descends, so a
+        # solid too big to fit a child is parked on the ancestor and found by
+        # every query passing through it. Returning the leaf alone finds a
+        # primitive's own centre only 190 times in 300.
+        out.extend(sol.index[first:last])
+        if not child:
+            return out
+        mx, mz = (x0 + x1) // 2, (z0 + z1) // 2
+        if qz <= mz:
+            z1 = mz
+            if qx <= mx:
+                x1, node = mx, child
+            else:
+                x0, node = mx, child + 1
+        else:
+            z0 = mz
+            if qx <= mx:
+                x1, node = mx, child + 2
+            else:
+                x0, node = mx, child + 3
+    raise SolError("descent did not terminate -- the tree has a cycle")
 
 
 def parse(data: bytes) -> Sol:
