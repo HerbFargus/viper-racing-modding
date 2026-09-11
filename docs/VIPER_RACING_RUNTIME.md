@@ -139,27 +139,34 @@ Sweeping the player's speed against AI running a steady ~120–130 mph:
 | 50 mph (22 m/s) | ~175 mph (78 m/s) | swerves, noticeably muted |
 | 60 mph (27 m/s) | ~185 mph (83 m/s) | the full swerve, ~2 s ahead |
 
-Two things follow. The response is **graded, not switched** — 50 mph produces a
-real but smaller reaction — so this is a magnitude that scales with speed rather
-than a boolean gate. And a pure time-to-contact test cannot be the whole story,
-because it would still fire at 40 mph, merely closer.
+One thing follows firmly: a pure time-to-contact test cannot be the whole story,
+because it would still fire at 40 mph, merely closer. Something about speed
+decides whether the behaviour is available at all.
 
-That fits the two entry points: `fast_interact` and `slow_interact` are separate
-functions, and `headon_panic` plausibly sits behind the fast one, with an
-encounter below the threshold taking the slow path — ordinary nudging and
-line-sharing — where no panic is available.
+**Watching a whole pack settles the shape of it.** At a steady 50 mph the leading
+car panics, while the ones behind slow down and take the ordinary avoidance path,
+bouncing off each other. At one fixed player speed some cars panic and some do
+not — which no single graded response produces. The "muted" reaction in the table
+above was a **mixture** of two discrete behaviours across the pack, not a smaller
+version of one, and `fast_interact`, `slow_interact` and `headon_panic` being
+three separate functions is what that looks like from the inside.
 
-**What these numbers cannot separate** is whether the scale is the player's own
-speed or the *closing* speed, because the AI held ~125 mph throughout. On closing
-speed the transition occupies a suspiciously narrow 165→185 mph; on the player's
-own speed it is a clean ramp across 40→60 mph. Running the same sweep where the
-AI is slow — a track whose corners drop them to ~60 mph — would settle it: if the
-scale is closing speed, the player-speed thresholds should roughly double.
+It also points at the scale being **closing** speed rather than the player's,
+since what differs between the panicking car and the calm ones behind it is their
+own speed.
+
+One confound stops that being conclusive: a car behind one that has just panicked
+is no longer only reacting to the player. It has a disrupted car directly ahead,
+so `passer`/`slow_interact` against *that* may be what is being watched, and its
+calm would say nothing about the head-on threshold. The clean test is a **lone
+slow car with nothing in front of it** — one dropped off the back of the pack, or
+on a corner exit — approached at 50 mph with clear line of sight. If it stays calm
+where a fast car panics, closing speed is confirmed with no confound.
 
 So the working model is **a speed-dependent choice between ordinary avoidance and
 a panic swerve, the panic firing about 2 s before contact**, with the switch
-somewhere between 40 and 60 mph on a scale that is either the player's speed or
-the closing speed. The 2 s itself is eyeballed, and remains untested against the
+somewhere between 40 and 60 mph of player speed against ~125 mph of AI, on a
+scale that is most likely the closing speed. The 2 s itself is eyeballed, and remains untested against the
 possibility that it is a fixed distance that merely looked like a time in a
 narrow speed band.
 
