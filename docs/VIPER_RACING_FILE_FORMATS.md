@@ -502,6 +502,37 @@ Confirmed by extracting printable strings directly from the payload:
   ```
   `recordCount` matched the number of camera keyword occurrences exactly in every sample checked.
 
+**The complete `.obt` grammar — ✅ CONFIRMED from `race.bin`'s own parser.** The game's format
+strings spell out every record it accepts, which is the only documentation this feature has: no
+community tool or tutorial mentions it, and `wobble` appears nowhere outside the track archives and
+the executable itself.
+
+```
+obj car       <x>, <z>
+obj checkpoint <mesh> <x>,<z> <x>,<z>                        -- mesh is checkpt1.mod
+obj obstacle  <ball|cube|prism> <mesh.mod> <x>,<y>:<z> <r>   -- e.g. cube ball.mod (the horn ball)
+obj static    <box> <x,y,z> <x,y,z> <x,y,z>
+obj wobble    <pole|flap> <int>
+```
+
+The physics object types it builds from these: `Ball`, `PhobStatic`, `Obstacle`, `Wobble`,
+`CheckPoint`, `PlayCar`, `AICar`, `NetCar`, `GhostCar`. Wobble objects have their own pool —
+`Too many wobjects allocated--increase MAX_OBJECTS`.
+
+Three things follow that are not visible from the shipped data:
+
+- **`obstacle` places a named mesh at a position with a radius.** That is per-instance collision with
+  arbitrary geometry, authored directly in a file `vrmod` already writes — no `.sol`, no MKWORLD.
+- **`flap` is a second wobble subtype that nothing ships.** Every `obj wobble` record in every track
+  is `pole`.
+- **Neither `obstacle` nor `static` appears in ANY shipped track.** They are parser-supported but
+  unexercised, so they are an opportunity and an untested path in equal measure.
+
+`obj wobble` is the one record carrying no coordinates, so its integer must reference something
+placed elsewhere. The best candidate is the `.sol` TUBE list: across every track the wobble count is
+≤ the TUBE count, the indices run contiguously from 0, and the only track with no wobble records
+(limbo) is also the only one with no TUBEs. Untested.
+
 - **`track.obt`** (placed-object table): `fieldsPerRecord = 1` in every sample (i.e. one big text field per
   record), `recordCount` matched the number of `obj ...` string occurrences exactly. Real extracted
   records from `bemidji/track.obt` — this is the starting grid and a checkpoint gate, verbatim:
