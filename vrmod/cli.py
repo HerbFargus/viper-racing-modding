@@ -12,7 +12,7 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from . import aifield, archive, aspectfix, bpp as bppmod, car, carshot, catalog as catalog_mod, cf, cockpit_tab, doctor, envelope, hornball, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili
+from . import aifield, archive, aspectfix, bpp as bppmod, car, carshot, catalog as catalog_mod, cf, cockpit_tab, doctor, envelope, hornball, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon
 
 COMMIT_PATH = "/__vrmod_commit__"
 
@@ -774,6 +774,17 @@ def main(argv: list[str] | None = None) -> int:
                            f"-{hornball.COOLDOWN_MAX}; stock 2.0)")
     p_hb.add_argument("--reset", action="store_true", help="restore stock (1.0x, 2.0s)")
 
+    p_ho = sub.add_parser(
+        "headon",
+        help="Turn off the AI's head-on panic swerve -- driven at fast enough, an AI "
+             "car throws the wheel fully to one side instead of picking a line past "
+             "you. Reports the current state; --disable/--enable to change",
+    )
+    p_ho.add_argument("data_dir", type=Path, help="the game's Data folder")
+    p_ho.add_argument("--disable", action="store_true",
+                      help="make AICar::headon_panic return immediately")
+    p_ho.add_argument("--enable", action="store_true", help="put it back")
+
     p_carfork = sub.add_parser(
         "carfork",
         help="Fork a car to a NEW filename prefix so it becomes a standalone vehicle "
@@ -1451,6 +1462,28 @@ def main(argv: list[str] | None = None) -> int:
         if args.speed is None and args.cooldown is None and not args.reset:
             print("  --speed MULT / --cooldown SECONDS to change, --reset for stock. "
                   "Enable the hack in-game from the hidden hacks menu.")
+    elif args.command == "headon":
+        try:
+            if args.disable and args.enable:
+                raise headon.PatchError("pick one of --disable / --enable")
+            if args.disable:
+                at = headon.apply(args.data_dir)
+                print(f"head-on panic DISABLED at {hex(at)} "
+                      f"(original saved as race.bin.headon-backup).")
+            elif args.enable:
+                at = headon.revert(args.data_dir)
+                print(f"head-on panic restored at {hex(at)}.")
+            state = headon.status(args.data_dir)
+            print(f"head-on panic: {state}"
+                  + (f"  (AICar::headon_panic at {hex(headon.site(args.data_dir))})"
+                     if state == headon.ENABLED else ""))
+            if state == headon.ENABLED and not args.disable:
+                print("  --disable to stop AI cars swerving off when you come at them "
+                      "head-on. Ordinary avoidance is a different code path and is "
+                      "left alone.")
+        except headon.PatchError as e:
+            print(f"error: {e}")
+            return 1
     elif args.command == "carfork":
         entries = archive.read(args.car_file)
         old = car.body_prefix(entries)
