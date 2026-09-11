@@ -658,6 +658,14 @@ def main(argv: list[str] | None = None) -> int:
                             help="tile size in metres for --keep-geometry (default 50; "
                                  "the renderer culls per chunk, so a whole-track mesh "
                                  "draws as nothing at all)")
+    p_trackgen.add_argument("--walls", action="store_true",
+                            help="run barrier walls alongside the track; each quad becomes "
+                                 "one .sol primitive when MKWORLD compiles the surface file")
+    p_trackgen.add_argument("--wall-offset", type=float, default=None,
+                            help="lateral distance to the walls in metres "
+                                 "(default: the road half-width plus 2.5 m)")
+    p_trackgen.add_argument("--wall-height", type=float, default=1.5,
+                            help="wall height in metres (default 1.5)")
     p_trackgen.add_argument("--grid", type=int, default=8,
                             help="starting-grid slots (default 8)")
 
@@ -1191,8 +1199,12 @@ def main(argv: list[str] | None = None) -> int:
             line = _tg.resample(line, args.spacing, closed=closed)
         if args.keep_geometry:
             meshes = _tg.read_meshes(args.centreline)
+            # The author's own surface settings, if the exporter wrote any --
+            # BTB ships them in special.ini beside the model.
+            patterns = _tg.read_surface_patterns(args.centreline)
             scene = _tg.scene_from_meshes(meshes, centreline=line,
-                                          chunk_size=args.chunk_size)
+                                          chunk_size=args.chunk_size,
+                                          patterns=patterns)
             half = _tg.road_half_width(scene) or args.road_width / 2.0
         else:
             scene = _tg.sweep(
@@ -1203,6 +1215,13 @@ def main(argv: list[str] | None = None) -> int:
             half = args.road_width / 2.0
         _tg.add_checkpoints(scene, args.checkpoints, half_width=half)
         _tg.add_grid(scene, args.grid)
+        wall_count = 0
+        if args.walls:
+            wall_count = _tg.add_walls(
+                scene,
+                offset=args.wall_offset if args.wall_offset is not None else half + 2.5,
+                height=args.wall_height,
+            )
         written = _tg.write_scene(scene, args.out_dir)
         if args.keep_geometry:
             written += _tg.write_textures(args.centreline, args.out_dir)
@@ -1213,6 +1232,12 @@ def main(argv: list[str] | None = None) -> int:
         print()
         print(f"{len(scene.driveables)} driveable objects, written identically "
               f"to both scene files.")
+        if wall_count:
+            print(f"{wall_count} wall quads, surface file only -- MKWORLD turns each "
+                  f"into one .sol primitive.")
+        if args.keep_geometry and patterns:
+            print(f"surface patterns read from the model's own special.ini: "
+                  f"{', '.join(g for g, _ in patterns)}")
         if args.keep_geometry:
             print(f"road half-width measured from the model: {half:.2f} m "
                   f"(racing-line corridor {ili.corridor_for(half * 2.0):.1f} m)")

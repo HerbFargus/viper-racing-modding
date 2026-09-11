@@ -26,6 +26,7 @@ distance-to-centre -- a number that had to come out right and did.
 
 from __future__ import annotations
 
+import fnmatch
 import math
 import re
 from dataclasses import dataclass, field
@@ -597,7 +598,14 @@ def write_surface(scene: "TrackScene") -> str:
     out.extend(_modobject(o) for o in scene.driveables)
     for quad in scene.walls:
         out.append(f"  object({scene.wall_texture},1,0)")
-        out.extend(_vert(p, flip=True) for p in quad)
+        # Walls do NOT share the markers' frame. Measured against vrTrackMaker's
+        # own output: its gate verts match the mesh frame, while its wall verts
+        # are negated on both ground axes (mesh x -819.9..810.5 against wall
+        # column 1 -811.3..820.9). MKWORLD negates them back on the way into
+        # .sol, so a wall written in the mesh frame is compiled mirrored through
+        # the origin -- which, on a roughly centred circuit, drops a good share
+        # of the barriers across the track as invisible walls in the road.
+        out.extend(_vert(p, flip=False) for p in quad)
         out.append("    quad(0,1,2,3)")
         out.append("  end")
         out.append("")
@@ -869,10 +877,14 @@ SURFACE_PREFIXES: tuple[tuple[str, int], ...] = (
 )
 
 
-def surface_code(name: str, default: int = GRASS) -> int:
+def surface_code(name: str, default: int | None = GRASS) -> int | None:
     """The surface code a mesh or material name implies.
 
-    Falls back to grass rather than road: a misclassified verge is a car that
+    Returns `default` when nothing matches -- pass None to find out whether a
+    name carried any information at all, which is how the material name is
+    preferred over the mesh name below.
+
+    The default is grass rather than road: a misclassified verge is a car that
     slows down where it should not, a misclassified road is a car that grips
     where there is nothing to grip.
     """
@@ -881,6 +893,47 @@ def surface_code(name: str, default: int = GRASS) -> int:
         if stem.startswith(prefix):
             return code
     return default
+
+
+def split_by_material(mesh: "mod.Mesh") -> dict[str, "mod.Mesh"]:
+    """Split a multi-material mesh into one mesh per material.
+
+    Exporters differ in how much structure they preserve, and the difference is
+    silent. Bob's Track Builder writes one object per material, so its road and
+    grass arrive already separated; a Blender OBJ of the same track arrives as a
+    single object carrying both materials. Classifying by the mesh's own name
+    then gives the whole track one surface code -- the road included, which
+    means a road the game treats as grass.
+
+    Materials are the reliable unit: every format that carries geometry carries
+    them, and they are what the surface-code convention is really about.
+    """
+    if len(mesh.materials) <= 1:
+        return {}
+    out: dict[str, "mod.Mesh"] = {}
+    for material in mesh.materials:
+        faces = mesh.faces[material.face_start:material.face_end]
+        if not faces:
+            continue
+        remap: dict[int, int] = {}
+        verts: list[mod.Vertex] = []
+        local: list[tuple[int, int, int]] = []
+        for face in faces:
+            tri = []
+            for i in face:
+                j = remap.get(i)
+                if j is None:
+                    j = len(verts)
+                    remap[i] = j
+                    verts.append(mesh.vertices[i])
+                tri.append(j)
+            local.append(tuple(tri))
+        out[material.name] = mod.Mesh(
+            vertices=verts,
+            materials=[mod.Material(material.name, 0, len(verts), 0, len(local))],
+            faces=local,
+        )
+    return out
 
 
 def chunk_mesh(mesh: "mod.Mesh", *, size: float = DEFAULT_CHUNK_SIZE) -> list["mod.Mesh"]:
@@ -935,12 +988,40 @@ def chunk_mesh(mesh: "mod.Mesh", *, size: float = DEFAULT_CHUNK_SIZE) -> list["m
     return out
 
 
+def _code_for(name: str, mesh: "mod.Mesh", codes: dict[str, int],
+              patterns: list[tuple[str, int]] | None = None) -> int:
+    """The surface code for one mesh.
+
+    In order: an explicit override, then the author's own surface patterns, then
+    the material name against the built-in table, then the mesh name, then grass.
+    The author's patterns come first because they are a statement of intent --
+    the built-in table is only a guess at what people call things.
+    """
+    if name in codes:
+        return codes[name]
+    for material in mesh.materials:
+        if patterns:
+            code = surface_code_from_patterns(material.name, patterns)
+            if code is not None:
+                return code
+        code = surface_code(material.name, default=None)
+        if code is not None:
+            return code
+    if patterns:
+        code = surface_code_from_patterns(name, patterns)
+        if code is not None:
+            return code
+    code = surface_code(name, default=None)
+    return GRASS if code is None else code
+
+
 def scene_from_meshes(
     meshes: dict[str, "mod.Mesh"],
     *,
     centreline: list[Point] | None = None,
     chunk_size: float = DEFAULT_CHUNK_SIZE,
     codes: dict[str, int] | None = None,
+    patterns: list[tuple[str, int]] | None = None,
 ) -> "TrackScene":
     """Build a TrackScene from geometry that already exists.
 
@@ -956,10 +1037,25 @@ def scene_from_meshes(
         raise ValueError("no meshes to import")
 
     codes = codes or {}
+    # An exporter that writes one object per material and one that writes a
+    # single object carrying several must import the same way, so split first
+    # and classify per material.
+    expanded: dict[str, "mod.Mesh"] = {}
+    for name, mesh in meshes.items():
+        pieces = split_by_material(mesh)
+        if not pieces:
+            expanded[name] = mesh
+            continue
+        for material_name, piece in pieces.items():
+            key = f"{Path(material_name).stem}.mod"
+            while key in expanded:
+                key = f"{Path(key).stem}_.mod"
+            expanded[key] = piece
+    meshes = expanded
     _rename_materials(meshes)
     if centreline is None:
         road = [m for n, m in meshes.items()
-                if codes.get(n, surface_code(n)) == ROAD]
+                if _code_for(n, m, codes, patterns) == ROAD]
         if not road:
             raise ValueError(
                 "no mesh classifies as road, so there is no centreline to recover -- "
@@ -975,7 +1071,7 @@ def scene_from_meshes(
     scene = TrackScene(centreline=[(p[0], p[1], p[2] if len(p) > 2 else 0.0)
                                    for p in centreline])
     for name in sorted(meshes):
-        code = codes.get(name, surface_code(name))
+        code = _code_for(name, meshes[name], codes, patterns)
         base = Path(name).stem
         for n, piece in enumerate(chunk_mesh(meshes[name], size=chunk_size)):
             chunk_name = f"{base}{n:03d}.mod"
@@ -1133,11 +1229,17 @@ def write_textures(source: str | Path, out_dir) -> list:
         m.name for mesh in meshes.values() for m in mesh.materials)
 
     written = []
+    missing = []
     for original, fitted in sorted(mapping.items()):
         stem = Path(original).stem
         image = next((base / (stem + e) for e in (".tga", ".TGA")
                       if (base / (stem + e)).exists()), None)
         if image is None:
+            # Skipping quietly is the wrong failure: the mesh still references
+            # the texture, so the archive ships a .grf naming a member that does
+            # not exist, and the surface renders as flat colour in game with no
+            # error. Better to stop here, where the cause is obvious.
+            missing.append((stem, [q.name for q in base.glob(stem + ".*")]))
             continue
         out = d / fitted
         pixels, w, h = tex.read_tga(image)
@@ -1162,4 +1264,199 @@ def write_textures(source: str | Path, out_dir) -> list:
         out.write_bytes(tex.encode_to_tex(
             pixels, w, mode="opaque" if channels == 3 else "alpha", wrap=1))
         written.append(out)
+
+    if missing:
+        lines = []
+        for stem, found in missing:
+            near = f"; found {found}" if found else ""
+            lines.append(f"  {stem}: no {stem}.tga beside the model{near}")
+        raise ValueError(
+            "these materials have no source image, so the track would ship a "
+            "mesh referencing a texture that is not in the archive:\n"
+            + "\n".join(lines)
+            + "\n\nOnly .tga is read today -- convert the images beside the "
+              "model, or supply the .tex members yourself.")
     return written
+
+
+# ---------------------------------------------------------------------------
+# Walls
+#
+# `.sol` holds the track's solid collision -- the barriers a car hits rather
+# than drives on -- and writing one from scratch was long treated as blocked,
+# because its spatial tail is not understood well enough to synthesise.
+#
+# It does not have to be synthesised. The surface scene file already has a
+# syntax for a wall: an inline `object(<texture>,1,0)` followed by four verts
+# and a `quad(0,1,2,3)`, and MKWORLD turns each one into exactly one `.sol`
+# primitive. Measured on a real track: 246 declared quads produced a 69,262-byte
+# `.sol` carrying 246 primitives, against the 48-byte empty file the same scene
+# produces with no walls declared, and at the same version (2) as the stock
+# tracks. That is the same MKWORLD run the pipeline already makes for `.bsp`, so
+# walls cost no new tool.
+#
+# A wall is TWO things, and vrTrackMaker keeps them apart:
+#
+#   the collision   object(wall.tga,1,0) + a quad, in the SURFACE file only,
+#                   which MKWORLD compiles into a .sol primitive
+#   the appearance  an ordinary mesh in the GRAPHIC file, listed with param1=3
+#                   (NO_COLLISION) so it is drawn but not solid
+#
+# Its output carries four such meshes -- wallcli/wallclo/wallcri/wallcro, the
+# left and right barriers' inner and outer faces -- none of which appears in the
+# surface file at all. The stock tracks do the same thing by hand: they have no
+# wall-specific texture, just scenery (fncing.tex, fense.tex, brk.tex, concr.tex)
+# with .sol boxes and tubes placed alongside to approximate it.
+#
+# add_walls() below emits only the collision half, which is why a generated wall
+# is invisible. Emitting the appearance half is what importing a modelled
+# barrier will need, and it belongs in the graphic file with param1=3.
+
+DEFAULT_WALL_HEIGHT = 1.5
+DEFAULT_WALL_SPACING = 4          # stations per quad
+
+
+def add_walls(
+    scene: "TrackScene",
+    *,
+    offset: float,
+    height: float = DEFAULT_WALL_HEIGHT,
+    stride: int = DEFAULT_WALL_SPACING,
+    sides: str = "both",
+    texture: str = "wall.tga",
+) -> int:
+    """Run barrier walls alongside the centreline. Returns the quad count.
+
+    `offset` is the lateral distance from the centreline, in metres -- put it
+    outside the road AND its verges, or a car will scrape a wall while still on
+    the track. `stride` is how many stations each quad spans: fewer means more
+    quads and a closer fit through corners.
+
+    Each quad becomes one `.sol` primitive when MKWORLD compiles the surface
+    file, so the count here is the count that ends up in the track.
+    """
+    pts = scene.centreline
+    n = len(pts)
+    if n < 3:
+        raise ValueError("walls need a centreline of at least three stations")
+    if offset <= 0:
+        raise ValueError(f"wall offset must be positive, got {offset}")
+    if height <= 0:
+        raise ValueError(f"wall height must be positive, got {height}")
+    stride = max(1, int(stride))
+
+    signs = {"both": (1.0, -1.0), "left": (1.0,), "right": (-1.0,)}.get(sides)
+    if signs is None:
+        raise ValueError(f"sides must be 'both', 'left' or 'right', got {sides!r}")
+
+    normals = _normals_2d(pts, True)
+    added = 0
+    for i in range(0, n, stride):
+        j = (i + stride) % n
+        ax, ay, ae = pts[i]
+        bx, by, be = pts[j]
+        nax, nay = normals[i]
+        nbx, nby = normals[j]
+        for sgn in signs:
+            a = (ax + nax * offset * sgn, ay + nay * offset * sgn, ae)
+            b = (bx + nbx * offset * sgn, by + nby * offset * sgn, be)
+            # bottom edge along the track, then back along the top
+            scene.walls.append([
+                a, b,
+                (b[0], b[1], b[2] + height),
+                (a[0], a[1], a[2] + height),
+            ])
+            added += 1
+    scene.wall_texture = texture
+    return added
+
+
+# ---------------------------------------------------------------------------
+# Reading the author's own surface settings
+#
+# The prefix table above is a guess at what people call things, and measured
+# against a real Bob's Track Builder export it guesses wrong: BTB's own material
+# patterns are `rmbl*` for kerbs, `rgeddirt*` for sand and `rgedgrav*` for
+# gravel, none of which start with a word this file lists. All three would fall
+# back to grass -- silently, as usual.
+#
+# BTB does not leave it to guesswork. Its racer export ships `special.ini` with
+# a `surfaces` block binding a physics type to a material-name glob:
+#
+#     surf_kerb { type=kerb  grip_factor=1.0  pattern=rmbl* }
+#     surf_grass{ type=grass grip_factor=0.6  pattern=gras* }
+#
+# That is the author's own physics setting, exported. Reading it beats guessing,
+# and it means someone who renames their materials in BTB gets the right surface
+# codes without touching anything here.
+#
+# Racer's types are richer than Viper's five codes -- grip_factor, rolling
+# resistance and road noise have nowhere to go -- so only the type carries over.
+
+RACER_SURFACE_TYPES: dict[str, int] = {
+    "road": ROAD, "asphalt": ROAD, "tarmac": ROAD,
+    "kerb": RUMBLE, "curb": RUMBLE,
+    "grass": GRASS,
+    "sand": DIRT, "gravel": DIRT, "dirt": DIRT,
+    "water": WATER,
+}
+
+
+def read_surface_patterns(path: str | Path) -> list[tuple[str, int]]:
+    """Read `special.ini`'s surfaces block as (glob, surface code) pairs.
+
+    Accepts the ini itself or any file beside it -- importing a `.dof` can hand
+    over the model's own path. Returns [] when there is nothing to read, so the
+    prefix table stays the fallback rather than a hard requirement.
+
+    Pairs come back most-specific first. Order in the file cannot be taken as
+    precedence: BTB writes `pattern=*` second, and first-match-wins would then
+    make every material road.
+    """
+    p = Path(path)
+    ini = p if p.name.lower() == "special.ini" else p.parent / "special.ini"
+    if not ini.exists():
+        return []
+
+    text = ini.read_text("latin-1", errors="replace")
+    block = re.search(r"^surfaces\s*\{(.*?)^\}", text, re.S | re.M)
+    if not block:
+        return []
+
+    out: list[tuple[str, int]] = []
+    for body in re.findall(r"\{([^{}]*)\}", block.group(1)):
+        kind = re.search(r"^\s*type\s*=\s*(\S+)", body, re.M)
+        glob = re.search(r"^\s*pattern\s*=\s*(\S+)", body, re.M)
+        if not kind or not glob:
+            continue
+        code = RACER_SURFACE_TYPES.get(kind.group(1).strip().lower())
+        if code is None:
+            continue
+        out.append((glob.group(1).strip(), code))
+    # longest literal prefix wins; a bare "*" sorts last
+    # A bare "*" is dropped. BTB writes one (surf_road, so everything unmatched
+    # would become asphalt), and in Racer that is a terrain default -- objects are
+    # a separate concept there. Here every mesh goes through the same
+    # classification, so honouring it would make scenery, buildings and billboards
+    # grippy road. Unmatched materials fall back to grass instead, for the same
+    # reason the built-in default does.
+    out = [(g, c) for g, c in out if g.strip() != "*"]
+    out.sort(key=lambda pair: -len(pair[0].rstrip("*")))
+    return out
+
+
+def surface_code_from_patterns(name: str,
+                               patterns: list[tuple[str, int]]) -> int | None:
+    """Match a material name against patterns from `read_surface_patterns`.
+
+    A bare "*" never matches here either, not only when the patterns are read:
+    the caller may have built the list itself, and a catch-all that turns every
+    unclassified mesh into road is the one outcome this must not produce.
+    """
+    stem = Path(name).stem.lower()
+    for glob, code in patterns:
+        if glob.strip() == "*":
+            continue
+        if fnmatch.fnmatchcase(stem, glob.lower()):
+            return code
+    return None

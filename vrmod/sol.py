@@ -12,11 +12,20 @@ index list      2 each     n_index * u16, primitive indices per spatial cell
 tail            varies     spatial index -- see the caveat below
 ```
 
+**A populated `.sol` does not need synthesising.** Barriers reach one through
+MKWORLD: the surface scene file declares each as an `object(<texture>,1,0)` with
+four verts and a `quad(0,1,2,3)`, and MKWORLD compiles one primitive per quad,
+tail and all. 246 declared quads produced a 69,262-byte `.sol` carrying 246
+primitives at version 2 -- the same MKWORLD run the pipeline already makes for
+`.bsp`. See `trackgen.add_walls`; confirmed in game 2026-09-10, walls on both
+sides of the track. The unsolved tail below matters only if a `.sol` ever has to
+be built without MKWORLD.
+
 **What this module can and cannot do.** It parses every field, and it rebuilds
 any `.sol` it has parsed byte for byte, so solids can be read, moved, retyped or
 removed. It can also synthesise the empty case from nothing.
 
-What it cannot yet do is synthesise a *populated* `.sol`, because the tail is a
+It does not synthesise a *populated* `.sol` from nothing, because the tail is a
 spatial index that has not been fully cracked. Measured behaviour, from
 compiling controlled wall layouts through MKWORLD:
 

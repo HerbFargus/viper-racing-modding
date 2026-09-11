@@ -267,6 +267,116 @@ def check_invariants() -> None:
     check("shortened texture names stay unique",
           len(set(fitted.values())) == len(fitted), f"{len(set(fitted.values()))} distinct")
 
+    # Exporters differ in how much structure they keep, silently. BTB writes one
+    # object per material; a Blender OBJ of the same track is a single object
+    # carrying both. Classifying by the mesh name gives the second one surface
+    # code for the whole track -- a road the game treats as grass. Both must
+    # import identically, so classification goes by MATERIAL.
+    from vrmod import mod as _mod
+    split_scene = tg.sweep(circle, closed=True)
+    road_mesh = next(m for n, m in split_scene.meshes.items() if n.startswith("asphalt"))
+    grass_mesh = next(m for n, m in split_scene.meshes.items() if n.startswith("grass"))
+    merged_v = list(road_mesh.vertices) + list(grass_mesh.vertices)
+    off = len(road_mesh.vertices)
+    merged_f = list(road_mesh.faces) + [(a + off, b + off, c + off)
+                                        for a, b, c in grass_mesh.faces]
+    merged = _mod.Mesh(
+        vertices=merged_v,
+        materials=[_mod.Material("road_tarmac001.tex", 0, off, 0, len(road_mesh.faces)),
+                   _mod.Material("ground_grass001.tex", off, len(merged_v),
+                                 len(road_mesh.faces), len(merged_f))],
+        faces=merged_f,
+    )
+    pieces = tg.split_by_material(merged)
+    check("a multi-material mesh splits into one mesh per material",
+          len(pieces) == 2, f"{sorted(pieces)}")
+    check("splitting preserves every triangle",
+          sum(len(m.faces) for m in pieces.values()) == len(merged_f),
+          f"{sum(len(m.faces) for m in pieces.values())} of {len(merged_f)}")
+    one_object = tg.scene_from_meshes({"track.obj": merged}, centreline=circle,
+                                      chunk_size=50.0)
+    per_object = tg.scene_from_meshes(
+        {"road_tarmac001.mod": pieces["road_tarmac001.tex"],
+         "ground_grass001.mod": pieces["ground_grass001.tex"]},
+        centreline=circle, chunk_size=50.0)
+    import collections as _c
+    a = _c.Counter(o.code for o in one_object.driveables)
+    b = _c.Counter(o.code for o in per_object.driveables)
+    check("a single-object export classifies the same as a per-material one",
+          a == b, f"{dict(a)} vs {dict(b)}")
+    check("the road in a single-object export is road, not grass",
+          a.get(tg.ROAD, 0) > 0, f"{a.get(tg.ROAD, 0)} road chunks")
+
+    # The built-in prefix table is a guess at what people call things, and it
+    # guesses wrong on a real BTB export: rmbl* (kerbs), rgeddirt* and rgedgrav*
+    # all fall back to grass. BTB ships its own answer in special.ini, and the
+    # author's statement of intent beats our guess.
+    pats = [("rmbl*", tg.RUMBLE), ("gras*", tg.GRASS), ("rgeddirt*", tg.DIRT),
+            ("road*", tg.ROAD)]
+    check("the built-in table does mis-classify BTB's real kerb naming",
+          tg.surface_code("rmbl01") == tg.GRASS, "rmbl01 -> grass, which is why patterns matter")
+    check("surface patterns classify what the prefix table misses",
+          [tg.surface_code_from_patterns(n, pats) for n in
+           ("rmbl01", "rgeddirt01", "gras01", "road01")]
+          == [tg.RUMBLE, tg.DIRT, tg.GRASS, tg.ROAD], "all four correct")
+    check("an unmatched material still falls back, not crashes",
+          tg.surface_code_from_patterns("mystery", pats) is None, "returns None")
+    check("a bare '*' catch-all is not honoured",
+          tg.surface_code_from_patterns("mystery", [("*", tg.ROAD)]) is None,
+          "would otherwise make every prop grippy road")
+
+    # Walls. .sol was long treated as unwritable because its spatial tail is
+    # not understood -- but it does not have to be synthesised: the surface file
+    # declares wall quads, and MKWORLD turns each into one .sol primitive.
+    walled = tg.sweep(circle, closed=True)
+    quads = tg.add_walls(walled, offset=10.0, height=1.5, stride=4)
+    check("walls produce one quad per side per stride",
+          quads == len(walled.centreline) // 4 * 2, f"{quads} quads")
+    surf, graph = tg.write_surface(walled), tg.write_graphic(walled)
+    check("wall quads reach the surface file",
+          surf.count("object(wall.tga,1,0)") == quads, f"{quads} declared")
+    # Walls do not share the markers' frame: vrTrackMaker writes its gate verts
+    # in the mesh frame and its wall verts negated on both ground axes, and
+    # MKWORLD negates walls back on the way into .sol. A wall written in the
+    # mesh frame compiles mirrored through the origin -- barriers land across
+    # the track as invisible walls in the road.
+    #
+    # The ring above is centred on the origin, where the two frames are
+    # indistinguishable, so this uses an OFF-CENTRE loop that can tell them
+    # apart.
+    import re as _re
+    off = [(math.cos(t / 40.0 * math.tau) * 200.0 + 600.0,
+            math.sin(t / 40.0 * math.tau) * 200.0 + 250.0, 0.0) for t in range(40)]
+    offscene = tg.sweep(off, closed=True)
+    tg.add_walls(offscene, offset=10.0, height=1.5, stride=4)
+    otxt = tg.write_surface(offscene)
+    ov = [tuple(map(float, t)) for t in _re.findall(
+        r"vert\(([-\d.]+), ([-\d.]+), ([-\d.]+)\)",
+        _re.findall(r"object\(wall\.tga,1,0\)(.*?)quad", otxt, _re.S)[0])]
+    # source frame: near the centreline itself. mesh frame: near its negation.
+    d_src = min(math.dist((v[0], v[1]), (p[0], p[1])) for v in ov for p in off)
+    d_mesh = min(math.dist((v[0], v[1]), (-p[0], -p[1])) for v in ov for p in off)
+    check("wall verts are written in the source frame, not the mesh frame",
+          d_src < 15.0 and d_mesh > 100.0,
+          f"{d_src:.1f} m from the centreline, {d_mesh:.0f} m from its mirror")
+
+    # The COLLISION half of a wall is surface-file only. (The appearance half is
+    # an ordinary mesh in the graphic file at param1=3, which add_walls does not
+    # emit -- vrTrackMaker ships four of them per track.)
+    check("wall collision quads stay OUT of the graphic file",
+          "wall.tga" not in graph,
+          "surface file only; the visible mesh is a separate, non-colliding object")
+    for bad in (0.0, -1.0):
+        try:
+            tg.add_walls(walled, offset=bad)
+        except ValueError:
+            pass
+        else:
+            check("a non-positive wall offset is refused", False, f"accepted {bad}")
+            break
+    else:
+        check("a non-positive wall offset is refused", True, "raises ValueError")
+
     # Geometry: the road comes out the width it was asked for.
     # segments are named asphalt000.mod, asphalt001.mod, ...
     road = next(m for n, m in scene.meshes.items() if n.startswith("asphalt"))
