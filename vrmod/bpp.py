@@ -305,6 +305,7 @@ def build_tree(triangles: list[Triangle], *, seed: int = 0,
                candidates: int = 10, min_area: float = 1e-4,
                max_depth: int = 160, max_nodes: int | None = None,
                height_tol: float = 0.01, contact_area: float = 0.01,
+               refine_floor: float = 0.05,
                strict: bool = True) -> Bpp:
     """Build a .bpp tree over `triangles`, ready for `build()` to encode.
 
@@ -362,7 +363,8 @@ def build_tree(triangles: list[Triangle], *, seed: int = 0,
     report = {"dropped_slivers": 0, "depth_capped": 0, "max_depth": 0,
               "dropped_area": 0.0, "total_area": 0.0,
               "material_area": 0.0, "material_fragments": 0,
-              "subpatch_area": 0.0, "subpatch_fragments": 0}
+              "subpatch_area": 0.0, "subpatch_fragments": 0,
+              "material_examples": []}
     # Capping depth alone does not bound the work: a bad split sequence branches
     # wide instead of deep and the builder runs for hours. The shipped trees sit
     # at ~3.3 nodes per triangle, so this ceiling is generous and still finite.
@@ -476,6 +478,13 @@ def build_tree(triangles: list[Triangle], *, seed: int = 0,
                 if a >= contact_area:
                     report["material_area"] += a
                     report["material_fragments"] += 1
+                    # Name the triangles, so a refusal points at the geometry to
+                    # fix rather than just a number.
+                    if len(report["material_examples"]) < 8:
+                        report["material_examples"].append(
+                            {"kept": keep, "dropped": ti, "area": round(a, 3),
+                             "kept_flag": kept.flag, "dropped_flag": triangles[ti].flag,
+                             "dy": round(dy, 3)})
                 else:
                     report["subpatch_area"] += a
                     report["subpatch_fragments"] += 1
@@ -492,8 +501,54 @@ def build_tree(triangles: list[Triangle], *, seed: int = 0,
             return ("tri", biggest(items))
         line = choose(items, distinct)
         if line is None:
-            # Nothing separates them. With non-overlapping input this is a
-            # numerical sliver, so keep the largest and account for the rest.
+            # Nothing separates them, so they interpenetrate in projection --
+            # no single line can divide two overlapping fragments. Dropping one
+            # here would charge the whole CELL to an overlap that may be a small
+            # part of it: on nfield that turned an 81.6 m^2 overlap into 1,776
+            # m^2 of reported loss.
+            #
+            # So bisect the cell and try again, which narrows the loss toward
+            # the overlap and is bounded by the area floor.
+            #
+            # It does NOT close the gap. Measured on nfield: 1,776 -> 1,603
+            # m^2 against a real overlap of 81.6 m^2. Every remaining loss
+            # comes through THIS path -- 13 cells holding 89,053 m^2 between
+            # them, none from the depth cap or an empty side -- so the cells
+            # are not being narrowed as far as the floor should allow, and
+            # why is not yet understood.
+            cell_area = sum(_area(poly) for _ti, poly in items)
+            if cell_area > refine_floor:
+                xs = sorted(pt[0] for _t, poly in items for pt in poly)
+                zs = sorted(pt[1] for _t, poly in items for pt in poly)
+                wide = (xs[-1] - xs[0]) >= (zs[-1] - zs[0])
+                cut = (xs[len(xs) // 2] if wide else zs[len(zs) // 2])
+                forced = _normalise((1.0, 0.0, -cut) if wide else (0.0, 1.0, -cut))
+                lo_items, hi_items = [], []
+                for ti, poly in items:
+                    lp = _clip(poly, forced, True)
+                    if _area(lp) > min_area:
+                        lo_items.append((ti, lp))
+                    gp = _clip(poly, forced, False)
+                    if _area(gp) > min_area:
+                        hi_items.append((ti, gp))
+                if lo_items and hi_items:
+                    n = Node(a=forced[0], b=forced[1], c=forced[2],
+                             tri0=NO_TRI, tri1=NO_TRI,
+                             less=NO_CHILD, greater=NO_CHILD)
+                    if len(nodes) < budget:
+                        nodes.append(n)
+                        here = len(nodes) - 1
+                        kind, val = split(lo_items, depth + 1)
+                        if kind == "tri":
+                            n.tri0 = val
+                        else:
+                            n.less = val
+                        kind, val = split(hi_items, depth + 1)
+                        if kind == "tri":
+                            n.tri1 = val
+                        else:
+                            n.greater = val
+                        return ("node", here)
             report["dropped_slivers"] += len(distinct) - 1
             return ("tri", biggest(items))
         a, b, c = line          # already normalised by choose()
@@ -564,7 +619,8 @@ def build_tree(triangles: list[Triangle], *, seed: int = 0,
             f"road. ({report['dropped_slivers']} fragments were dropped in total; "
             f"the rest are adjacent coplanar triangles of the same code, where a "
             f"different index is the same answer.) Simplify the geometry, or pass "
-            f"strict=False")
+            f"strict=False. First few: "
+            f"{report['material_examples'][:3]}")
     return out
 
 
