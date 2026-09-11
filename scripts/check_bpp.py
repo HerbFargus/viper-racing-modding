@@ -137,11 +137,54 @@ def main() -> int:
     check("strict=False returns a tree and reports the loss",
           lossy.build_report["dropped_slivers"] > 0,
           f"{lossy.build_report['dropped_slivers']} fragments dropped")
+
+    print("\ncollision tree -- which losses actually matter")
+    # Not every dropped fragment is a defect. Where the replacement is the same
+    # surface code at the same height, the query returns a different index for
+    # the same answer and the car cannot tell. Only a different code, or a
+    # different height, changes what happens to it.
+    flat_same = bpp.build_tree(grid(6), seed=1, max_depth=2, strict=False)
+    check("dropping a coplanar same-code neighbour is not a defect",
+          flat_same.build_report["dropped_slivers"] > 0
+          and flat_same.build_report["material_fragments"] == 0,
+          f"{flat_same.build_report['dropped_slivers']} dropped, 0 material")
+    check("and strict accepts that tree",
+          bpp.build_tree(grid(6), seed=1, max_depth=2) is not None,
+          "builds")
+
+    # Same geometry, different surface codes -> the loss IS material.
+    mixed = grid(6)
+    for i, t in enumerate(mixed):
+        if i % 2:
+            mixed[i] = bpp.Triangle(normal=t.normal, d=t.d, v=t.v, flag=10)
+    mx = bpp.build_tree(mixed, seed=1, max_depth=2, strict=False)
+    check("dropping a DIFFERENT-code neighbour is a defect",
+          mx.build_report["material_fragments"] > 0,
+          f"{mx.build_report['material_fragments']} material fragments, "
+          f"{mx.build_report['material_area']:.1f} m2")
     try:
-        bpp.build_tree(grid(6), seed=1, max_depth=2)
-        check("strict refuses that same tree", False, "returned it")
-    except bpp.BppError:
-        check("strict refuses that same tree", True, "raises")
+        bpp.build_tree(mixed, seed=1, max_depth=2)
+        check("strict refuses a materially lossy tree", False, "returned it")
+    except bpp.BppError as e:
+        check("strict refuses a materially lossy tree", True, str(e)[:44])
+
+    # A step in the road matters even when the code matches.
+    stepped = grid(6)
+    for i, t in enumerate(stepped):
+        if i % 2:
+            v = tuple((x, y + 3.0, z) for (x, y, z) in t.v)
+            stepped[i] = bpp.Triangle(normal=t.normal, d=t.d - 3.0, v=v, flag=t.flag)
+    st = bpp.build_tree(stepped, seed=1, max_depth=2, strict=False)
+    check("a height difference counts as material too",
+          st.build_report["material_fragments"] > 0,
+          f"{st.build_report['material_fragments']} fragments at a different height")
+
+    # Below a tyre contact patch a different code cannot express itself.
+    big = bpp.build_tree(mixed, seed=1, max_depth=2, contact_area=1e9, strict=False)
+    check("fragments under the contact patch are not held against the build",
+          big.build_report["material_fragments"] == 0
+          and big.build_report["subpatch_fragments"] > 0,
+          f"{big.build_report['subpatch_fragments']} below threshold")
 
     # --- optional: the shipped trees -----------------------------------------
     roots = [Path(p) for a in sys.argv[1:] for p in glob.glob(a)]
