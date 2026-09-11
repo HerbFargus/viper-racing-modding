@@ -43,6 +43,11 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         data = Path(tmp)
         shutil.copy(src, data / "race.bin")
+        # The source may already be patched -- this runs against live installs.
+        # Start from a known-enabled state so the sequence below means something.
+        if headon.status(data) == headon.DISABLED_STATE:
+            headon.revert(data)
+            print("  note  the source was already patched; reverted the copy first")
         original = (data / "race.bin").read_bytes()
 
         check("the function is found by signature, not by address",
