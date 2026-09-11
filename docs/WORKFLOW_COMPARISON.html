@@ -342,7 +342,7 @@
       <div class="sourceline"><span><b>Companions:</b> <a href="MODDING_HISTORY.html">modding history</a> &middot; <a href="reference.html">format reference</a></span><span><b>Markdown:</b> <a href="WORKFLOW_COMPARISON.md">WORKFLOW_COMPARISON.md</a></span></div>
     </div>
 
-    <p class="lead-note"><b>The bottom line.</b> Every stage of both pipelines now runs from one cross-platform Python library, with two exceptions: the collision BSP (<span class="mono">.bpp</span>) still requires the original <span class="mono">nhmkworld</span>, and <span class="mono">.sol</span> walls can only be written empty. Everything else &mdash; geometry, textures, surface codes, racing lines, timing gates, the starting grid, packaging, installation &mdash; is <span class="mono">vrmod</span>. Both pipelines are confirmed in game: a car with a custom model on 2026-09-07, a track generated from a centreline on 2026-09-09, and a Bob's Track Builder track imported with its own geometry on 2026-09-10.</p>
+    <p class="lead-note"><b>The bottom line.</b> Every stage of both pipelines now runs from one cross-platform Python library, with two exceptions: every step is <span class="mono">vrmod</span>, the collision tree included, and <span class="mono">.sol</span> walls can only be written empty. Everything else &mdash; geometry, textures, surface codes, racing lines, timing gates, the starting grid, packaging, installation &mdash; is <span class="mono">vrmod</span>. Both pipelines are confirmed in game: a car with a custom model on 2026-09-07, a track generated from a centreline on 2026-09-09, and a Bob's Track Builder track imported with its own geometry on 2026-09-10.</p>
 
     <section id="centreline">
       <h2><span class="num">01</span> Building a track from a centreline</h2>
@@ -358,7 +358,7 @@
           <tr><td class="num-col">5</td><td>Starting grid</td><td>vrTrackMaker</td><td><span class="mono">vrmod trackgen --grid</span></td></tr>
           <tr><td class="num-col">6</td><td>Racing lines</td><td><span class="mono">mkilicc -nolat</span> &times;3 over three hand-authored <span class="mono">.ili</span> sources</td><td><span class="mono">ili.generate</span> &mdash; all three lines from the centreline</td></tr>
           <tr><td class="num-col">7</td><td>Compile the surface set</td><td><span class="mono">mkfltoa</span> &rarr; <span class="mono">MKWORLD</span></td><td><span class="mono">.obt</span>, <span class="mono">.bsp</span>, <span class="mono">.sol</span> written natively</td></tr>
-          <tr><td class="num-col">8</td><td>Graphics and collision</td><td><span class="mono">mkfltoa</span> &rarr; <span class="mono">nhmkworld</span></td><td><span class="mono">.grf</span> native; <b><span class="mono">.bpp</span> still needs <span class="mono">nhmkworld</span></b> <span class="mono" style="color:var(--conf-hypothesis)">&#9888;</span></td></tr>
+          <tr><td class="num-col">8</td><td>Graphics and collision</td><td><span class="mono">mkfltoa</span> &rarr; <span class="mono">nhmkworld</span></td><td>both native &mdash; <span class="mono">.grf</span> and <span class="mono">.bpp</span></td></tr>
           <tr><td class="num-col">9</td><td>Track map image</td><td>MKSTAMP / tga2stp</td><td><span class="mono">vrmod trackmap</span></td></tr>
           <tr><td class="num-col">10</td><td>Sky</td><td>jpg2sky, four tiles by hand</td><td><span class="mono">vrmod skyimport</span> &mdash; one panoramic TGA</td></tr>
           <tr><td class="num-col">11</td><td>Pack</td><td><span class="mono">mkres @reslist.txt</span>, hand-maintained file list</td><td><span class="mono">vrmod pack</span> &mdash; no list to maintain</td></tr>
@@ -393,7 +393,7 @@
    |     road width measured from the model
    |     racing lines, timing gates, starting grid
    |
-   +- nhmkworld for .bpp; everything else native
+   +- everything native, including .bpp
    +- vrmod pack  &rarr; &lt;track&gt;.tra</pre>
       <p>Two commercial tools leave the chain: <b>Zmodeler</b> and <b>3DS Max</b>. The centreline no longer has to be drawn by hand &mdash; it is recovered from the road surface by pairing its boundary edges through the mesh's own triangle connectivity. That also means the road's real width is measured rather than assumed, and that width sets the timing gates and the racing-line corridor.</p>
       <p class="lead-note"><b>A caveat worth stating.</b> BTB exports whatever the author modelled and nothing more. In the test export that was a road plus a verge about 8&nbsp;m wide, so leaving the road runs out of world quickly. The import is faithful to the model; it does not invent terrain.</p>
@@ -448,7 +448,7 @@
       <h2><span class="num">05</span> What still needs the old tools</h2>
       <p>Stated plainly, because a comparison that lists only wins is not much use.</p>
       <ul>
-        <li><b><span class="mono">.bpp</span> &mdash; the collision BSP.</b> Still built by <span class="mono">nhmkworld</span> from the graphic scene file. The one step in either pipeline that cannot run without an original binary.</li>
+        <li><b><span class="mono">.bpp</span> &mdash; the collision BSP.</b> <b>Solved 2026-09-11.</b> <span class="mono">bpp.build_tree()</span> compiles it and a track carrying one drives. Nothing in either pipeline needs an original binary now.</li>
         <li><b><span class="mono">.sol</span> &mdash; walls.</b> Can only be written empty. The spatial tail is not understood well enough to synthesise, so a generated track has no wall collision.</li>
         <li><b>UV editing.</b> UVs round-trip through OBJ, but there is no equivalent of the <b>UV Map Editor</b>, or of Sucahyo's <b>Auto Image Tiler</b>, which rewrote a <span class="mono">.mod</span>'s UVs and texture references together.</li>
         <li><b>AI tuning.</b> No equivalent of <b>trkaitweaker</b>. Racing lines are generated, but fields 12 and 13 &mdash; the AI's pacing hints &mdash; are approximated rather than reproduced, so AI braking on a generated track is not yet what a shipped track gets.</li>
