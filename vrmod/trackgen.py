@@ -1323,11 +1323,21 @@ def write_textures(source: str | Path, out_dir) -> list:
             pixels = bytes(b for i, b in enumerate(pixels) if i % 4 != 3)
             channels = 3
 
-        # wrap=1, not the encoder's default of 0: a road texture tiles along the
-        # track, and a freshly encoded texture with wrap 0 is rejected outright
-        # ("unknown texture format") rather than merely looking wrong.
+        # wrap is not free to choose. Surveying every texture in a full install
+        # gives only these combinations:
+        #
+        #     flags 0 (opaque)          wrap 0  x563   wrap 1  x118
+        #     flags 1 (colorkey)        wrap 0   x95   wrap 2    x1
+        #     flags 2 (alpha)           wrap 0   x18   wrap 1    x2
+        #     flags 3 (colorkey+alpha)  wrap 0   x78
+        #
+        # A tiling ALPHA texture is not among them, and the game rejects one
+        # outright -- "Panic : tmap: unknown texture format", before the track
+        # loads. So wrap 1 is for opaque textures, which are the ones that tile
+        # along a road anyway; a billboard tree or a light glow does not tile.
+        mode = "opaque" if channels == 3 else "alpha"
         out.write_bytes(tex.encode_to_tex(
-            pixels, w, mode="opaque" if channels == 3 else "alpha", wrap=1))
+            pixels, w, mode=mode, wrap=1 if mode == "opaque" else 0))
         written.append(out)
 
     if missing:

@@ -262,6 +262,17 @@ def check_invariants() -> None:
           tg.TEX_NAME_LIMIT == 12 and all(len(v) <= 12 and v[:-4].isalnum()
                                           for v in fitted.values()),
           f"{sorted(fitted.values())}")
+    # A tiling ALPHA texture is a combination the game does not ship and does
+    # not accept: it panics with "tmap: unknown texture format" before the track
+    # loads. wrap 1 belongs to opaque textures only.
+    from vrmod import tex as _tex
+    _alpha = _tex.encode_to_tex(bytes(8 * 8 * 4), 8, mode="alpha", wrap=0)
+    _opaque = _tex.encode_to_tex(bytes(8 * 8 * 3), 8, mode="opaque", wrap=1)
+    check("an alpha texture is written untiled",
+          _tex.parse(_alpha).wrap == 0, "wrap 0, as all 78 shipped flags=3 are")
+    check("an opaque texture may tile",
+          _tex.parse(_opaque).wrap == 1, "wrap 1 ships 118 times")
+
     check("the texture size ceiling matches what the game ships",
           tg.TEX_MAX_SIZE == 256, f"{tg.TEX_MAX_SIZE} (no shipped texture exceeds 256)")
     check("shortened texture names stay unique",
