@@ -409,9 +409,102 @@ confirmed `NILI`-tagged and structurally identical to `.ili`/`.ild`).
         field[5] = corridor half-width, meters — `track.ild` only; see below
         field[6] = target speed, m/s (a flat 100.0 in every `track.ild`)
         field[9] = cumulative arc-length distance from record 0 (meters)
-        field[10] = NOT a float: `0xFF<kind><index16>`, an incrementing record index
-        field[16] = NOT a float: `0xFEEDBEEF`
+        field[0]  = NOT a float: the runtime `next` POINTER — see below
+        field[10] = NOT a float: `0xFF<kind><index16>`; `kind` names the LINE, and
+                    the index is zeroed on load
+        field[12] = distance to a block boundary ahead (meters) — engine never reads it
+        field[13] = signed distance to a block boundary ahead (meters) — debug draw only
+        field[16] = NOT a float: `0xFEEDBEEF`, the pool allocator's guard word
 ```
+
+#### 4.2.1 The file is a raw memory dump of a circular linked list — ✅ CONFIRMED
+
+This one fact explains most of the format's oddities, and it comes straight off
+`MutableIdealLine::save` in the symbolised 1998 build:
+
+```
+push 0x494c494e          ; "NILI", version 3
+call IdealLine::segloop_count
+push 0xc                 ; 12-byte header: ..., ..., count
+call FileWrite
+loop:
+  push 0x44              ; 68 bytes — the ILSeg node, verbatim
+  push edi
+  call FileWrite
+  mov  edi, [edi]        ; follow ILSeg::next
+  cmp  [esi+0x2c], edi   ; until back at the head
+  jne  loop
+```
+
+The writer never serialises anything. It walks a circular linked list and dumps each
+node's raw 68 bytes, `next` pointer included. So:
+
+- **Field 0 is that `next` pointer.** In shipped files it holds real 1998 heap addresses
+  — bemidji's `default.ili` runs `0x00302968`, `0x003029ac`, `0x003029f0`, exactly `0x44`
+  apart, and the last record points back to `0x00302924`, the head. This is why X sits at
+  field 1 rather than field 0. `fixup_res` relinks every node at load, so **whatever is
+  stored there is discarded** — vrmod may write zeros.
+- **Field 16 is the pool guard**, `0xFEEDBEEF` in every record of every shipped file.
+- **Field 10's low 16 bits are zeroed on load** (`fixup_res` ends by clearing the low word
+  of every record), so the index is scratch space, not input. The `kind` byte is `0` through
+  `default.ili` and `1` through `rdefault.ili`, but in `track.ild` it runs `1`, `2`, `3` in
+  **contiguous blocks** — bemidji is `1` for records 0–31, `2` for 32–71, `3` for 72–90.
+  Those are the lap's **sectors**, which is what `CenterLine::get_next_checkpoint` walks.
+  `fixup_res` confirms the reading: when it reverses a line it renumbers this byte, and it
+  guards the renumbering with `cmp edx, 5`, so the format allows at most four sectors.
+  (`vrmod`'s `ili.generate(sectors=True)` already writes it this way.)
+
+`fixup_res` also holds the whole reverse-line construction, which is why `rdefault.ili`
+never needed separate authoring: it reverses the record order, shifts field 8 by one
+record, re-accumulates field 9, negates the direction vector in fields 3 and 4, and
+renumbers the `kind` byte.
+
+#### 4.2.2 Fields 12 and 13 — the engine does not read them — ✅ CONFIRMED (by exhaustion)
+
+These were the last two unexplained fields, and the answer is that **nothing consumes
+them**. Every function that walks the line was disassembled from the symbolised build:
+
+| function | ILSeg fields it reads |
+|---|---|
+| `ILSeg::QuickEval` | 0, 1, 2 (lerps position toward `next`) |
+| `ILSeg::QuickTan` | 0, 3, 4 (lerps the tangent, then normalises) |
+| `IdealLine::get_rabbit_position` | 3, 4, 5, 6, 8 |
+| `IdealLine::advance_bead` | 3, 4, 6, 7, 8 |
+| `IdealLine::get_nearest_bead` | 8 |
+| `ILSeg::__Curvature` | 3, 4 |
+
+Fields 12 and 13 appear in none of them. Scanning the **entire** `.text` section for x87
+access to an ILSeg's `+0x30`/`+0x34` returns exactly one hit on a line segment:
+`ILSeg::__DrawLine`, which compares field 13 against `0x80000000` and picks one of two
+colour globals — a debug-draw decision about the sign, nothing more. (The other 78 hits
+are unrelated structs; `+0x30` is an unremarkable offset in `Wheel`, `Engine`,
+`SphereVolume` and a dozen others.)
+
+**What they nevertheless are.** Both are distances in metres that fall by exactly the step
+(field 8) each record, over a shared, irregular block structure. Field 13 crosses zero and
+goes negative; field 12 stays positive throughout. `field[12] - field[13]` is constant
+within a block and changes at each boundary. Those boundaries are **corners**: mean
+curvature at a boundary runs 1.5×–3.5× the track mean on every shipped centreline
+(bemidji 1.58×, dundas 2.30×, hastings 1.66×, heaven 3.52×, kenyon 1.73×, nfield 2.02×,
+uptown 1.50×). What the per-block constant *is* remains open — across 288 blocks it
+matches neither the block's own length, its neighbours' lengths, nor the distance to the
+block's curvature peak.
+
+⚠️ An earlier reading in this project had these as "distance to the next and previous
+checkpoint". The "previous" half is wrong: both look forward, and they share one block
+structure rather than bracketing the record.
+
+**Why this matters for generated tracks.** AI pacing is carried by field 6 (target speed)
+and field 7 (curvature), both of which the follower does read. Fields 12 and 13 cannot be
+the reason a generated track's AI brakes differently from a shipped one, and filling them
+approximately costs nothing.
+
+> **Does this apply to the game people run?** The analysis is from the 1998 symbolised
+> build, so it was checked against both shipped `race.bin` builds. With absolute data
+> addresses excluded (they move between builds), the bodies of `QuickEval`,
+> `get_rabbit_position`, `copy_res_to_loop`, `save`, `__DrawLine` and `fixup_res` are
+> byte-identical in retail v1.1 and community v1.2.5. `MutableIdealLine::copy_res_to_loop`
+> does a flat `rep movsd` of all 17 dwords, so no field is filtered on the way in either.
 
 > ### A 1998 build carries the game's own linker map
 >

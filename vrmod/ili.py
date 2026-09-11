@@ -460,22 +460,36 @@ def write_line_file(path, line: Line):
 # from the geometry and are exact. Three are not, and are marked below, because
 # the shipped data does not make them obvious:
 #
-#   [12] and [13] are distances to the boundaries of a segmentation of the lap
-#        whose rule is not known. They are piecewise "constant minus cumulative
-#        distance", resetting at irregular intervals (bemidji's blocks run 9, 6,
-#        21, 2, 2, 5, 4, 3 records). Here they are filled with distance to the
-#        next and previous CHECKPOINT, which has the same shape and is the most
-#        plausible reading.
+#   [12] and [13] are distances to the boundaries of an irregular segmentation
+#        of the lap. THE ENGINE NEVER READS THEM -- see below. Filled here with
+#        distance to the next and previous checkpoint, which is the right shape
+#        and costs nothing either way.
 #   [7]  is curvature-shaped and tiny (0 .. 0.006 across a whole track). Filled
 #        with a turn-rate estimate.
 #   [15] is a lateral or banking term in the range +-13. Filled with zero.
 #
 # CONFIRMED IN GAME: a track carrying lines generated this way loads and drives,
 # so the three approximations above are tolerated by the engine rather than
-# merely plausible. That does not make them right -- if the AI is ever seen
-# braking early, weaving, or cutting where it should not, field 12/13's block
-# rule is the first thing to finish properly.
+# merely plausible.
+#
+# On [12] and [13], settled from the symbolised 1998 build (see the format
+# reference, 4.2.2): every function that walks the line was disassembled --
+# QuickEval, QuickTan, get_rabbit_position, advance_bead, get_nearest_bead,
+# __Curvature -- and none of them touches fields 12 or 13. A scan of the whole
+# .text for x87 access to an ILSeg's +0x30/+0x34 finds one hit, in
+# ILSeg::__DrawLine, choosing a debug colour from field 13's sign.
+#
+# So these two cannot be why a generated track's AI brakes differently from a
+# shipped one. That is carried by [6] (target speed) and [7] (curvature), which
+# the follower does read -- those are the fields to improve.
+#
+# What they are, for the record: both fall by the step (field 8) each record
+# over a shared block structure whose boundaries sit at corners (1.5x-3.5x mean
+# curvature on every shipped centreline). [13] goes negative, [12] stays
+# positive, and [12]-[13] is constant per block. What that constant means is
+# still open -- it matches no block length or apex offset over 288 blocks.
 
+FIELD_NEXT = 0           # the runtime `next` pointer; relinked on load, so ignored
 FIELD_DIR_X = 3
 FIELD_DIR_Z = 4
 FIELD_CORRIDOR = 5       # see below -- NOT the sentinel it looks like
@@ -547,8 +561,14 @@ ILD_SPEED = 100.0
 # perfectly ordinary integers that a float reader was never meant to see:
 #
 #   [10]  0xFF<kind><index16> -- a RECORD INDEX, incrementing by one down the
-#         line, tagged with which kind of line it is: 0x00 for default.ili and
-#         rdefault.ili, 0x01 for track.ild.
+#         line, tagged with a SECTOR number. track.ild carries 1, 2, 3 in
+#         contiguous blocks (bemidji: 1 for records 0-31, 2 for 32-71, 3 for
+#         72-90); the racing lines carry a single value throughout, 0x00 on five
+#         of the shipped tracks and 0x01 on three, so it varies by track rather
+#         than by which file it is. fixup_res renumbers this byte when it
+#         reverses a line, skips the renumbering when it is 0, and guards it
+#         with `cmp edx, 5` -- so 0 reads as "unsectored" and four is the
+#         ceiling. The low word is zeroed at load, making the index scratch.
 #   [16]  0xFEEDBEEF -- a magic marker, the same in every record of every line.
 #
 # Writing [10] as a constant (which is what the float value looks like if you

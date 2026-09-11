@@ -162,9 +162,11 @@ Stated plainly, because a comparison that lists only wins is not much use:
   one step in either pipeline that cannot run without an original binary.
 - **UV editing.** UVs round-trip through OBJ, but there is no equivalent of the **UV Map Editor**, or
   of Sucahyo's **Auto Image Tiler**, which rewrote a `.mod`'s UVs and texture references together.
-- **AI tuning.** No equivalent of **trkaitweaker**. Racing lines are generated, but fields 12 and 13 —
-  the AI's pacing hints — are approximated rather than reproduced, so AI braking on a generated track
-  is not yet what a shipped track gets.
+- **AI tuning.** No equivalent of **trkaitweaker**. Racing lines are generated, and the two fields
+  once suspected of carrying the AI's pacing hints turn out not to: the engine never reads fields 12
+  and 13 (formats §4.2.2). Pacing rides on target speed and curvature, both of which are derived
+  rather than measured, so AI braking on a generated track is close but not identical to a shipped
+  one.
 - **Collision repair.** `vrmod collisioncheck` finds mismatches; **Bad Poly Fix** repaired them.
 - **Wheels.** The parts drawer covers wheel rows; **WheelMan** did more.
 
