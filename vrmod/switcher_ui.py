@@ -1158,13 +1158,13 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                               "fix": f.fix, "action": f.action, "link": f.link}
                              for f in rep.findings],
             })
-            if self.path == "/api/headon":
-                try:
-                    state = headon.status(d)
-                    at = headon.site(d) if state == headon.ENABLED else None
-                except headon.PatchError:
-                    state, at = headon.UNKNOWN, None
-                return self._json({"state": state, "site": at})
+        if self.path == "/api/headon":
+            try:
+                state = headon.status(d)
+                at = headon.site(d) if state == headon.ENABLED else None
+            except headon.PatchError:
+                state, at = headon.UNKNOWN, None
+            return self._json({"state": state, "site": at})
         if self.path == "/api/hornball":
             if not hornball.available(d):
                 return self._json({"available": False})
@@ -1375,6 +1375,19 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 shot = d / f"{track.stem}.stp"
                 shot.write_bytes(stp.to_loose(stp.build_from_rgb(rgb, w, h)))
                 return self._json({"ok": True, "wrote": shot.name})
+            if self.path == "/api/headon":
+                try:
+                    if req.get("enable"):
+                        headon.revert(d)
+                        msg = "Head-on panic restored."
+                    else:
+                        headon.apply(d)
+                        msg = ("Head-on panic off (race.bin.headon-backup saved). "
+                               "Ordinary avoidance is untouched.")
+                except headon.PatchError as e:
+                    return self._json({"ok": False, "error": str(e)}, 400)
+                return self._json({"ok": True, "message": msg,
+                                   "state": headon.status(d)})
             if self.path == "/api/fix":
                 # Only named, understood repairs -- never an arbitrary write.
                 action = req.get("action")
@@ -1402,19 +1415,6 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                                        "message": "drivers.res emptied" + where + ". The AI now "
                                                   "follows each track's own racing line."})
                 return self._json({"ok": False, "error": f"unknown fix: {action}"}, 400)
-            if self.path == "/api/headon":
-                try:
-                    if req.get("enable"):
-                        headon.revert(d)
-                        msg = "Head-on panic restored."
-                    else:
-                        headon.apply(d)
-                        msg = ("Head-on panic off (race.bin.headon-backup saved). "
-                               "Ordinary avoidance is untouched.")
-                except headon.PatchError as e:
-                    return self._json({"ok": False, "error": str(e)}, 400)
-                return self._json({"ok": True, "message": msg,
-                                   "state": headon.status(d)})
             if self.path == "/api/hornball":
                 if not hornball.available(d):
                     return self._json({"ok": False, "error": "this race.bin has no tunable "
