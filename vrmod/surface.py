@@ -104,7 +104,15 @@ class SurfaceReport:
 
     @property
     def holes(self) -> list[Loop]:
-        """Every loop but the rim. These are gaps in the surface."""
+        """Every loop but the rim. These are gaps in the surface.
+
+        ONE FALSE POSITIVE TO KNOW ABOUT: a circuit swept as a ribbon is an
+        ANNULUS, so it has two legitimate boundary loops -- the outer rim and
+        the infield. This reports the infield as a hole, because loop topology
+        alone cannot tell "gap in the track" from "the middle of the track,
+        where there is no track". On a generated ring expect exactly one large
+        spurious hole; a real gap is small and sits ON the ribbon.
+        """
         if len(self.loops) <= 1:
             return []
         rim = self.rim
