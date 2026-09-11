@@ -1199,12 +1199,9 @@ def main(argv: list[str] | None = None) -> int:
             line = _tg.resample(line, args.spacing, closed=closed)
         if args.keep_geometry:
             meshes = _tg.read_meshes(args.centreline)
-            # The author's own surface settings, if the exporter wrote any --
-            # BTB ships them in special.ini beside the model.
-            patterns = _tg.read_surface_patterns(args.centreline)
-            scene = _tg.scene_from_meshes(meshes, centreline=line,
-                                          chunk_size=args.chunk_size,
-                                          patterns=patterns)
+            scene = _tg.scene_from_meshes(
+                meshes, centreline=line, chunk_size=args.chunk_size,
+                flags=_tg.read_object_flags(args.centreline))
             half = _tg.road_half_width(scene) or args.road_width / 2.0
         else:
             scene = _tg.sweep(
@@ -1232,12 +1229,20 @@ def main(argv: list[str] | None = None) -> int:
         print()
         print(f"{len(scene.driveables)} driveable objects, written identically "
               f"to both scene files.")
+        if args.keep_geometry and scene.walls and not args.walls:
+            print(f"{len(scene.walls)} wall quads from the model's own collision "
+                  f"objects -- MKWORLD turns each into one .sol primitive.")
+        if scene.scenery:
+            solid = sum(1 for o in scene.scenery
+                        if o.name.lower().startswith(("wall", "barrier", "fence")))
+            print(f"{len(scene.scenery)} scenery objects drawn in the graphic "
+                  f"file; {len(scene.scenery) - solid} of them cosmetic.")
+            if solid:
+                print(f"  {solid} are barriers -- drawn, and solid through "
+                      f"their own .sol quads.")
         if wall_count:
             print(f"{wall_count} wall quads, surface file only -- MKWORLD turns each "
                   f"into one .sol primitive.")
-        if args.keep_geometry and patterns:
-            print(f"surface patterns read from the model's own special.ini: "
-                  f"{', '.join(g for g, _ in patterns)}")
         if args.keep_geometry:
             print(f"road half-width measured from the model: {half:.2f} m "
                   f"(racing-line corridor {ili.corridor_for(half * 2.0):.1f} m)")

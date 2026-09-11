@@ -26,7 +26,6 @@ distance-to-centre -- a number that had to come out right and did.
 
 from __future__ import annotations
 
-import fnmatch
 import math
 import re
 from dataclasses import dataclass, field
@@ -126,10 +125,19 @@ def read_centreline(path: str | Path) -> list[Point]:
     """
     p = Path(path)
     if p.is_dir():
-        meshes = [mod.parse_file(f) for f in sorted(p.glob("*.mod"))]
-        if not meshes:
-            raise ValueError(f"no .mod files in {p}")
-        return centreline_from_meshes(meshes)
+        # An export folder, which holds far more than the road: terrain, walls,
+        # cones, trees. Recovering a centreline from all of it finds the middle
+        # of the scenery, so narrow to meshes that are both a driving surface
+        # and road rather than grass.
+        meshes = read_meshes(p)
+        road = [m for n, m in meshes.items()
+                if mesh_role(n, [x.name for x in m.materials]) == SURFACE
+                and _code_for(n, m, {}) == ROAD]
+        if not road:
+            raise ValueError(
+                f"nothing in {p.name} classifies as road, so there is no "
+                f"centreline to recover -- saw {sorted(meshes)[:6]}")
+        return centreline_from_meshes(road)
     suffix = p.suffix.lower()
     if suffix == ".ase":
         return read_ase(p)
@@ -988,27 +996,13 @@ def chunk_mesh(mesh: "mod.Mesh", *, size: float = DEFAULT_CHUNK_SIZE) -> list["m
     return out
 
 
-def _code_for(name: str, mesh: "mod.Mesh", codes: dict[str, int],
-              patterns: list[tuple[str, int]] | None = None) -> int:
-    """The surface code for one mesh.
-
-    In order: an explicit override, then the author's own surface patterns, then
-    the material name against the built-in table, then the mesh name, then grass.
-    The author's patterns come first because they are a statement of intent --
-    the built-in table is only a guess at what people call things.
-    """
+def _code_for(name: str, mesh: "mod.Mesh", codes: dict[str, int]) -> int:
+    """The surface code for one mesh: an explicit override, then its material
+    names, then its own name, then grass."""
     if name in codes:
         return codes[name]
     for material in mesh.materials:
-        if patterns:
-            code = surface_code_from_patterns(material.name, patterns)
-            if code is not None:
-                return code
         code = surface_code(material.name, default=None)
-        if code is not None:
-            return code
-    if patterns:
-        code = surface_code_from_patterns(name, patterns)
         if code is not None:
             return code
     code = surface_code(name, default=None)
@@ -1021,7 +1015,8 @@ def scene_from_meshes(
     centreline: list[Point] | None = None,
     chunk_size: float = DEFAULT_CHUNK_SIZE,
     codes: dict[str, int] | None = None,
-    patterns: list[tuple[str, int]] | None = None,
+    roles: dict[str, str] | None = None,
+    flags: dict[str, int] | None = None,
 ) -> "TrackScene":
     """Build a TrackScene from geometry that already exists.
 
@@ -1055,7 +1050,8 @@ def scene_from_meshes(
     _rename_materials(meshes)
     if centreline is None:
         road = [m for n, m in meshes.items()
-                if _code_for(n, m, codes, patterns) == ROAD]
+                if _code_for(n, m, codes) == ROAD
+                and mesh_role(n, [x.name for x in m.materials]) == SURFACE]
         if not road:
             raise ValueError(
                 "no mesh classifies as road, so there is no centreline to recover -- "
@@ -1070,13 +1066,69 @@ def scene_from_meshes(
 
     scene = TrackScene(centreline=[(p[0], p[1], p[2] if len(p) > 2 else 0.0)
                                    for p in centreline])
+    roles = roles or {}
+    flags = flags or {}
+
+    def role_of(name: str, mesh: "mod.Mesh") -> str:
+        if name in roles:
+            return roles[name]
+        # the exporter's own answer first -- a stem may carry a #N suffix when
+        # one file held several objects
+        stem = Path(name).stem.split("#", 1)[0]
+        if stem in flags:
+            return role_from_flags(flags[stem])
+        return mesh_role(name, [m.name for m in mesh.materials])
+
+    # Where the exporter supplied a collision volume, the object it covers must
+    # not also collide through its own mesh, or a cone gets both its proxy's
+    # three quads and twenty more shaped like the cone. BTB emits a proxy for a
+    # collidable OBJECT but none for a wall -- the wall's own mesh is its
+    # collider -- so which is which is decided by whether a proxy actually
+    # covers it, not by what it is called.
+    proxied: list[tuple[float, float, float]] = []
+    for name, mesh in meshes.items():
+        if role_of(name, mesh) == COLLIDER and mesh.vertices:
+            xs = [v.x for v in mesh.vertices]
+            zs = [v.z for v in mesh.vertices]
+            proxied.append((sum(xs) / len(xs), sum(zs) / len(zs),
+                            max(max(xs) - min(xs), max(zs) - min(zs))))
+
+    def has_proxy(mesh: "mod.Mesh") -> bool:
+        if not proxied or not mesh.vertices:
+            return False
+        xs = [v.x for v in mesh.vertices]
+        zs = [v.z for v in mesh.vertices]
+        cx, cz = sum(xs) / len(xs), sum(zs) / len(zs)
+        span = max(max(xs) - min(xs), max(zs) - min(zs))
+        return any(math.dist((cx, cz), (px, pz)) <= max(span, pspan)
+                   for px, pz, pspan in proxied)
+
     for name in sorted(meshes):
-        code = _code_for(name, meshes[name], codes, patterns)
-        base = Path(name).stem
-        for n, piece in enumerate(chunk_mesh(meshes[name], size=chunk_size)):
+        mesh = meshes[name]
+        role = role_of(name, mesh)
+        if role == COLLIDER:
+            # a generated collision volume: it becomes .sol solids, and is not
+            # drawn at all -- it has no texture to draw with
+            scene.walls.extend(mesh_to_wall_quads(mesh))
+            continue
+        if role == WALL and not has_proxy(mesh):
+            # A barrier is BOTH halves: its vertical faces become the .sol
+            # solids while the mesh itself is still drawn, at NO_COLLISION like
+            # any other scenery. Without this a wall with "Collide" ticked in
+            # BTB is drawn and driven straight through.
+            scene.walls.extend(mesh_to_wall_quads(mesh))
+        code = _code_for(name, mesh, codes)
+        base = re.sub(r"[^A-Za-z0-9_]", "", Path(name).stem) or "mesh"
+        for n, piece in enumerate(chunk_mesh(mesh, size=chunk_size)):
             chunk_name = f"{base}{n:03d}.mod"
             scene.meshes[chunk_name] = piece
-            scene.driveables.append(SceneObject(chunk_name, code))
+            if role == SURFACE:
+                scene.driveables.append(SceneObject(chunk_name, code))
+            else:
+                # Barriers and props are drawn but not driven on. NO_COLLISION
+                # keeps them out of .bpp -- verified: marking meshes 3 removed
+                # exactly their own face count from the compiled collision.
+                scene.scenery.append(SceneObject(chunk_name, code, NO_COLLISION))
     if not scene.meshes:
         raise ValueError("every mesh chunked to nothing -- no triangles anywhere")
     return scene
@@ -1150,30 +1202,46 @@ def _rename_materials(meshes: dict[str, "mod.Mesh"]) -> dict[str, str]:
 
 
 def read_meshes(path: str | Path) -> dict[str, "mod.Mesh"]:
-    """Load the geometry from a model file, keyed by name.
+    """Load the geometry from a model file, or a whole export folder.
 
-    Accepts the same sources `read_centreline` does, but returns the whole model
-    rather than a line through the middle of it.
+    Keys carry the SOURCE FILE stem, because that is what says what a mesh is --
+    `wall0_s0` is a barrier, `obj00000` is props, and their material names
+    (`road24`, `road1`) say neither. See mesh_role().
+
+    A directory is read as an export folder: every `.dof` and `.mod` in it. Bob's
+    Track Builder writes one file per object, so that is how a track with
+    barriers and scenery arrives.
     """
     p = Path(path)
     suffix = p.suffix.lower()
-    if suffix == ".dof":
+
+    def from_dof(f: Path) -> dict[str, "mod.Mesh"]:
         from . import dof as dof_mod
-        return dof_mod.to_meshes(dof_mod.parse_file(p))
+        pieces = dof_mod.to_meshes(dof_mod.parse_file(f))
+        if len(pieces) == 1:
+            return {f"{f.stem}.mod": next(iter(pieces.values()))}
+        return {f"{f.stem}#{i}.mod": m for i, m in enumerate(pieces.values())}
+
+    if suffix == ".dof":
+        return from_dof(p)
     if suffix == ".mod":
         return {p.name: mod.parse(p.read_bytes())}
+    if suffix == ".obj":
+        return {p.name: mod.read_obj(p)}
     if p.is_dir():
-        out = {}
+        out: dict[str, "mod.Mesh"] = {}
+        for f in sorted(p.glob("*.dof")):
+            if "_lod" in f.stem.lower():
+                continue          # a level-of-detail variant, not another object
+            out.update(from_dof(f))
         for f in sorted(p.glob("*.mod")):
             out[f.name] = mod.parse(f.read_bytes())
         if out:
             return out
-        raise ValueError(f"no .mod files in {p}")
-    if suffix == ".obj":
-        return {p.name: mod.read_obj(p)}
+        raise ValueError(f"no .dof or .mod files in {p}")
     raise ValueError(
         f"cannot read geometry from '{suffix}' -- want .dof, .obj, .mod, or a "
-        "directory of .mod files")
+        "directory of them")
 
 
 def road_half_width(scene: "TrackScene") -> float:
@@ -1209,6 +1277,21 @@ def road_half_width(scene: "TrackScene") -> float:
     return lats[min(int(len(lats) * 0.95), len(lats) - 1)]
 
 
+def _pow2_size(n: int) -> int:
+    """The texture size to store an image of largest dimension `n` at.
+
+    A power of two, at least 8 (the smallest the encoder accepts) and at most
+    TEX_MAX_SIZE, rounded to the nearest power of two rather than up: 96 becomes
+    128 but 100 becomes 128 and 130 becomes 128, which keeps a texture from
+    doubling in size for the sake of two pixels.
+    """
+    n = max(8, min(int(n), TEX_MAX_SIZE))
+    lo = 1 << (n.bit_length() - 1)
+    hi = lo << 1
+    best = lo if (n - lo) <= (hi - n) else hi
+    return max(8, min(best, TEX_MAX_SIZE))
+
+
 def write_textures(source: str | Path, out_dir) -> list:
     """Convert the source model's textures to `.tex` alongside the scene.
 
@@ -1220,11 +1303,19 @@ def write_textures(source: str | Path, out_dir) -> list:
     from . import tex
 
     src = Path(source)
-    base = src.parent
+    # Images sit beside the model -- which is the folder itself when the whole
+    # export folder was handed over rather than one file inside it.
+    base = src if src.is_dir() else src.parent
     d = Path(out_dir)
     d.mkdir(parents=True, exist_ok=True)
 
     meshes = read_meshes(src)
+    # Collision volumes have nothing to draw -- no texture, and none wanted.
+    # They reach .sol as solids, never the graphic file.
+    flags = read_object_flags(src)
+    meshes = {n: m for n, m in meshes.items()
+              if role_from_flags(flags.get(Path(n).stem.split("#", 1)[0], 0))
+              != COLLIDER}
     mapping = fit_texture_names(
         m.name for mesh in meshes.values() for m in mesh.materials)
 
@@ -1243,9 +1334,18 @@ def write_textures(source: str | Path, out_dir) -> list:
             continue
         out = d / fitted
         pixels, w, h = tex.read_tga(image)
-        if w != h:
-            raise ValueError(f"{image.name} is {w}x{h}; textures must be square")
         channels = len(pixels) // (w * h)
+
+        # Viper wants square powers of two; a modeller's textures are neither.
+        # BTB ships Cone.tga at 32x64. Resizing to square is safe rather than
+        # distorting: UVs are normalised, so the same coordinates sample the
+        # same fraction of the image whatever its stored resolution -- only the
+        # sampling detail changes, not what is drawn.
+        target = _pow2_size(max(w, h))
+        if (w, h) != (target, target):
+            pixels = tex.resize_nearest(pixels, w, h, target, target,
+                                        channels=channels)
+            w = h = target
 
         # Drop an alpha channel that carries no transparency, so the texture is
         # encoded opaque like every stock road and ground texture.
@@ -1253,16 +1353,21 @@ def write_textures(source: str | Path, out_dir) -> list:
             pixels = bytes(b for i, b in enumerate(pixels) if i % 4 != 3)
             channels = 3
 
-        if w > TEX_MAX_SIZE:
-            pixels = tex.resize_nearest(pixels, w, h, TEX_MAX_SIZE, TEX_MAX_SIZE,
-                                        channels=channels)
-            w = h = TEX_MAX_SIZE
-
-        # wrap=1, not the encoder's default of 0: a road texture tiles along the
-        # track, and a freshly encoded texture with wrap 0 is rejected outright
-        # ("unknown texture format") rather than merely looking wrong.
+        # wrap is not free to choose. Surveying every texture in a full install
+        # gives only these combinations:
+        #
+        #     flags 0 (opaque)          wrap 0  x563   wrap 1  x118
+        #     flags 1 (colorkey)        wrap 0   x95   wrap 2    x1
+        #     flags 2 (alpha)           wrap 0   x18   wrap 1    x2
+        #     flags 3 (colorkey+alpha)  wrap 0   x78
+        #
+        # A tiling ALPHA texture is not among them, and the game rejects one
+        # outright -- "Panic : tmap: unknown texture format", before the track
+        # loads. So wrap 1 is for opaque textures, which are the ones that tile
+        # along a road anyway; a billboard tree or a light glow does not tile.
+        mode = "opaque" if channels == 3 else "alpha"
         out.write_bytes(tex.encode_to_tex(
-            pixels, w, mode="opaque" if channels == 3 else "alpha", wrap=1))
+            pixels, w, mode=mode, wrap=1 if mode == "opaque" else 0))
         written.append(out)
 
     if missing:
@@ -1371,92 +1476,228 @@ def add_walls(
     return added
 
 
+
+
 # ---------------------------------------------------------------------------
-# Reading the author's own surface settings
+# What a mesh IS, as distinct from what it is made of
 #
-# The prefix table above is a guess at what people call things, and measured
-# against a real Bob's Track Builder export it guesses wrong: BTB's own material
-# patterns are `rmbl*` for kerbs, `rgeddirt*` for sand and `rgedgrav*` for
-# gravel, none of which start with a word this file lists. All three would fall
-# back to grass -- silently, as usual.
+# Surface codes answer "what does this drive like". They do not answer "is this
+# a driving surface at all" -- and an imported model contains plenty that is
+# not: barriers, cones, trees, light gantries.
 #
-# BTB does not leave it to guesswork. Its racer export ships `special.ini` with
-# a `surfaces` block binding a physics type to a material-name glob:
+# Measured against a Bob's Track Builder export containing objects, the material
+# name is no help with that question. BTB names material slots generically:
 #
-#     surf_kerb { type=kerb  grip_factor=1.0  pattern=rmbl* }
-#     surf_grass{ type=grass grip_factor=0.6  pattern=gras* }
+#     t_0_s0.dof    road22, grass0        the track surface
+#     wall0_s0.dof  road24                a concrete barrier
+#     obj00000.dof  road1                 seven traffic cones
 #
-# That is the author's own physics setting, exported. Reading it beats guessing,
-# and it means someone who renames their materials in BTB gets the right surface
-# codes without touching anything here.
+# A wall whose material is called "road24" classifies as asphalt, and the car
+# drives up it. The TEXTURE is meaningful where the material name is not
+# (wall_cement001, Cone, Tree04_leaves), and BTB's FILE naming is meaningful and
+# consistent: `t_*` the track, `ta*` terrain, `wall*` barriers, `obj*` props.
 #
-# Racer's types are richer than Viper's five codes -- grip_factor, rolling
-# resistance and road noise have nowhere to go -- so only the type carries over.
+# Neither signal is authoritative on its own -- a Blender export has whatever
+# names its author chose -- so both are hints, in order, over an explicit
+# override, with the existing behaviour as the fallback so nothing regresses.
 
-RACER_SURFACE_TYPES: dict[str, int] = {
-    "road": ROAD, "asphalt": ROAD, "tarmac": ROAD,
-    "kerb": RUMBLE, "curb": RUMBLE,
-    "grass": GRASS,
-    "sand": DIRT, "gravel": DIRT, "dirt": DIRT,
-    "water": WATER,
-}
+SURFACE, WALL, PROP = "surface", "wall", "prop"
 
+# Source-file naming. BTB's, but the shape is common: the exporter names things
+# by what they are. Longest prefix wins, so "wall" beats "w".
+ROLE_FILE_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("wall", WALL), ("barrier", WALL), ("fence", WALL),
+    ("obj", PROP), ("prop", PROP),
+    ("ta", SURFACE), ("terrain", SURFACE), ("t_", SURFACE), ("road", SURFACE),
+)
 
-def read_surface_patterns(path: str | Path) -> list[tuple[str, int]]:
-    """Read `special.ini`'s surfaces block as (glob, surface code) pairs.
-
-    Accepts the ini itself or any file beside it -- importing a `.dof` can hand
-    over the model's own path. Returns [] when there is nothing to read, so the
-    prefix table stays the fallback rather than a hard requirement.
-
-    Pairs come back most-specific first. Order in the file cannot be taken as
-    precedence: BTB writes `pattern=*` second, and first-match-wins would then
-    make every material road.
-    """
-    p = Path(path)
-    ini = p if p.name.lower() == "special.ini" else p.parent / "special.ini"
-    if not ini.exists():
-        return []
-
-    text = ini.read_text("latin-1", errors="replace")
-    block = re.search(r"^surfaces\s*\{(.*?)^\}", text, re.S | re.M)
-    if not block:
-        return []
-
-    out: list[tuple[str, int]] = []
-    for body in re.findall(r"\{([^{}]*)\}", block.group(1)):
-        kind = re.search(r"^\s*type\s*=\s*(\S+)", body, re.M)
-        glob = re.search(r"^\s*pattern\s*=\s*(\S+)", body, re.M)
-        if not kind or not glob:
-            continue
-        code = RACER_SURFACE_TYPES.get(kind.group(1).strip().lower())
-        if code is None:
-            continue
-        out.append((glob.group(1).strip(), code))
-    # longest literal prefix wins; a bare "*" sorts last
-    # A bare "*" is dropped. BTB writes one (surf_road, so everything unmatched
-    # would become asphalt), and in Racer that is a terrain default -- objects are
-    # a separate concept there. Here every mesh goes through the same
-    # classification, so honouring it would make scenery, buildings and billboards
-    # grippy road. Unmatched materials fall back to grass instead, for the same
-    # reason the built-in default does.
-    out = [(g, c) for g, c in out if g.strip() != "*"]
-    out.sort(key=lambda pair: -len(pair[0].rstrip("*")))
-    return out
+# Texture naming, checked when the file name says nothing.
+ROLE_TEXTURE_HINTS: tuple[tuple[str, str], ...] = (
+    ("wall", WALL), ("barrier", WALL), ("fence", WALL), ("guardrail", WALL),
+    ("armco", WALL), ("rail", WALL), ("concrete", WALL), ("cement", WALL),
+    ("cone", PROP), ("tree", PROP), ("leaves", PROP), ("trunk", PROP),
+    ("sign", PROP), ("post", PROP), ("light", PROP), ("glow", PROP),
+    ("girder", PROP), ("lamp", PROP), ("flag", PROP),
+)
 
 
-def surface_code_from_patterns(name: str,
-                               patterns: list[tuple[str, int]]) -> int | None:
-    """Match a material name against patterns from `read_surface_patterns`.
-
-    A bare "*" never matches here either, not only when the patterns are read:
-    the caller may have built the list itself, and a catch-all that turns every
-    unclassified mesh into road is the one outcome this must not produce.
-    """
+def _longest_prefix(name: str, table) -> str | None:
     stem = Path(name).stem.lower()
-    for glob, code in patterns:
-        if glob.strip() == "*":
-            continue
-        if fnmatch.fnmatchcase(stem, glob.lower()):
-            return code
+    for prefix, role in sorted(table, key=lambda pair: -len(pair[0])):
+        if stem.startswith(prefix):
+            return role
     return None
+
+
+def mesh_role(name: str, textures=(), default: str = SURFACE) -> str:
+    """Whether a mesh is a driving surface, a barrier, or scenery.
+
+    `name` is the source file or mesh name, `textures` the material names it
+    carries. The file name is asked first: an exporter that separates a wall
+    into its own file has already answered the question, and does so more
+    reliably than a texture shared between a barrier and a building.
+
+    Defaults to SURFACE, which is what every mesh was treated as before roles
+    existed -- an unrecognised mesh stays drivable rather than silently becoming
+    scenery you fall through.
+    """
+    role = _longest_prefix(name, ROLE_FILE_PREFIXES)
+    if role is not None:
+        return role
+    for texture in textures:
+        role = _longest_prefix(texture, ROLE_TEXTURE_HINTS)
+        if role is not None:
+            return role
+    return default
+
+
+# ---------------------------------------------------------------------------
+# Collision proxies
+#
+# Bob's Track Builder answers the collision question itself. Tick "Collide" on
+# an object and the export changes in three ways, measured on a controlled
+# export where exactly one of eight cones was toggled:
+#
+#   - that cone splits into its own .dof, where the other seven stay merged --
+#     so BTB groups objects by their PROPERTIES, and per-instance intent is
+#     readable rather than baked away;
+#   - its flags gain bit 2;
+#   - and a matching `objc*.dof` appears: no texture, six vertices, a triangular
+#     prism of three vertical quads standing on the object's own ground level,
+#     at the object's own x/z. A collision volume, generated for us.
+#
+# That prism is already the shape `.sol` wants. Each vertical quad becomes one
+# `object(<texture>,1,0)` in the surface file and one `.sol` primitive out of
+# MKWORLD -- the same path add_walls() uses.
+#
+# geometry.ini's flags, as measured:
+#
+#     2    Collide        track 774, walls 770, collidable cone 2, proxy 18
+#     4    Driveable      track 774, water ripples 4 -- not walls
+#     16   collision-only track's proxies only; the mesh is not drawn
+#     256  \  track structure: the road, the terrain and the walls
+#     512  /
+#
+# rFactor's `.scn` does NOT carry this. Its CollTarget is True on every cone
+# whatever the checkbox says, so the racer export is the one to read.
+
+FLAG_COLLIDE, FLAG_DRIVEABLE, FLAG_INVISIBLE = 2, 4, 16
+COLLIDER = "collider"
+
+
+def read_object_flags(path: str | Path) -> dict[str, int]:
+    """Read `geometry.ini`'s per-object flags. Empty when there is none."""
+    p = Path(path)
+    ini = p if p.name.lower() == "geometry.ini" else (
+        (p if p.is_dir() else p.parent) / "geometry.ini")
+    if not ini.exists():
+        return {}
+    text = ini.read_text("latin-1", errors="replace")
+    return {m.group(1): int(m.group(2)) for m in re.finditer(
+        r"(\w+)\s*\{\s*file=\S+\s*flags=(\d+)", re.sub(r"\s+", " ", text))}
+
+
+def role_from_flags(flags: int) -> str:
+    """A mesh's role from its exporter's own flags."""
+    if flags & FLAG_INVISIBLE:
+        return COLLIDER
+    if flags & FLAG_DRIVEABLE:
+        return SURFACE
+    if flags & FLAG_COLLIDE:
+        return WALL
+    return PROP
+
+
+def _upright_rect(points: list[Point]) -> list[Point]:
+    """The vertical rectangle spanning a set of points in a vertical plane."""
+    lo = min(p[2] for p in points)
+    hi = max(p[2] for p in points)
+    # the two points furthest apart on the ground give the rectangle's base
+    a, b = max(((p, q) for p in points for q in points),
+               key=lambda pair: math.dist(pair[0][:2], pair[1][:2]))
+    return [(a[0], a[1], lo), (b[0], b[1], lo), (b[0], b[1], hi), (a[0], a[1], hi)]
+
+
+def mesh_to_wall_quads(mesh: "mod.Mesh", *, max_tilt: float = 0.5) -> list[list[Point]]:
+    """Turn a collision mesh's vertical faces into wall quads.
+
+    `max_tilt` is how far a face's normal may lean off horizontal and still
+    count as a wall -- 0.5 keeps anything within 30 degrees of vertical, so a
+    sloped barrier qualifies and a floor does not.
+
+    Triangles that share an edge and face the same way are merged back into the
+    quad they were split from; anything left over is emitted as a triangle with
+    its last corner repeated, which is a quad MKWORLD accepts.
+
+    Quads smaller than a centimetre on either axis are dropped: they carry no
+    collision worth having, and MKWORLD warns about each one ("wall, degenerate
+    polygon").
+
+    Returns SOURCE-frame points, ready for `TrackScene.walls`.
+    """
+    def to_source(v) -> Point:
+        # inverse of to_viper: game (x, height, z) -> source (x, y, elevation)
+        return (-v.x, -v.z, v.y)
+
+    vertical: list[tuple[tuple[int, int, int], tuple[float, float, float]]] = []
+    for face in mesh.faces:
+        a, b, c = (mesh.vertices[i] for i in face)
+        ux, uy, uz = b.x - a.x, b.y - a.y, b.z - a.z
+        wx, wy, wz = c.x - a.x, c.y - a.y, c.z - a.z
+        nx, ny, nz = uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx
+        length = math.sqrt(nx * nx + ny * ny + nz * nz)
+        if length < 1e-9:
+            continue
+        if abs(ny / length) <= max_tilt:
+            vertical.append((face, (nx / length, ny / length, nz / length)))
+
+    used: set[int] = set()
+    edges: dict[tuple[int, int], list[int]] = {}
+    for i, (face, _) in enumerate(vertical):
+        for a, b in ((face[0], face[1]), (face[1], face[2]), (face[2], face[0])):
+            edges.setdefault((min(a, b), max(a, b)), []).append(i)
+
+    quads: list[list[Point]] = []
+    for i, (face, normal) in enumerate(vertical):
+        if i in used:
+            continue
+        partner = None
+        for a, b in ((face[0], face[1]), (face[1], face[2]), (face[2], face[0])):
+            for j in edges.get((min(a, b), max(a, b)), ()):
+                if j == i or j in used:
+                    continue
+                other, other_n = vertical[j]
+                if sum(x * y for x, y in zip(normal, other_n)) < 0.95:
+                    continue
+                shared = [v for v in face if v in other]
+                if len(shared) == 2:
+                    partner = (j, other, shared)
+                    break
+            if partner:
+                break
+        used.add(i)
+        if partner is None:
+            # A triangle with no matching partner still has to become a QUAD,
+            # and repeating a corner is not a quad: MKWORLD rejects it outright
+            # with "wall: <name> yaxis zero" and writes no .sol at all -- so one
+            # degenerate face costs the whole track its collision.
+            #
+            # The upright rectangle spanning the triangle is valid and leaves no
+            # gap. It over-covers slightly, which for a barrier is the harmless
+            # direction to err in.
+            quads.append(_upright_rect(
+                [to_source(mesh.vertices[k]) for k in face]))
+            continue
+        j, other, shared = partner
+        used.add(j)
+        lone_a = next(v for v in face if v not in shared)
+        lone_b = next(v for v in other if v not in shared)
+        ring = [lone_a, shared[0], lone_b, shared[1]]
+        quads.append([to_source(mesh.vertices[k]) for k in ring])
+
+    def worth_keeping(q: list[Point]) -> bool:
+        ground = max(math.dist(a[:2], b[:2]) for a in q for b in q)
+        height = max(p[2] for p in q) - min(p[2] for p in q)
+        return ground >= 0.01 and height >= 0.01 and len(set(q)) == 4
+
+    return [q for q in quads if worth_keeping(q)]

@@ -595,6 +595,28 @@ purpose-built test tracks and tooling make controlled, single-variable compariso
 
 ### 4.5 `TEX ` — `.tex` texture — ✅ CONFIRMED (opaque, colorkey, mip chain layout; full-alpha 🟡 well-supported)
 
+> **`flags` 0x03 is a FOUR-byte-per-pixel format — ✅ CONFIRMED by payload arithmetic.**
+> The other flag values are two bytes per pixel; 0x03 is exactly double at every size, and never
+> ships above 128×128:
+>
+> | base size | flags 0x00 / 0x01 / 0x02 | flags 0x03 |
+> |---|---|---|
+> | 16 | 748 | 1,496 |
+> | 32 | 2,796 | 5,592 |
+> | 64 | 10,988 | 21,976 |
+> | 128 | 43,756 | 87,512 |
+> | 256 | 174,828 | *never ships* |
+>
+> **ARGB4444 is 0x02, not 0x03.** Writing two bytes per pixel under 0x03 hands the game half the
+> data it expects, and it panics with `tmap: unknown texture format` before anything renders — a
+> load-time crash, not a visual fault. `vrmod` writes 0x00, 0x01 and 0x02; the four-byte 0x03
+> layout is not yet decoded.
+>
+> **A tiling alpha texture is also a combination that never ships.** Across a full install: flags 0
+> takes wrap 0 (×563) or 1 (×118); flags 1 takes wrap 0 (×95) or 2 (×1); flags 2 takes wrap 0 (×18)
+> or 1 (×2); flags 3 takes wrap 0 only (×78). Reserve wrap 1 for opaque textures, which are the ones
+> that tile along a road anyway.
+
 > **Two limits that are not in the file format, and both fail silently.**
 >
 > **Names are 8.3.** All 244 distinct texture names in a full install are at most 12 characters —

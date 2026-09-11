@@ -262,6 +262,27 @@ def check_invariants() -> None:
           tg.TEX_NAME_LIMIT == 12 and all(len(v) <= 12 and v[:-4].isalnum()
                                           for v in fitted.values()),
           f"{sorted(fitted.values())}")
+    # A tiling ALPHA texture is a combination the game does not ship and does
+    # not accept: it panics with "tmap: unknown texture format" before the track
+    # loads. wrap 1 belongs to opaque textures only.
+    from vrmod import tex as _tex
+    _alpha = _tex.encode_to_tex(bytes(8 * 8 * 4), 8, mode="alpha", wrap=0)
+    # flags 0x03 is a FOUR-byte-per-pixel format: its shipped payloads are
+    # exactly twice the others at the same size (128 -> 87,512 against 43,756)
+    # and it never ships above 128. ARGB4444 is 0x02. Writing 2 bytes under
+    # flags 3 hands the game half the data and it panics on load.
+    check("an alpha texture is written as flags 2, not 3",
+          _tex.parse(_alpha).flags == 2, "0x03 is a 4-byte format we cannot write")
+    check("an alpha texture's payload matches the shipped size for 2 bytes/px",
+          len(_alpha) - 20 == len(_tex.encode_to_tex(bytes(8 * 8 * 3), 8,
+                                                     mode="opaque", wrap=0)) - 20,
+          "same bytes per pixel as opaque, as every shipped flags 0/1/2 is")
+    _opaque = _tex.encode_to_tex(bytes(8 * 8 * 3), 8, mode="opaque", wrap=1)
+    check("an alpha texture is written untiled",
+          _tex.parse(_alpha).wrap == 0, "wrap 0, as all 78 shipped flags=3 are")
+    check("an opaque texture may tile",
+          _tex.parse(_opaque).wrap == 1, "wrap 1 ships 118 times")
+
     check("the texture size ceiling matches what the game ships",
           tg.TEX_MAX_SIZE == 256, f"{tg.TEX_MAX_SIZE} (no shipped texture exceeds 256)")
     check("shortened texture names stay unique",
@@ -307,23 +328,105 @@ def check_invariants() -> None:
     check("the road in a single-object export is road, not grass",
           a.get(tg.ROAD, 0) > 0, f"{a.get(tg.ROAD, 0)} road chunks")
 
-    # The built-in prefix table is a guess at what people call things, and it
-    # guesses wrong on a real BTB export: rmbl* (kerbs), rgeddirt* and rgedgrav*
-    # all fall back to grass. BTB ships its own answer in special.ini, and the
-    # author's statement of intent beats our guess.
-    pats = [("rmbl*", tg.RUMBLE), ("gras*", tg.GRASS), ("rgeddirt*", tg.DIRT),
-            ("road*", tg.ROAD)]
-    check("the built-in table does mis-classify BTB's real kerb naming",
-          tg.surface_code("rmbl01") == tg.GRASS, "rmbl01 -> grass, which is why patterns matter")
-    check("surface patterns classify what the prefix table misses",
-          [tg.surface_code_from_patterns(n, pats) for n in
-           ("rmbl01", "rgeddirt01", "gras01", "road01")]
-          == [tg.RUMBLE, tg.DIRT, tg.GRASS, tg.ROAD], "all four correct")
-    check("an unmatched material still falls back, not crashes",
-          tg.surface_code_from_patterns("mystery", pats) is None, "returns None")
-    check("a bare '*' catch-all is not honoured",
-          tg.surface_code_from_patterns("mystery", [("*", tg.ROAD)]) is None,
-          "would otherwise make every prop grippy road")
+    # Roles. A surface code says what a mesh drives like, not whether it is a
+    # driving surface at all. BTB names material slots generically -- a concrete
+    # barrier's material is "road24" and seven traffic cones are "road1" -- so
+    # classifying a wall by its material makes it asphalt and the car drives up
+    # it. The source FILE name is the reliable signal, with textures as backup.
+    check("BTB's file naming resolves roles",
+          [tg.mesh_role(n) for n in ("t_0_s0", "ta0000", "wall0_s0", "obj00000")]
+          == [tg.SURFACE, tg.SURFACE, tg.WALL, tg.PROP], "track/terrain/wall/prop")
+    check("a texture resolves a role the file name does not",
+          [tg.mesh_role("mesh17", [t]) for t in
+           ("Cone.tex", "wall_cement001.tex", "Tree04_leaves.tex", "GuardRail.tex")]
+          == [tg.PROP, tg.WALL, tg.PROP, tg.WALL], "cone/wall/tree/guardrail")
+    check("an unrecognised mesh stays a driving surface",
+          tg.mesh_role("whatever", ["mystery.tex"]) == tg.SURFACE,
+          "no silent demotion to scenery you fall through")
+
+    roled = tg.scene_from_meshes(
+        {"road_a.mod": road_mesh, "wall0_s0.mod": grass_mesh},
+        centreline=circle, chunk_size=50.0)
+    check("a wall is routed to scenery, not to driveables",
+          all(not o.name.startswith("wall") for o in roled.driveables)
+          and any(o.name.startswith("wall") for o in roled.scenery),
+          f"{len(roled.driveables)} driveable, {len(roled.scenery)} scenery")
+    check("scenery carries NO_COLLISION",
+          all(o.param1 == tg.NO_COLLISION for o in roled.scenery),
+          "param1=3, so it stays out of .bpp")
+    rg, rs = tg.write_graphic(roled), tg.write_surface(roled)
+    check("scenery reaches the graphic file but not the surface file",
+          "wall0_s0" in rg and "wall0_s0" not in rs, "drawn, not driven on")
+
+    # The exporter answers the collision question itself. Measured on a BTB
+    # export where exactly one of eight cones had "Collide" ticked: that cone
+    # split into its own .dof (so BTB groups by PROPERTIES, and per-instance
+    # intent survives), its flags gained bit 2, and a matching objc*.dof
+    # appeared -- untextured, six vertices, a triangular prism of vertical
+    # quads at the object's own position.
+    check("geometry.ini flags decode to roles",
+          [tg.role_from_flags(f) for f in (774, 770, 4, 0, 2, 18)]
+          == [tg.SURFACE, tg.WALL, tg.SURFACE, tg.PROP, tg.WALL, tg.COLLIDER],
+          "track/wall/water/prop/collidable/proxy")
+
+    # a triangular prism, as BTB writes one: three vertical quads, no caps
+    import math as _m2
+    from vrmod import mod as _mod2
+    tri = [(0.0, 0.0), (1.0, 0.0), (0.5, 1.0)]
+    vs = ([_mod2.Vertex(x, 3.0, z, 0, 1, 0, 0, 0) for x, z in tri]
+          + [_mod2.Vertex(x, 0.0, z, 0, 1, 0, 0, 0) for x, z in tri])
+    prism = _mod2.Mesh(
+        vertices=vs, materials=[_mod2.Material("none", 0, 6, 0, 6)],
+        faces=[(0, 1, 4), (0, 4, 3), (1, 2, 5), (1, 5, 4), (2, 0, 3), (2, 3, 5)])
+    pq = tg.mesh_to_wall_quads(prism)
+    check("a collision prism becomes one quad per side",
+          len(pq) == 3, f"{len(pq)} quads from 6 triangles")
+    check("every quad has four corners",
+          all(len(q) == 4 for q in pq), "quad(0,1,2,3) needs four verts")
+    flat = _mod2.Mesh(
+        vertices=[_mod2.Vertex(0, 0, 0, 0, 1, 0, 0, 0), _mod2.Vertex(1, 0, 0, 0, 1, 0, 0, 0),
+                  _mod2.Vertex(0, 0, 1, 0, 1, 0, 0, 0)],
+        materials=[_mod2.Material("none", 0, 3, 0, 1)], faces=[(0, 1, 2)])
+    check("a floor is not mistaken for a wall",
+          tg.mesh_to_wall_quads(flat) == [], "horizontal faces are skipped")
+
+    collided = tg.scene_from_meshes(
+        {"objc0000.mod": prism, "road_a.mod": road_mesh},
+        centreline=circle, chunk_size=50.0, flags={"objc0000": 18, "road_a": 774})
+    # A wall is its own collider -- BTB emits no objc* proxy for one -- so its
+    # vertical faces must become .sol quads or a wall with "Collide" ticked is
+    # drawn and driven straight through.
+    walled_mesh = tg.scene_from_meshes(
+        {"wall0_s0.mod": prism, "road_a.mod": road_mesh},
+        centreline=circle, chunk_size=50.0, flags={"wall0_s0": 770, "road_a": 774})
+    check("a wall is drawn AND solid",
+          len(walled_mesh.walls) == 3
+          and any(o.name.startswith("wall") for o in walled_mesh.scenery),
+          f"{len(walled_mesh.walls)} quads, and still in the graphic file")
+
+    # ... but an object the exporter already gave a proxy for must not also
+    # collide through its own mesh, or a cone gets its proxy's quads plus twenty
+    # more shaped like the cone.
+    import copy as _copy
+    twin = _copy.deepcopy(prism)
+    both = tg.scene_from_meshes(
+        {"objc0000.mod": prism, "obj00001.mod": twin, "road_a.mod": road_mesh},
+        centreline=circle, chunk_size=50.0,
+        flags={"objc0000": 18, "obj00001": 2, "road_a": 774})
+    check("an object covered by a proxy does not collide twice",
+          len(both.walls) == 3, f"{len(both.walls)} quads, not 6")
+
+    # MKWORLD rejects a quad with a repeated corner outright -- "yaxis zero" --
+    # and writes NO .sol at all, so one degenerate face costs the whole track
+    # its collision.
+    check("no wall quad is degenerate",
+          all(len(set(q)) == 4 for q in walled_mesh.walls + both.walls),
+          "four distinct corners each")
+
+    check("a collision proxy becomes walls, not geometry",
+          len(collided.walls) == 3
+          and not any("objc" in o.name for o in collided.driveables + collided.scenery),
+          f"{len(collided.walls)} quads, drawn nowhere")
 
     # Walls. .sol was long treated as unwritable because its spatial tail is
     # not understood -- but it does not have to be synthesised: the surface file

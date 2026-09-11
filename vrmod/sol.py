@@ -21,6 +21,11 @@ primitives at version 2 -- the same MKWORLD run the pipeline already makes for
 sides of the track. The unsolved tail below matters only if a `.sol` ever has to
 be built without MKWORLD.
 
+Solids reach the **AI**, not only the physics: an opponent met a barrier placed
+across the racing line -- one that did not exist when its line was generated --
+and steered around it. So `.sol` is read for obstacle avoidance at runtime, and
+adding barriers or props to a track does not require regenerating its lines.
+
 **What this module can and cannot do.** It parses every field, and it rebuilds
 any `.sol` it has parsed byte for byte, so solids can be read, moved, retyped or
 removed. It can also synthesise the empty case from nothing.

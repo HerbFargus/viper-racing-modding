@@ -5,7 +5,12 @@ Header (0SER payload, offsets relative to start of payload i.e. after the
 20-byte envelope from envelope.py -- these are the technical reference's
 full-file offsets 0x14-0x24 minus 0x14):
 
-    0x00  byte   flags: bit0=colorkey transparency, bit1=full alpha channel
+    0x00  byte   flags: bit0=colorkey transparency, bit1=full alpha channel.
+                  0x00 and 0x01 and 0x02 are 2 bytes per pixel; 0x03 is FOUR,
+                  confirmed by payload size across every shipped texture
+                  (flags 3 at 128x128 is 87,512 bytes against 43,756 for the
+                  others) and it never ships larger than 128x128. This module
+                  writes 0x00, 0x01 and 0x02; it cannot yet write 0x03.
     0x01  byte   1 for a texture drawn on 3D geometry, 0 for sky and 2D
                   overlays. Surveying every texture in a full install splits
                   cleanly: of 880, the only ones carrying 0 are sky1-4 across
@@ -453,7 +458,7 @@ def _encode_pixel_colorkey(rgba: tuple[int, int, int, int]) -> int:
 _MODES = {
     # mode: (channels, flags, pixel encoder)
     "opaque": (3, 0x00, _encode_pixel_rgb),
-    "alpha": (4, 0x03, _encode_pixel_rgba),
+    "alpha": (4, 0x02, _encode_pixel_rgba),
     "colorkey": (4, 0x01, _encode_pixel_colorkey),
 }
 
@@ -495,9 +500,15 @@ def encode_to_tex(
 
     `mode` selects the pixel format and expected input:
       "opaque"   -- RGB888 in (3 bytes/px), RGB565 out
-      "alpha"    -- RGBA8888 in (4 bytes/px), ARGB4444 out (flags=0x03 default,
-                     matching real files -- only 0x02 is byte-exact confirmed,
-                     see module docstring)
+      "alpha"    -- RGBA8888 in (4 bytes/px), ARGB4444 out, flags=0x02.
+                     NOT 0x03, which this defaulted to until a track carrying
+                     one failed to load: flags 0x03 is a different, FOUR-byte
+                     per pixel format. Its shipped payloads are exactly twice
+                     the 0x02/0x00 size at the same dimension (128 -> 87,512
+                     against 43,756), and it never ships above 128x128. Writing
+                     ARGB4444 under flags 0x03 hands the game half the data it
+                     expects and it panics with "tmap: unknown texture format"
+                     before the track renders.
       "colorkey" -- RGBA8888 in (4 bytes/px); alpha<128 pixels become the
                      reserved transparent marker (raw 0x0000), everything
                      else is plain RGB565 (nudged off 0x0000 if it would
