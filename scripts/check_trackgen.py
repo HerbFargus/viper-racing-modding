@@ -428,6 +428,44 @@ def check_invariants() -> None:
           and not any("objc" in o.name for o in collided.driveables + collided.scenery),
           f"{len(collided.walls)} quads, drawn nowhere")
 
+    # Field 6 is what the AI acts on, and it used to be written flat -- no
+    # reason to slow for a corner. The model is Sucahyo's: a cornering speed
+    # from curvature, then the slowest speed within a forward window (braking)
+    # and a backward one (getting back on the power).
+    import math as _m3
+    from vrmod import ili as _ili3
+    lap = []
+    for k in range(120):
+        ang = k / 120 * _m3.tau
+        rad = 400.0 if k < 90 else 50.0        # long sweeper, then a hairpin
+        lap.append((_m3.cos(ang) * rad, 0.0, _m3.sin(ang) * rad))
+    fast = _ili3.generate(lap, speed=70.0, closed=True)
+    sp = [r[6] for r in fast.records]
+    tight = [i for i in range(120) if i >= 90]
+    open_ = [i for i in range(120) if 20 <= i <= 60]
+    check("the AI speed cap is 30*pi, as every mkilicc track uses",
+          abs(_ili3.AI_SPEED_CAP - 30 * _m3.pi) < 1e-9, f"{_ili3.AI_SPEED_CAP:.5f} m/s")
+    check("a corner is slower than a straight",
+          max(sp[i] for i in tight) < min(sp[i] for i in open_),
+          f"{max(sp[i] for i in tight):.1f} vs {min(sp[i] for i in open_):.1f} m/s")
+    check("braking starts BEFORE the corner",
+          sp[88] < sp[60] or sp[89] < sp[60],
+          "the forward lookup reaches back up the straight")
+    check("speed stays down just past the corner exit",
+          sp[0] < sp[40], f"{sp[0]:.1f} at exit vs {sp[40]:.1f} on the straight")
+    check("no station exceeds the cap",
+          max(sp) <= _ili3.AI_SPEED_CAP + 1e-6, f"max {max(sp):.1f}")
+    flat = _ili3.generate(lap, speed=70.0, closed=True, corner_speed=False)
+    check("corner_speed=False restores the flat field",
+          len({r[6] for r in flat.records}) == 1, "one value, as before")
+    ild6 = _ili3.generate(lap, speed=70.0, closed=True, kind=_ili3.KIND_ILD,
+                          sectors=True, gates=[0.0, 800.0, 1600.0])
+    check("track.ild keeps its flat 100 regardless",
+          {r[6] for r in ild6.records} == {_ili3.ILD_SPEED}, "100.0")
+    check("lap time follows the per-station speed",
+          fast.records[-1][14] > flat.records[-1][14],
+          f"{fast.records[-1][14]:.1f}s cornering vs {flat.records[-1][14]:.1f}s flat")
+
     # Walls. .sol was long treated as unwritable because its spatial tail is
     # not understood -- but it does not have to be synthesised: the surface file
     # declares wall quads, and MKWORLD turns each into one .sol primitive.

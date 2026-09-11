@@ -570,6 +570,101 @@ KIND_ILD = 0x01           # track.ild -- the FIRST of its three sector tags
 # also blamed here for the "press space to reset" failure; that was field 5 --
 # see FIELD_CORRIDOR below -- and splitting the sub-lines did not fix it.)
 ILD_SECTORS = 3
+# ---------------------------------------------------------------------------
+# The speed the AI drives
+#
+# Field 6 is what the AI acts on, and it is the only field Sucahyo's
+# `trkaitweaker` writes back into a finished line -- "only the action will be
+# saved in this mode". His readme describes the model:
+#
+#   * "mult & add: This parameter decided how fast the AI do on straight or on
+#     tight corner" -- the speed comes from the path's curvature;
+#   * "Forward lookup & backward lookup: I limit the AI speed based from this
+#     two parameter. The AI action will be using the slowest speed needed on
+#     this range. For instance, if my algorithm detected a tight corner 20 meter
+#     ahead, then it will use that corner speed right now (as brake) if the
+#     forward lookup is more than 20 meter. Increase forward lookup if AI
+#     braking too late... increase backward lookup if AI accelerate too soon on
+#     corner exit."
+#
+# Measured support, on the four tracks built with mkilicc (Kyalami, jumper,
+# Telly, maxi): the stored speed correlates with cornering speed at 0.56-0.65,
+# and on three of the four a forward-looking MINIMUM over 60-120 m fits better
+# than the instantaneous value. Bemidji manages only 0.47, which is expected --
+# its line was tuned by hand with the developers' own AI-tweaker rather than
+# generated from a formula.
+#
+# What this does NOT do is reproduce mkilicc's arithmetic. Fitting v against
+# sqrt(R) leaves median errors of 17-65 m/s, so the relationship is not that,
+# and correlation alone will not recover the constants. This is the described
+# model with honest parameters, not a byte-exact reimplementation. It replaces a
+# CONSTANT speed field, which gave the AI no cornering cue at all.
+
+# Every mkilicc track caps its speed at exactly this, to four decimal places.
+AI_SPEED_CAP = 30.0 * math.pi          # 94.24778 m/s
+
+DEFAULT_GRIP = 1.9                     # lateral g the cornering speed assumes
+DEFAULT_FORWARD_LOOKUP = 80.0          # metres: how early the AI brakes
+DEFAULT_BACKWARD_LOOKUP = 40.0         # metres: how late it gets back on power
+
+
+def _radius(a, b, c) -> float:
+    """Radius of the circle through three points; huge when they are collinear."""
+    ab = math.dist(a, b)
+    bc = math.dist(b, c)
+    ca = math.dist(c, a)
+    s = (ab + bc + ca) / 2.0
+    area_sq = max(s * (s - ab) * (s - bc) * (s - ca), 1e-12)
+    return (ab * bc * ca) / (4.0 * math.sqrt(area_sq))
+
+
+def corner_speeds(points, *, top_speed: float, closed: bool = True,
+                  grip: float = DEFAULT_GRIP,
+                  forward: float = DEFAULT_FORWARD_LOOKUP,
+                  backward: float = DEFAULT_BACKWARD_LOOKUP) -> list[float]:
+    """A speed for every station: cornering-limited, then braking-limited.
+
+    `top_speed` is the straight-line speed; corners take it down. `forward` is
+    how far ahead a slow corner reaches back to start slowing the car, and
+    `backward` how far past one it keeps the speed down -- Sucahyo's two lookups.
+
+    Returns m/s, never above AI_SPEED_CAP.
+    """
+    pts = [(p[0], p[2] if len(p) > 2 else p[1]) for p in points]
+    n = len(pts)
+    if n < 3:
+        return [min(top_speed, AI_SPEED_CAP)] * n
+    ceiling = min(top_speed, AI_SPEED_CAP)
+
+    nxt = (lambda i: (i + 1) % n) if closed else (lambda i: min(i + 1, n - 1))
+    prv = (lambda i: (i - 1) % n) if closed else (lambda i: max(i - 1, 0))
+    step = [math.dist(pts[i], pts[nxt(i)]) for i in range(n)]
+
+    # the speed each corner allows on its own
+    local = [min(ceiling, math.sqrt(grip * 9.81 * _radius(pts[prv(i)], pts[i], pts[nxt(i)])))
+             for i in range(n)]
+
+    def sweep(seed, advance, window):
+        """Carry the slowest speed within `window` metres along the line."""
+        out = list(seed)
+        if window <= 0:
+            return out
+        for i in range(n):
+            j, travelled, slowest = i, 0.0, seed[i]
+            while travelled < window:
+                k = advance(j)
+                if not closed and k == j:
+                    break
+                travelled += step[j] if advance is nxt else step[k]
+                j = k
+                slowest = min(slowest, seed[j])
+            out[i] = slowest
+        return out
+
+    braking = sweep(local, nxt, forward)          # slow for what is coming
+    return sweep(braking, prv, backward)          # stay slow after it
+
+
 MAGIC = 0xFEEDBEEF
 
 
@@ -583,7 +678,11 @@ SENTINEL_B = _as_float(MAGIC)
 
 def generate(points, *, speed: float = 60.0, gates=None, closed: bool = True,
              kind: int = KIND_ILI, sectors: bool = False,
-             corridor: float | None = None, version: int = 3) -> Line:
+             corridor: float | None = None, corner_speed: bool = True,
+             grip: float = DEFAULT_GRIP,
+             forward: float = DEFAULT_FORWARD_LOOKUP,
+             backward: float = DEFAULT_BACKWARD_LOOKUP,
+             version: int = 3) -> Line:
     """Build a racing line from a centreline.
 
     `kind` tags the record index in field 10, and `sectors` splits that tag at
@@ -595,6 +694,12 @@ def generate(points, *, speed: float = 60.0, gates=None, closed: bool = True,
     meshes and the object table use. `speed` is the target in metres per second
     (60 m/s is about 134 mph, close to what the shipped lines carry). `gates` is
     the cumulative distance of each checkpoint, used for fields 12 and 13.
+
+    `corner_speed` derives field 6 from the path's curvature instead of writing
+    `speed` flat -- see corner_speeds(). `speed` then means the straight-line
+    speed, and corners take it down. `grip`, `forward` and `backward` are that
+    model's parameters; a flat field is what this wrote before, and passing
+    corner_speed=False restores it.
 
     `corridor` is the half-width in metres the car may stray from the line before
     the game calls it off the track. It belongs to track.ild and is required
@@ -617,12 +722,22 @@ def generate(points, *, speed: float = 60.0, gates=None, closed: bool = True,
         run += step[i]
     total = run
 
+    # What the AI drives at. A flat value gives it no reason to slow for a
+    # corner, which is what this wrote until the model below was understood.
+    if corner_speed and not sectors:
+        speeds = corner_speeds(pts, top_speed=speed, closed=closed, grip=grip,
+                               forward=forward, backward=backward)
+    else:
+        speeds = [ILD_SPEED if sectors else speed] * n
+
     # Cumulative time, which is what field 14 holds -- confirmed against bemidji,
     # where 286.85 m at 4.708 s gives 60.9 m/s against a speed field of ~61.
+    # It follows the per-station speed, so a track with slow corners reports a
+    # longer lap than the same line driven flat out.
     time, t = [], 0.0
     for i in range(n):
         time.append(t)
-        t += step[i] / max(speed, 1e-6)
+        t += step[i] / max(speeds[i], 1e-6)
 
     marks = sorted(gates) if gates else [0.0, total / 2.0]
 
@@ -635,7 +750,6 @@ def generate(points, *, speed: float = 60.0, gates=None, closed: bool = True,
             f"corridor must be positive, got {corridor}; a non-positive corridor "
             "puts the car off the track at every station")
     mark = MARK_VALUE if corridor is None else corridor
-    target = ILD_SPEED if sectors else speed
 
     records = []
     for i in range(n):
@@ -663,7 +777,7 @@ def generate(points, *, speed: float = 60.0, gates=None, closed: bool = True,
         r[FIELD_DIR_X] = dx
         r[FIELD_DIR_Z] = dz
         r[FIELD_CORRIDOR] = mark
-        r[FIELD_SPEED] = target
+        r[FIELD_SPEED] = speeds[i]
         r[FIELD_CURVE] = curve
         r[FIELD_STEP] = step[i]
         r[FIELD_DISTANCE] = dist[i]
