@@ -644,6 +644,78 @@ def build_obt(scene: "TrackScene") -> bytes:
     return obt_mod.build(obt_mod.create(records))
 
 
+# ---------------------------------------------------------------------------
+# The collision file
+#
+# This is the step that needed `nhmkworld`. The .bpp is a 2D tree over the XZ
+# plane whose leaves name one triangle each (see bpp.py); building one needs the
+# driveable geometry and each object's surface code, both of which the scene
+# already holds. So the whole track can be compiled without the 1998 binary.
+#
+# param1 == NO_COLLISION is honoured here for the same reason MKWORLD honours it:
+# such an object is drawn and not collided, so its triangles must stay out of the
+# tree. Verified earlier against an exact triangle-count delta.
+
+BPP_TAG = b"TPPB"           # as it appears in a shipped track archive
+BPP_VERSION = 2
+
+
+def collision_triangles(scene: "TrackScene") -> list:
+    """Every collidable driveable face, tagged with its surface code."""
+    from . import bpp as _bpp
+
+    out = []
+    for o in scene.driveables:
+        if getattr(o, "param1", 0) == NO_COLLISION:
+            continue
+        mesh = scene.meshes.get(o.name)
+        if mesh is None:
+            continue
+        for (ia, ib, ic) in mesh.faces:
+            va, vb, vc = mesh.vertices[ia], mesh.vertices[ib], mesh.vertices[ic]
+            p0 = (va.x, va.y, va.z)
+            p1 = (vb.x, vb.y, vb.z)
+            p2 = (vc.x, vc.y, vc.z)
+            ux, uy, uz = (p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2])
+            wx, wy, wz = (p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2])
+            nx, ny, nz = (uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx)
+            ln = math.sqrt(nx * nx + ny * ny + nz * nz)
+            if ln <= 0.0:
+                continue                      # degenerate face, nothing to collide
+            nx, ny, nz = nx / ln, ny / ln, nz / ln
+            # The shipped convention is n.v + d = 0, and the surface normal points
+            # up: a downward-facing collision triangle is not a thing the format
+            # has (measured across all eight stock tracks).
+            if ny < 0.0:
+                nx, ny, nz = -nx, -ny, -nz
+            d = -(nx * p0[0] + ny * p0[1] + nz * p0[2])
+            out.append(_bpp.Triangle(normal=(nx, ny, nz), d=d,
+                                     v=(p0, p1, p2), flag=o.code))
+    return out
+
+
+def write_bpp(scene: "TrackScene", out_dir, *, name: str = "track.bpp", **kw):
+    """Compile the scene's collision tree and write it beside the other sources.
+
+    Written in its 0SER envelope, which is the form the toolchain emits and the
+    form `vrmod pack` expects, so it drops into the existing chain unchanged.
+
+    Raises bpp.BppError if the geometry cannot be represented exactly -- see
+    build_tree, which refuses a tree that would answer with the wrong surface
+    code or the wrong height anywhere a tyre could sit.
+    """
+    from . import bpp as _bpp
+    from . import envelope as _env
+
+    tris = collision_triangles(scene)
+    if not tris:
+        raise ValueError("no collidable driveable geometry in the scene")
+    tree = _bpp.build_tree(tris, **kw)
+    out = Path(out_dir) / name
+    out.write_bytes(_env.build(BPP_TAG, BPP_VERSION, _bpp.build(tree)))
+    return out, tree
+
+
 def write_scene(scene: "TrackScene", out_dir) -> list:
     """Write both sources and every swept mesh. Returns what was written."""
     d = Path(out_dir)

@@ -668,6 +668,14 @@ def main(argv: list[str] | None = None) -> int:
                             help="wall height in metres (default 1.5)")
     p_trackgen.add_argument("--grid", type=int, default=8,
                             help="starting-grid slots (default 8)")
+    p_trackgen.add_argument(
+        "--bpp", action="store_true",
+        help="also compile track.bpp, the collision tree -- the one step that "
+             "used to need nhmkworld. Refuses rather than emit a tree that "
+             "would put the car on the wrong surface; see --bpp-lossy")
+    p_trackgen.add_argument(
+        "--bpp-lossy", action="store_true",
+        help="accept a .bpp that answers wrongly somewhere, and report where")
 
     p_bppinfo = sub.add_parser(
         "bppinfo",
@@ -1289,7 +1297,32 @@ def main(argv: list[str] | None = None) -> int:
         if args.keep_geometry:
             print(f"road half-width measured from the model: {half:.2f} m "
                   f"(racing-line corridor {ili.corridor_for(half * 2.0):.1f} m)")
-        print(f"Next: run make-track.bat in {args.out_dir} to compile.")
+        if args.bpp:
+            try:
+                out, tree = _tg.write_bpp(scene, args.out_dir,
+                                          strict=not args.bpp_lossy)
+            except Exception as e:                              # noqa: BLE001
+                print()
+                print(f"collision tree NOT written: {e}")
+                print("  The scene's own geometry is the thing to fix -- run "
+                      "`vrmod surfacecheck` for holes and T-junctions, or pass "
+                      "--bpp-lossy to write it anyway.")
+                return 1
+            rep = tree.build_report
+            per = len(tree.nodes) / max(1, len(tree.triangles))
+            print()
+            print(f"  {out.stat().st_size:>9,}  {out.name}   "
+                  f"{len(tree.triangles):,} collision triangles, "
+                  f"{len(tree.nodes):,} nodes ({per:.2f} per triangle), "
+                  f"depth {rep['max_depth']}")
+            if rep["material_fragments"]:
+                print(f"  WARNING: {rep['material_fragments']} patches totalling "
+                      f"{rep['material_area']:.2f} m2 answer with the wrong "
+                      f"surface code or height.")
+            print(f"Next: run make-track.bat in {args.out_dir} for the rest, "
+                  f"then `vrmod pack`. The .bpp is already done.")
+        else:
+            print(f"Next: run make-track.bat in {args.out_dir} to compile.")
 
     elif args.command == "trackmap":
         opts = {"line_width": args.line_width}
