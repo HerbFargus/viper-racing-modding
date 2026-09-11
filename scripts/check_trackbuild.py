@@ -184,6 +184,39 @@ def main() -> int:
               not downward, f"{len(scene.meshes)} meshes"
               if not downward else f"facing down: {downward[:3]}")
 
+        # Walls become real .sol primitives rather than being dropped. A scene
+        # with barriers that ships an empty .sol is a track the car drives
+        # straight through, which looks like working geometry until you hit one.
+        from vrmod import sol as _sol
+        wscene = trackgen.sweep(ring())
+        nq = trackgen.add_walls(wscene, offset=8.5, height=1.5)
+        wout = Path(tmp) / "walled.trk"
+        trackbuild.assemble(wscene, donor=donor, out_path=wout, slot="bemidji")
+        wg = {e.name.lower(): e for e in archive.read(wout)}
+        ws = _sol.parse(envelope.build(wg["track.sol"].tag, wg["track.sol"].version,
+                                       wg["track.sol"].payload))
+        check("wall quads become .sol primitives", len(ws.primitives) == nq,
+              f"{len(ws.primitives)} primitives from {nq} quads")
+        # A barrier is TWO objects: the .sol primitive that stops the car and a
+        # mesh that draws it. Emitting only the first gives invisible walls.
+        nm = trackgen.add_wall_meshes(wscene)
+        check("wall quads also become drawable meshes", nm == nq,
+              f"{nm} meshes for {nq} quads")
+        wallmesh = [n for n in wscene.meshes if n.startswith("wall")]
+        check("wall meshes are scenery, never driveable",
+              all(o.name not in wallmesh for o in wscene.driveables)
+              and all(any(o.name == n and o.param1 == trackgen.NO_COLLISION
+                          for o in wscene.scenery) for n in wallmesh),
+              "param1 = NO_COLLISION, so they stay out of .bpp")
+        check("and are double-sided",
+              all(len(wscene.meshes[n].faces) == 4 for n in wallmesh),
+              "4 faces -- a barrier is looked at from both sides")
+
+        check("and the quadtree finds each at its own centre",
+              all(i in _sol.find(ws, pr.position[0], pr.position[2])
+                  for i, pr in enumerate(ws.primitives)),
+              f"{len(ws.primitives)}/{len(ws.primitives)}")
+
         # A donor with no stand-in for a texture must fail loudly, not quietly
         # drop the member.
         try:

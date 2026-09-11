@@ -81,6 +81,7 @@ STOCK_STAND_INS = {
     "grass.tex": ("grs.tex",),
     "rumble.tex": ("redwht.tex", "blwh.tex"),      # kerbing: red/white, then black/white
     "side.tex": ("blwh.tex", "strpy.tex"),
+    "strpy.tex": ("strpy.tex", "redwht.tex", "blwh.tex"),   # barriers
 }
 
 # The sky is four fixed members every track carries; without them the horizon
@@ -159,7 +160,30 @@ def assemble(scene, *, donor: str | Path, out_path: str | Path,
     add("track.obt", OBT_TAG, OBT_VERSION,
         envelope.parse(trackgen.build_obt(scene)).payload)
     add("track.bsp", BSP_TAG, BSP_VERSION, envelope.parse(bsp.build()).payload)
-    add("track.sol", SOL_TAG, SOL_VERSION, envelope.parse(sol.empty(SOL_VERSION)).payload)
+    # Barriers. A scene with no walls gets the empty .sol the game is happy
+    # with; one with walls gets real BOX primitives and a quadtree over them.
+    #
+    # The quad corners are in the SOURCE frame and the primitives must be in the
+    # game's, so every point goes through to_viper(). Forgetting that is what
+    # mirrored the racing lines through the origin and wound the ground plane
+    # face-down, both in this same file's pipeline.
+    if getattr(scene, "walls", None):
+        template = sol.wall_template(
+            sol.parse(envelope.build(src["track.sol"].tag,
+                                     src["track.sol"].version,
+                                     src["track.sol"].payload)))
+        segments = []
+        for quad in scene.walls:
+            base_a, base_b = quad[0], quad[1]
+            top = max(c[2] for c in quad) - min(c[2] for c in quad)
+            segments.append((trackgen.to_viper(base_a), trackgen.to_viper(base_b), top))
+        built = sol.from_segments([(a, b) for a, b, _h in segments], template,
+                                  height=segments[0][2] or 1.5,
+                                  version=SOL_VERSION)
+        add("track.sol", SOL_TAG, SOL_VERSION, envelope.parse(sol.build(built)).payload)
+    else:
+        add("track.sol", SOL_TAG, SOL_VERSION,
+            envelope.parse(sol.empty(SOL_VERSION)).payload)
 
     # ---- racing lines ----------------------------------------------------
     # THE CENTRELINE IS IN THE SOURCE FRAME; the meshes are not. to_viper()

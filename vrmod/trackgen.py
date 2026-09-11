@@ -766,6 +766,55 @@ def add_ground(scene: "TrackScene", *, texture: str = "grass.tex",
     scene.scenery.append(SceneObject(name, GRASS, NO_COLLISION))
 
 
+def add_wall_meshes(scene: "TrackScene", *, texture: str = "strpy.tex",
+                    uv_scale: float = 4.0, prefix: str = "wall") -> int:
+    """Draw the barriers. Returns how many meshes were added.
+
+    A WALL IS TWO THINGS, and `add_walls` only makes the first: a collision quad
+    that becomes a `.sol` primitive, which stops the car and is invisible. This
+    adds the second -- an ordinary textured mesh in the graphic file. The two are
+    separate objects describing the same barrier, which is exactly how the
+    shipped tracks do it.
+
+    The mesh goes in as SCENERY with param1 = NO_COLLISION. It must not become a
+    driveable: a vertical quad has almost no area in the XZ plane, so feeding it
+    to the collision tree would hand `.bpp` a degenerate footprint for geometry
+    the `.sol` already handles.
+
+    BOTH FACES are emitted, four triangles rather than two. The renderer culls by
+    winding, and a barrier is looked at from whichever side the car is on -- a
+    single-sided wall is invisible from one direction, which is the same fault
+    that made the ground plane disappear.
+    """
+    added = 0
+    for n, quad in enumerate(scene.walls):
+        if len(quad) < 4:
+            continue
+        # add_walls lays the corners out base, base, top, top
+        (ax, ay, az), (bx, by, bz) = quad[0], quad[1]
+        top = max(c[2] for c in quad)
+        run = math.hypot(bx - ax, by - ay)
+        u = (run / uv_scale) if uv_scale else 1.0
+        v = ((top - az) / uv_scale) if uv_scale else 1.0
+
+        corners = [((ax, ay, az), 0.0, v), ((bx, by, bz), u, v),
+                   ((bx, by, top), u, 0.0), ((ax, ay, top), 0.0, 0.0)]
+        verts = []
+        for (gx, gy, gz), uu, vv in corners:
+            wx, wy, wz = to_viper((gx, gy, gz))
+            verts.append(mod.Vertex(wx, wy, wz, 0.0, 0.0, 1.0, uu, vv))
+        faces = [(0, 1, 2), (0, 2, 3), (2, 1, 0), (3, 2, 0)]
+
+        name = f"{prefix}{n:03d}.mod"
+        material = mod.Material(name=texture, vertex_start=0, vertex_end=4,
+                                face_start=0, face_end=len(faces))
+        scene.meshes[name] = mod.Mesh(vertices=verts, materials=[material],
+                                      faces=faces)
+        scene.scenery.append(SceneObject(name, GRASS, NO_COLLISION))
+        added += 1
+    return added
+
+
 def write_scene(scene: "TrackScene", out_dir) -> list:
     """Write both sources and every swept mesh. Returns what was written."""
     d = Path(out_dir)
