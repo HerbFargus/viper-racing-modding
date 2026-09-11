@@ -12,7 +12,7 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from . import aifield, archive, aspectfix, bpp as bppmod, car, carshot, catalog as catalog_mod, cf, cockpit_tab, doctor, envelope, hornball, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon
+from . import aifield, archive, aspectfix, bpp as bppmod, car, carshot, catalog as catalog_mod, cf, cockpit_tab, doctor, envelope, hornball, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon, drawdistance
 
 COMMIT_PATH = "/__vrmod_commit__"
 
@@ -785,6 +785,24 @@ def main(argv: list[str] | None = None) -> int:
                       help="make AICar::headon_panic return immediately")
     p_ho.add_argument("--enable", action="store_true", help="put it back")
 
+    p_dd = sub.add_parser(
+        "drawdistance",
+        help="How far the game draws. The stored value is a FRACTION, not a distance: "
+             "the renderer uses value*1700+300 units, so the shipped 0.5 is 1,150 and "
+             "the in-game slider at full is 2,000. Nothing clamps it, so it goes "
+             "further. Reports the current setting; --set/--max/--reset to change",
+    )
+    p_dd.add_argument("data_dir", type=Path, help="the game's Data folder")
+    p_dd.add_argument("--set", type=float, default=None, metavar="UNITS",
+                      help=f"draw distance in world units (minimum {drawdistance.BASE:g})")
+    p_dd.add_argument("--max", action="store_true",
+                      help=f"what the community view extender wrote: "
+                           f"{drawdistance.INFINITY_VALUE:g} "
+                           f"({drawdistance.effective(drawdistance.INFINITY_VALUE):,.0f} units)")
+    p_dd.add_argument("--reset", action="store_true",
+                      help=f"back to the shipped {drawdistance.DEFAULT_VALUE:g} "
+                           f"({drawdistance.effective(drawdistance.DEFAULT_VALUE):,.0f} units)")
+
     p_carfork = sub.add_parser(
         "carfork",
         help="Fork a car to a NEW filename prefix so it becomes a standalone vehicle "
@@ -1482,6 +1500,38 @@ def main(argv: list[str] | None = None) -> int:
                       "head-on. Ordinary avoidance is a different code path and is "
                       "left alone.")
         except headon.PatchError as e:
+            print(f"error: {e}")
+            return 1
+    elif args.command == "drawdistance":
+        try:
+            picked = [n for n, v in (("--set", args.set is not None),
+                                     ("--max", args.max),
+                                     ("--reset", args.reset)) if v]
+            if len(picked) > 1:
+                raise drawdistance.SettingError(f"pick one of {', '.join(picked)}")
+            if args.set is not None:
+                value = drawdistance.value_for(args.set)
+            elif args.max:
+                value = drawdistance.INFINITY_VALUE
+            elif args.reset:
+                value = drawdistance.DEFAULT_VALUE
+            else:
+                value = None
+            if value is not None:
+                _, f = drawdistance.write(args.data_dir, value)
+                print(f"wrote {drawdistance.KEY} {value:g} to {f}")
+            value, f = drawdistance.read(args.data_dir)
+            units = drawdistance.effective(value)
+            print(f"draw distance: {units:,.0f} units  "
+                  f"({drawdistance.KEY} {value:g} in {f.name})")
+            slider = drawdistance.effective(drawdistance.SLIDER_MAX)
+            print(f"  shipped {drawdistance.effective(drawdistance.DEFAULT_VALUE):,.0f}, "
+                  f"in-game slider at full {slider:,.0f}"
+                  + (f", this is {units / slider:.0f}x that" if units > slider else ""))
+            if units <= slider:
+                print("  --max to see the whole track. The game rewrites options.cfg "
+                      "on exit, so change this with the game closed.")
+        except drawdistance.SettingError as e:
             print(f"error: {e}")
             return 1
     elif args.command == "carfork":

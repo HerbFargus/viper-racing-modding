@@ -250,6 +250,7 @@ Two kinds of software are kept apart deliberately:
 | **VR Resolution Changer** | — | Run at resolutions up to 1920×1200 | `vrmod resolution` (+ aspect-ratio correction) |
 | **Lapman** | Frank P. Wolf (on findings by "Joe") | Change the 3/8/20 lap counts | **none** |
 | **Optman** | Frank P. Wolf | Extra `options.cfg` settings (e.g. the spotter) | *partial* — `vrmod aifield` writes `options.cfg`, but only the field size |
+| **Viper Racing (Infinity) View Extender** | Val Novak | Push the draw distance past the in-game slider — the 2012 original and a 2016 v2 (`.exe` plus an equivalent `.bat`) | `vrmod drawdistance --max` (by key, not by line number — see formats §5.2.2b) |
 
 ### Multiplayer & community infrastructure (historical)
 | Tool | Creator | Purpose | `vrmod` |

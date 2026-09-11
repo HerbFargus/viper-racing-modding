@@ -46,7 +46,7 @@ import threading
 import webbrowser
 from pathlib import Path
 
-from . import aifield, archive, carshot, cf, doctor, envelope, grf, hornball, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch, headon
+from . import aifield, archive, carshot, cf, doctor, envelope, grf, hornball, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch, headon, drawdistance
 
 _PAGE = r"""<!doctype html>
 <meta charset="utf-8"><title>Viper Racing -- Mod Manager</title>
@@ -827,6 +827,7 @@ async function renderGame(){
   const dr = await api('/api/doctor');
   const hb = await api('/api/hornball');
   const ho = await api('/api/headon');
+  const dd = await api('/api/drawdistance');
 
   const opponents = `
    <div class="panel">
@@ -1004,6 +1005,36 @@ async function renderGame(){
      </div>
    </div>`;
 
+  // The stored value is a fraction (units = value*1700+300); the UI talks in
+  // units throughout, because nobody thinks in fractions of 1700.
+  const ddPanel = !(dd && dd.available) ? '' : (() => {
+    const at = dd.units, slider = dd.slider_units;
+    const note = at > slider ? `${(at/slider).toFixed(0)}\u00d7 the slider`
+               : at === dd.default_units ? 'stock' : `${at.toLocaleString()} units`;
+    const marks = [
+      ['Stock', dd.default_units], ['Slider max', dd.slider_units],
+      ['4\u00d7', slider*4], ['Unlimited', dd.max_units],
+    ];
+    return `
+   <div class="panel">
+     <div class="panel-head"><h2>Draw distance</h2>
+       <span class="note">${note}</span></div>
+     <p class="lede">How far away the game still draws the track. The graphics slider tops out at
+       <b>${slider.toLocaleString()}</b> units, but nothing in the engine clamps the setting &mdash;
+       it can go far further, which is what the old View Extender did. Set this with the game
+       <b>closed</b>: it rewrites <code>${esc(dd.file)}</code> on exit, and touching the graphics
+       tab puts the slider's value back.</p>
+     <div class="ai-row" style="margin-top:14px;flex-wrap:wrap;gap:8px">
+       ${marks.map(([lab, u]) => `<button class="mini ${at===Math.round(u)?'on':''}"
+         onclick="setDrawDistance(${Math.round(u)})">${lab}
+         <span style="opacity:.55">${Math.round(u).toLocaleString()}</span></button>`).join('')}
+     </div>
+     <p class="lede" style="margin:14px 0 0">Currently <b style="color:var(--fg)"
+       >${at.toLocaleString()}</b> units (<code>draw_distance ${dd.value}</code>). The floor is
+       ${dd.floor_units} units &mdash; the engine adds that before anything else.</p>
+   </div>`;
+  })();
+
   const fixBtn = {vram:'Apply', dpi:'Set DPI-aware', patch:'Apply'};
   const fixes = `
    <div class="panel">
@@ -1024,7 +1055,14 @@ async function renderGame(){
    </div>`;
 
   el$('config').innerHTML = opponents + aiCar + cars + tracks + hbPanel + hoPanel
-                          + resPanel + fixes;
+                          + resPanel + ddPanel + fixes;
+}
+
+async function setDrawDistance(units){
+  const r = await api('/api/drawdistance', {units});
+  if(!r.ok) return toast(r.error, 'bad');
+  toast(r.message);
+  renderGame();
 }
 
 async function setHeadon(disable){
@@ -1165,6 +1203,21 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             except headon.PatchError:
                 state, at = headon.UNKNOWN, None
             return self._json({"state": state, "site": at})
+        if self.path == "/api/drawdistance":
+            try:
+                value, f = drawdistance.read(d)
+            except drawdistance.SettingError as e:
+                return self._json({"available": False, "why": str(e)})
+            return self._json({
+                "available": True,
+                "value": round(value, 6),
+                "units": round(drawdistance.effective(value)),
+                "file": f.name,
+                "default_units": round(drawdistance.effective(drawdistance.DEFAULT_VALUE)),
+                "slider_units": round(drawdistance.effective(drawdistance.SLIDER_MAX)),
+                "max_units": round(drawdistance.effective(drawdistance.INFINITY_VALUE)),
+                "floor_units": round(drawdistance.BASE),
+            })
         if self.path == "/api/hornball":
             if not hornball.available(d):
                 return self._json({"available": False})
@@ -1388,6 +1441,22 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                     return self._json({"ok": False, "error": str(e)}, 400)
                 return self._json({"ok": True, "message": msg,
                                    "state": headon.status(d)})
+            if self.path == "/api/drawdistance":
+                try:
+                    if req.get("reset"):
+                        value = drawdistance.DEFAULT_VALUE
+                    elif req.get("max"):
+                        value = drawdistance.INFINITY_VALUE
+                    else:
+                        value = drawdistance.value_for(float(req.get("units", 0)))
+                    drawdistance.write(d, value)
+                except (drawdistance.SettingError, TypeError, ValueError) as e:
+                    return self._json({"ok": False, "error": str(e)}, 400)
+                units = round(drawdistance.effective(value))
+                return self._json({"ok": True, "units": units,
+                                   "message": f"Draw distance: {units:,} units. "
+                                              "Set it with the game closed -- it rewrites "
+                                              "options.cfg on exit."})
             if self.path == "/api/fix":
                 # Only named, understood repairs -- never an arbitrary write.
                 action = req.get("action")
