@@ -99,6 +99,10 @@ its `geometry.ini` flags gain bit 2, and for an object it emits a matching `objc
 untextured collision volume of vertical quads. Walls get no proxy because a wall's own mesh is its
 collider. Either way the vertical faces become `.sol` solids.
 
+The AI reads these solids too: an opponent met a barrier placed across the racing line — one that
+did not exist when its line was generated — and steered around it. So adding obstacles does not
+require the racing lines to be regenerated.
+
 Flags, as measured: `2` Collide, `4` Driveable, `16` collision-only, `256|512` track structure.
 rFactor's `.scn` does **not** carry the setting — its `CollTarget` is `True` on every object whatever
 the checkbox says.
