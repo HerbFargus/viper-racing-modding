@@ -1029,9 +1029,9 @@ async function renderGame(){
 
 async function setHeadon(disable){
   const r = await api('/api/headon', disable ? {} : {enable:true});
-  if (r.ok === false) { toast(r.error, true); return; }
+  if(!r.ok) return toast(r.error, 'bad');
   toast(r.message);
-  loadConfig();
+  renderGame();
 }
 
 async function applyHornball(){
