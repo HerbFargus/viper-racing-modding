@@ -75,10 +75,12 @@ Bob's Track Builder ── .dof
    |
    +- vrmod trackgen --keep-geometry
    |     chunks the mesh so the renderer will draw it
-   |     surface codes from material names
+   |     roles from the exporter's own flags: surface / wall / prop / collider
+   |     surface codes from material and texture names
    |     textures converted, resized and renamed
    |     centreline recovered from the road surface
    |     road width measured from the model
+   |     barriers and collidable props become .sol solids
    |     racing lines, timing gates, starting grid
    |
    +- nhmkworld for .bpp; everything else native
@@ -89,6 +91,17 @@ Two commercial tools leave the chain: **Zmodeler** and **3DS Max**. The centreli
 drawn by hand — it is recovered from the road surface by pairing its boundary edges through the mesh's
 own triangle connectivity. That also means the road's real width is measured rather than assumed, and
 that width sets the timing gates and the racing-line corridor.
+
+**The author's own collision settings carry over — ✅ CONFIRMED in game.** Tick *Collide* on an
+object in BTB and the car hits it in Viper. BTB writes the answer into the export three ways: the
+object splits into its own `.dof` (so it groups by *properties*, and per-instance intent survives),
+its `geometry.ini` flags gain bit 2, and for an object it emits a matching `objc*.dof` — an
+untextured collision volume of vertical quads. Walls get no proxy because a wall's own mesh is its
+collider. Either way the vertical faces become `.sol` solids.
+
+Flags, as measured: `2` Collide, `4` Driveable, `16` collision-only, `256|512` track structure.
+rFactor's `.scn` does **not** carry the setting — its `CollTarget` is `True` on every object whatever
+the checkbox says.
 
 **A caveat worth stating.** BTB exports whatever the author modelled and nothing more. In the test
 export that was a road plus a verge about 8 m wide, so leaving the road runs out of world quickly. The
