@@ -127,14 +127,23 @@ AICar::checker / dont_push / dont_check / add_contact
 
 - the swerve fires **a little over 2 seconds before contact**;
 - **every** car does it, each as it reaches that threshold, not just the nearest;
-- and it is **independent of what the car is doing** — mid-corner or flat on a
-  straight makes no difference.
+- it is **independent of what the car is doing** — mid-corner or flat on a
+  straight makes no difference;
+- but it **does not really happen at low speed**.
 
-So the trigger is time-to-contact, not proximity to the racing line or a
-geometric test. One thing left untested: whether the threshold is genuinely a
-*time* or a distance that happened to look like ~2 s at the speeds involved.
-Bemidji's AI runs in a narrow 131–159 mph band, so the two are hard to tell apart
-there; a slow track would separate them.
+That last point is the interesting one, because a pure time-to-contact test would
+still fire when closing slowly — just nearer. It not firing means something gates
+the behaviour on speed *before* the timer is consulted, which is what the two
+entry points suggest: `fast_interact` and `slow_interact` are separate functions,
+and `headon_panic` plausibly sits behind the fast one only. Below the gate an
+encounter takes the slow path — ordinary nudging and line-sharing — and no panic
+is available to it.
+
+So the working model is **a closing-speed gate, then a time-to-contact threshold
+of about 2 s**. Neither constant is measured: the ~2 s is eyeballed at
+bemidji's 131–159 mph, and the gate's value is unknown. A slow track would pin
+both down, and would also settle whether the 2 s is genuinely a time or a
+distance that merely looked like one in a narrow speed band.
 
 Worth knowing when placing obstacles: this is a **car-to-car** response. Static
 solids are handled elsewhere — `.sol` primitives reach the AI's own avoidance, so
