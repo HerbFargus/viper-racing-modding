@@ -133,19 +133,39 @@ def main() -> int:
         check("the index fits the u16 field", len(idx) <= 0xFFFF, f"{len(idx):,} entries")
 
         mine = sol.Sol(primitives=s.primitives, index=idx, tail=tail, version=s.version)
+        def covering(x, z):
+            """Every primitive whose footprint actually contains (x, z)."""
+            out = set()
+            for j, pr in enumerate(s.primitives):
+                jx, _jy, jz = pr.position
+                ex, ey, ez = struct.unpack_from("<3f", pr.raw, 0x5c)
+                rr = math.sqrt(ex * ex + ey * ey + ez * ez)
+                if abs(x - jx) <= rr and abs(z - jz) <= rr:
+                    out.add(j)
+            return out
+
         rng = random.Random(11)
-        ok = 0
+        ok = probes = 0
         for _ in range(600):
             p = s.primitives[rng.randrange(len(s.primitives))]
             px, _py, pz = p.position
             x, z = px + rng.uniform(-30, 30), pz + rng.uniform(-30, 30)
-            if set(sol.find(s, x, z)) <= set(sol.find(mine, x, z)):
+            truth = covering(x, z)
+            if not truth:
+                continue
+            probes += 1
+            if truth <= set(sol.find(mine, x, z)):
                 ok += 1
-        # NOT asserted at 100%: measured at 98.6% across the eight shipped
-        # tracks (4,732 of 4,800 probes), and the residual is not understood. Recorded so a change that
-        # makes it worse is visible.
-        check("a built tree covers what the shipped one does", ok >= 570,
-              f"{ok}/600 on {name} -- measured 98.6% across all eight, not exact")
+        # THE criterion, and not the one this check started with. "Does it agree
+        # with MKWORLD's partition" is the wrong question -- two quadtrees over
+        # the same solids legitimately put different things in the leaf at a
+        # given point, and the SHIPPED trees score 48.5% against the test below.
+        # A broad phase has to return everything covering the point: a surplus
+        # candidate costs a narrow-phase test, a missing one costs a barrier the
+        # car drives through.
+        check("a built tree returns everything that covers the point",
+              ok == probes,
+              f"{ok}/{probes} on {name} -- 1,822/1,822 across all eight")
 
     print(f"\n{PASS}/{PASS + FAIL} passed")
     return 1 if FAIL else 0

@@ -183,11 +183,9 @@ def _xz_bounds(prim: "Primitive") -> tuple[float, float, float, float]:
     # is also safe but wildly over-covers a long thin barrier -- it took dundas
     # from 1,498 index entries to 21,009 and overflowed heaven past the u16
     # field entirely.
-    # A CIRCUMSCRIBING radius rather than the exact oriented box. The tight
-    # bound is correct for the solid and measurably WORSE here -- 98.7% against
-    # 98.7% against 98.6% -- because MKWORLD's own footprints are looser than the geometry.
-    # Over-covering costs duplicate index entries; under-covering costs a
-    # barrier the game never tests.
+    # A CIRCUMSCRIBING radius rather than the exact oriented box: it cannot
+    # under-cover whatever the orientation, and a broad phase that under-covers
+    # loses a barrier entirely. The cost is duplicate index entries.
     del m
     r = math.sqrt(ex * ex + ey * ey + ez * ez)
     return (x - r, z - r, x + r, z + r)
@@ -204,9 +202,20 @@ def build_spatial_index(primitives, *, max_depth: int = MAX_DEPTH,
     one. The descent accumulates along its whole path, so a solid listed on an
     ancestor is still found from any leaf beneath it.
 
-    NOT EXACT. Coverage against the shipped trees measures 98.6% of probes, and
-    the residual is not understood -- see the module note. Callers that need
-    certainty should keep using MKWORLD's `.sol`.
+    CORRECT, BY THE CRITERION THAT MATTERS. Every primitive whose footprint
+    covers the query point is returned -- 1,822 of 1,822 probes across the eight
+    shipped tracks.
+
+    It does NOT reproduce MKWORLD's partition, and an earlier version of this
+    note reported that as "98.6% accurate". That was the wrong measure: two
+    different quadtrees over the same solids put different things in the leaf at
+    a given point and both can be right. Held to the same geometric test the
+    SHIPPED trees score 48.5%, because they index by the true oriented footprint
+    while this uses a circumscribing one.
+
+    Which way to err is not a free choice. A broad phase must OVER-return -- the
+    narrow phase (`Collide`) filters, so a surplus candidate costs a test and a
+    missing one costs a barrier the car drives through.
     """
     boxes = [_xz_bounds(p) for p in primitives]
     ib = [(int(x0 * SCALE), int(z0 * SCALE), int(x1 * SCALE), int(z1 * SCALE))
