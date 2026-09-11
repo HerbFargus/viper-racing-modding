@@ -105,3 +105,44 @@ patching the binary, not passing an argument.
 
 *Measured against a redump-verified retail copy; flag addresses read directly from `race.bin` (v1.2.5).
 Semantic labels carry the confidence tag shown. 🐍*
+
+## 3. How the AI reacts to other cars ✅ MEASURED
+
+The AI classifies an encounter by how fast it is closing, and a head-on approach
+has its own handler — it is not the overtaking code with different numbers. From
+the linker map embedded in the 1998 `ai-tweaker.exe` build (see the format
+reference), all in `physics:aicar.obj` and called from `AICar::Update`:
+
+```
+AICar::headon_panic()                        -- the head-on case, on its own
+AICar::in_path(Point2D const&, float, ILinePos&, float*)
+AICar::fast_interact(ProxerDelta const*)     -- closing fast
+AICar::slow_interact(ProxerDelta const*)     -- closing slow
+AICar::passer(ProxerDelta const*)            -- ordinary overtaking
+AICar::checker / dont_push / dont_check / add_contact
+```
+
+**Measured in game**, driving the wrong way into the field on stock bemidji
+(1.5-mile lap, 7 AI cars at 131–159 mph):
+
+- the swerve fires **a little over 2 seconds before contact**;
+- **every** car does it, each as it reaches that threshold, not just the nearest;
+- and it is **independent of what the car is doing** — mid-corner or flat on a
+  straight makes no difference.
+
+So the trigger is time-to-contact, not proximity to the racing line or a
+geometric test. One thing left untested: whether the threshold is genuinely a
+*time* or a distance that happened to look like ~2 s at the speeds involved.
+Bemidji's AI runs in a narrow 131–159 mph band, so the two are hard to tell apart
+there; a slow track would separate them.
+
+Worth knowing when placing obstacles: this is a **car-to-car** response. Static
+solids are handled elsewhere — `.sol` primitives reach the AI's own avoidance, so
+an opponent will steer around a barrier that did not exist when its racing line
+was generated (see §4.8 in the format reference).
+
+Related, from the same map: `CenterLine::wrong_way()` in `ai:ideal.obj` and
+`RaceDeity::do_wrongway()` in `physics:racedty.obj` — wrong-way detection reads
+the centre line, which is `track.ild`, and is what raises the "press space to
+reset" prompt. `AITrackIsReversed()` in `ai:driver.obj` shows reverse-direction
+racing is a first-class mode, which is what `rdefault.ili` exists for.
