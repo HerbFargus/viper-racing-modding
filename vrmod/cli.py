@@ -12,7 +12,7 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from . import aifield, archive, aspectfix, bpp as bppmod, car, carshot, catalog as catalog_mod, cf, cockpit_tab, doctor, envelope, hornball, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon, drawdistance
+from . import aifield, archive, aspectfix, bpp as bppmod, car, carshot, catalog as catalog_mod, cf, cockpit_tab, doctor, envelope, hornball, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon, drawdistance, surface
 
 COMMIT_PATH = "/__vrmod_commit__"
 
@@ -675,6 +675,20 @@ def main(argv: list[str] | None = None) -> int:
              "surface flags, and how much of the tree is reachable",
     )
     p_bppinfo.add_argument("trk_file", type=Path, help="a .trk/.tra archive, or a loose .bpp")
+
+    p_surf = sub.add_parser(
+        "surfacecheck",
+        help="Does a track's drivable surface CLOSE? Finds holes the car falls "
+             "through and T-junctions that crack a seam -- faults the collision "
+             "compiler cannot see, because nothing is wrong with the compilation",
+    )
+    p_surf.add_argument("trk_file", type=Path, help="a .trk/.tra archive, or a loose .bpp")
+    p_surf.add_argument("--weld", type=float, default=surface.DEFAULT_WELD,
+                        metavar="METRES",
+                        help=f"how close two vertices must be to count as one "
+                             f"(default {surface.DEFAULT_WELD})")
+    p_surf.add_argument("--all", action="store_true",
+                        help="list every hole, not just the ten largest")
 
     p_bpp2obj = sub.add_parser(
         "bpp2obj",
@@ -1374,6 +1388,56 @@ def main(argv: list[str] | None = None) -> int:
                 print("     none -- no invisible-wall-shaped clusters.")
             print("  NOTE: a tiny deleted prop can hide in the terrain baseline; "
                   "use --against <original> to catch an edit of any size.")
+    elif args.command == "surfacecheck":
+        raw = args.trk_file.read_bytes()
+        if raw[:4] == archive.MAGIC:
+            entry = next((e for e in archive.read_bytes(raw)
+                          if e.name.lower().endswith(".bpp")), None)
+            if entry is None:
+                raise SystemExit(f"no .bpp inside {args.trk_file.name}")
+            raw = entry.payload
+        elif raw[:4] == envelope.MAGIC:
+            raw = envelope.parse(raw).payload
+        b = bppmod.parse(raw)
+        rep = surface.check_closed(b.triangles, weld=args.weld)
+        print(f"{rep.triangles:,} surface triangles, {rep.vertices:,} distinct "
+              f"vertices ({rep.welded:,} welded at {args.weld} m)")
+        if rep.rim:
+            print(f"  rim: {len(rep.rim.vertices):,} edges enclosing "
+                  f"{abs(rep.rim.area):,.0f} m2")
+        if rep.closed:
+            print("  CLOSED -- every interior edge is shared by two triangles.")
+            return 0
+        holes = sorted(rep.holes, key=lambda l: -abs(l.area))
+        if holes:
+            print(f"  {len(holes)} HOLE(S) -- a car here drops onto whatever the "
+                  f"tree names instead:")
+            for h in (holes if args.all else holes[:10]):
+                cx, cz = h.centre
+                print(f"    {abs(h.area):10,.2f} m2  at ({cx:9.1f}, {cz:9.1f})  "
+                      f"{len(h.vertices)} edges")
+            if not args.all and len(holes) > 10:
+                print(f"    ... and {len(holes) - 10} more (--all to list them)")
+        if rep.t_junctions:
+            print(f"  {len(rep.t_junctions)} T-JUNCTION(S) -- a vertex on a "
+                  f"neighbour's edge, which cracks the seam:")
+            for j in rep.t_junctions[:10]:
+                kind = ("a vertex that missed welding"
+                        if j.near_duplicate else "mid-edge")
+                print(f"    at ({j.at[0]:9.1f}, {j.at[1]:9.1f})  "
+                      f"{j.end_gap:.3f} m from the nearer end, off the line "
+                      f"by {j.gap * 1000:.2f} mm -- {kind}")
+        if rep.non_manifold:
+            print(f"  {len(rep.non_manifold)} NON-MANIFOLD edge(s) -- more than "
+                  f"two triangles meet, which a single surface cannot be:")
+            for a, bb, n in rep.non_manifold[:10]:
+                print(f"    ({a[0]:.1f}, {a[1]:.1f}) - ({bb[0]:.1f}, {bb[1]:.1f})"
+                      f"  used by {n}")
+        if rep.degenerate:
+            print(f"  {rep.degenerate} triangle(s) with no area in projection")
+        print("  Raise --weld if these are seams the authoring tool left slightly "
+              "apart rather than real gaps.")
+        return 1
     elif args.command in ("bppinfo", "bpp2obj"):
         raw = args.trk_file.read_bytes()
         # Three shapes reach here, distinguished by magic rather than extension:
