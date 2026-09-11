@@ -165,6 +165,25 @@ def main() -> int:
                   not any(o.name in ground for o in scene.driveables),
                   "scenery only")
 
+        # Winding decides whether a surface is DRAWN. to_viper() negates both
+        # ground axes, which reverses it, so geometry built corner-by-corner in
+        # the source frame comes out facing down -- present in the .grf, and
+        # invisible from the track. Vertex normals do not save it; the renderer
+        # culls on winding.
+        def faces_up(mesh):
+            for f in mesh.faces:
+                a, b2, c2 = (mesh.vertices[i] for i in f)
+                ux, uz = b2.x - a.x, b2.z - a.z
+                wx, wz = c2.x - a.x, c2.z - a.z
+                if (uz * wx - ux * wz) <= 0.0:
+                    return False
+            return True
+
+        downward = [n for n, m in scene.meshes.items() if not faces_up(m)]
+        check("every generated surface is wound face-up",
+              not downward, f"{len(scene.meshes)} meshes"
+              if not downward else f"facing down: {downward[:3]}")
+
         # A donor with no stand-in for a texture must fail loudly, not quietly
         # drop the member.
         try:

@@ -749,7 +749,17 @@ def add_ground(scene: "TrackScene", *, texture: str = "grass.tex",
         wx, wy, wz = to_viper((gx, gy, gz))
         verts.append(mod.Vertex(wx, wy, wz, 0.0, 1.0, 0.0,
                                 (gx - x0) / tile, (gy - y0) / tile))
+    # Wind the faces so they look UP. to_viper() negates both ground axes, which
+    # reverses winding, so a quad listed corner-by-corner in the source frame
+    # comes out facing down and is backface-culled -- present in the .grf, drawn,
+    # and invisible from the track. Deriving the winding from the built vertices
+    # rather than reasoning about it through the transform.
     faces = [(0, 1, 2), (0, 2, 3)]
+    a, b, c = (verts[i] for i in faces[0])
+    ux, uy, uz = b.x - a.x, b.y - a.y, b.z - a.z
+    wx, wy, wz = c.x - a.x, c.y - a.y, c.z - a.z
+    if (uz * wx - ux * wz) < 0.0:                 # the y component of u x w
+        faces = [tuple(reversed(f)) for f in faces]
     material = mod.Material(name=texture, vertex_start=0, vertex_end=4,
                             face_start=0, face_end=2)
     scene.meshes[name] = mod.Mesh(vertices=verts, materials=[material], faces=faces)
