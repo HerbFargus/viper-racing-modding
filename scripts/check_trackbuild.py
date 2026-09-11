@@ -197,6 +197,21 @@ def main() -> int:
                                        wg["track.sol"].payload))
         check("wall quads become .sol primitives", len(ws.primitives) == nq,
               f"{len(ws.primitives)} primitives from {nq} quads")
+        # A barrier is TWO objects: the .sol primitive that stops the car and a
+        # mesh that draws it. Emitting only the first gives invisible walls.
+        nm = trackgen.add_wall_meshes(wscene)
+        check("wall quads also become drawable meshes", nm == nq,
+              f"{nm} meshes for {nq} quads")
+        wallmesh = [n for n in wscene.meshes if n.startswith("wall")]
+        check("wall meshes are scenery, never driveable",
+              all(o.name not in wallmesh for o in wscene.driveables)
+              and all(any(o.name == n and o.param1 == trackgen.NO_COLLISION
+                          for o in wscene.scenery) for n in wallmesh),
+              "param1 = NO_COLLISION, so they stay out of .bpp")
+        check("and are double-sided",
+              all(len(wscene.meshes[n].faces) == 4 for n in wallmesh),
+              "4 faces -- a barrier is looked at from both sides")
+
         check("and the quadtree finds each at its own centre",
               all(i in _sol.find(ws, pr.position[0], pr.position[2])
                   for i, pr in enumerate(ws.primitives)),

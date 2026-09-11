@@ -81,6 +81,7 @@ STOCK_STAND_INS = {
     "grass.tex": ("grs.tex",),
     "rumble.tex": ("redwht.tex", "blwh.tex"),      # kerbing: red/white, then black/white
     "side.tex": ("blwh.tex", "strpy.tex"),
+    "strpy.tex": ("strpy.tex", "redwht.tex", "blwh.tex"),   # barriers
 }
 
 # The sky is four fixed members every track carries; without them the horizon
