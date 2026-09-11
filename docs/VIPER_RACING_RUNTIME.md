@@ -156,10 +156,12 @@ own speed it is a clean ramp across 40→60 mph. Running the same sweep where th
 AI is slow — a track whose corners drop them to ~60 mph — would settle it: if the
 scale is closing speed, the player-speed thresholds should roughly double.
 
-So the working model is **a graded response scaling with speed above roughly
-40 mph, reaching full strength by 60, and firing about 2 s before contact**. The
-2 s itself is eyeballed, and remains untested against the possibility that it is
-a fixed distance that merely looked like a time in a narrow speed band.
+So the working model is **a speed-dependent choice between ordinary avoidance and
+a panic swerve, the panic firing about 2 s before contact**, with the switch
+somewhere between 40 and 60 mph on a scale that is either the player's speed or
+the closing speed. The 2 s itself is eyeballed, and remains untested against the
+possibility that it is a fixed distance that merely looked like a time in a
+narrow speed band.
 
 Worth knowing when placing obstacles: this is a **car-to-car** response. Static
 solids are handled elsewhere — `.sol` primitives reach the AI's own avoidance, so
