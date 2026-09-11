@@ -10,10 +10,12 @@ what it takes now. It is not a tutorial, and it is not a tool chart — the char
 document, and the formats are in [VIPER_RACING_FILE_FORMATS.md](VIPER_RACING_FILE_FORMATS.md).
 
 **The bottom line.** Every stage of both pipelines now runs from one cross-platform Python library,
-with one exception: the collision BSP (`.bpp`) still requires the original `nhmkworld`. Everything else — geometry, textures, surface codes, racing lines,
-timing gates, the starting grid, packaging, installation — is `vrmod`. Both pipelines are confirmed
+with no exceptions left. Geometry, textures, surface codes, the collision tree, racing lines,
+timing gates, the starting grid, packaging, installation — all `vrmod`. Both pipelines are confirmed
 in game: a car with a custom model on 2026-09-07, a track generated from a centreline on 2026-09-09,
-and a Bob's Track Builder track imported with its own geometry on 2026-09-10.
+a Bob's Track Builder track imported with its own geometry on 2026-09-10, and on 2026-09-11 a track
+built end to end with no original binary anywhere in the chain — `vrmod trackgen --bpp`, then
+`trackbuild.assemble()`, driven with the AI following its generated line.
 
 ---
 
@@ -33,7 +35,7 @@ text afterwards — in **both** source files, or the track looked right and drov
 | 5 | Starting grid | vrTrackMaker | `vrmod trackgen --grid` |
 | 6 | Racing lines | `mkilicc -nolat`, run three times over three hand-authored `.ili` sources | `ili.generate` — all three lines direct from the centreline |
 | 7 | Compile the surface set | `mkfltoa` → `MKWORLD` → `.sol` `.obt` `.bsp` | `vrmod` writes `.obt` and `.bsp` natively; barriers via `--walls` → `MKWORLD` → `.sol` |
-| 8 | Compile graphics and collision | `mkfltoa` → `nhmkworld` → `.grf` `.bpp` | `.grf` native; **`.bpp` still needs `nhmkworld`** |
+| 8 | Compile graphics and collision | `mkfltoa` → `nhmkworld` → `.grf` `.bpp` | both native — `.grf` and `.bpp` |
 | 9 | Track map image | MKSTAMP / tga2stp | `vrmod trackmap` |
 | 10 | Sky | jpg2sky, four tiles by hand | `vrmod skyimport` — one panoramic TGA |
 | 11 | Pack | `mkres @reslist.txt`, with a hand-maintained file list | `vrmod pack` — no list to maintain |
@@ -83,7 +85,7 @@ Bob's Track Builder ── .dof
    |     barriers and collidable props become .sol solids
    |     racing lines, timing gates, starting grid
    |
-   +- nhmkworld for .bpp; everything else native
+   +- everything native, including .bpp
    +- vrmod pack -> <track>.tra
 ```
 
@@ -158,8 +160,11 @@ format is the interchange point rather than the tool.
 
 Stated plainly, because a comparison that lists only wins is not much use:
 
-- **`.bpp` — the collision BSP.** Still built by `nhmkworld` from the graphic scene file. This is the
-  one step in either pipeline that cannot run without an original binary.
+- ~~**`.bpp` — the collision BSP.**~~ **Solved 2026-09-11.** `bpp.build_tree()` compiles it, and a
+  track carrying one drives. The tree is a 2D BSP over the XZ plane whose leaves name one triangle
+  each; `tri0`/`tri1` are those leaf payloads, read out of the 1998 build's `bpp_find_point`. On
+  bemidji it builds to 20,113 nodes against the shipped 34,712, answering every sampled query
+  correctly. Nothing in either pipeline needs an original binary now.
 - **UV editing.** UVs round-trip through OBJ, but there is no equivalent of the **UV Map Editor**, or
   of Sucahyo's **Auto Image Tiler**, which rewrote a `.mod`'s UVs and texture references together.
 - **AI tuning.** No equivalent of **trkaitweaker**. Racing lines are generated, and the two fields
