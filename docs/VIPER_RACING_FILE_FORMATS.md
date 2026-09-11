@@ -413,6 +413,34 @@ confirmed `NILI`-tagged and structurally identical to `.ili`/`.ild`).
         field[16] = NOT a float: `0xFEEDBEEF`
 ```
 
+> ### A 1998 build carries the game's own linker map
+>
+> `ai-tweaker.exe` — circulated as an "AI speed tweaker", run with **Ctrl-A** to tune each AI car per
+> track per difficulty — is not a utility. It is a **1998-dated build of the game itself**
+> (`Oct 21 1998 08:49:56`, 2,404,451 bytes against the shipping `race.bin`'s 1,314,816), and it has
+> an **MSVC linker map embedded in it: 10,414 symbols across 296 object files**, with C++ mangled
+> names and the source object each came from. The crash handler's familiar *"No mapfile present"*
+> line is the shipping build looking for exactly this.
+>
+> This names structures this document had only measured. A sample against its open questions:
+>
+> | symbol | object | what it tells us |
+> |---|---|---|
+> | `parse_wobble(char const*)` | `world:world.obj` | the `.obt` wobble record has a dedicated parser |
+> | `WobbleObject::WobbleObject(WobbleData*)` | `world:wob.obj` | wobbles are built from a `WobbleData` struct |
+> | `Wobble::ResolveExternalImpulse` | `physics:obstacle.obj` | and they respond to being hit |
+> | `IdealLine::load_res`, `nearest_node_to`, `get_nearest_bead`, `segloop_count` | `ai:ideal.obj` | the `.ili` reader; its records are **`ILSeg`**, a position along one is **`ILinePos`** |
+> | `SphereVolume`, `CubeVolume`, **`MoveableSphereVolume`**, `CollisionVolume::ApplyForce` | `physics:volume.obj` | the `.sol` primitive classes — and some are *moveable* |
+> | `BPPFinder::bpp_find(bpp_node*)`, `point_in_poly`, `test_poly` | `world:bpp.obj` | the `.bpp` traversal, over `bpp_tri`/`bpp_node` |
+>
+> The addresses are that build's, not `race.bin`'s, so they do not transfer directly — but the names,
+> the class layouts they imply, and the module boundaries do. Anything in this document still marked
+> unsolved (the `.sol` spatial tail, the `.bpp` writer, what `obj wobble`'s integer indexes) now has a
+> named function to work from rather than a hex dump.
+>
+> The map is not reproduced here: it is derived from a copyrighted binary, and anyone holding a copy
+> can extract it with a regex for `^\s*0001:[0-9a-f]{8}` over the file's printable strings.
+
 **What the AI actually does with these lines**, from the readme of Sucahyo's `trkaitweaker` —
 the only first-hand account of the AI's behaviour recovered so far:
 
