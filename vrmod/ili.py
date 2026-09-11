@@ -603,7 +603,16 @@ ILD_SECTORS = 3
 # Every mkilicc track caps its speed at exactly this, to four decimal places.
 AI_SPEED_CAP = 30.0 * math.pi          # 94.24778 m/s
 
-DEFAULT_GRIP = 1.9                     # lateral g the cornering speed assumes
+# Lateral g the cornering speed assumes. Not picked: taken from the shipped
+# lines themselves, by asking what grip would reproduce each track's own speeds
+# (median over its uncapped stations) --
+#
+#     Kyalami 1.04   jumper 0.89   Telly 0.54   maxi 1.09   bemidji 1.37
+#
+# which lands on about 1.0, a realistic road-car figure. Raising it flattens the
+# speed profile until the AI has no reason to brake at all, which is how this
+# first shipped: a guessed 1.9 gave the test track a range of only 89-116 mph.
+DEFAULT_GRIP = 1.0
 DEFAULT_FORWARD_LOOKUP = 80.0          # metres: how early the AI brakes
 DEFAULT_BACKWARD_LOOKUP = 40.0         # metres: how late it gets back on power
 
