@@ -337,6 +337,46 @@ def check_invariants() -> None:
     check("scenery reaches the graphic file but not the surface file",
           "wall0_s0" in rg and "wall0_s0" not in rs, "drawn, not driven on")
 
+    # The exporter answers the collision question itself. Measured on a BTB
+    # export where exactly one of eight cones had "Collide" ticked: that cone
+    # split into its own .dof (so BTB groups by PROPERTIES, and per-instance
+    # intent survives), its flags gained bit 2, and a matching objc*.dof
+    # appeared -- untextured, six vertices, a triangular prism of vertical
+    # quads at the object's own position.
+    check("geometry.ini flags decode to roles",
+          [tg.role_from_flags(f) for f in (774, 770, 4, 0, 2, 18)]
+          == [tg.SURFACE, tg.WALL, tg.SURFACE, tg.PROP, tg.WALL, tg.COLLIDER],
+          "track/wall/water/prop/collidable/proxy")
+
+    # a triangular prism, as BTB writes one: three vertical quads, no caps
+    import math as _m2
+    from vrmod import mod as _mod2
+    tri = [(0.0, 0.0), (1.0, 0.0), (0.5, 1.0)]
+    vs = ([_mod2.Vertex(x, 3.0, z, 0, 1, 0, 0, 0) for x, z in tri]
+          + [_mod2.Vertex(x, 0.0, z, 0, 1, 0, 0, 0) for x, z in tri])
+    prism = _mod2.Mesh(
+        vertices=vs, materials=[_mod2.Material("none", 0, 6, 0, 6)],
+        faces=[(0, 1, 4), (0, 4, 3), (1, 2, 5), (1, 5, 4), (2, 0, 3), (2, 3, 5)])
+    pq = tg.mesh_to_wall_quads(prism)
+    check("a collision prism becomes one quad per side",
+          len(pq) == 3, f"{len(pq)} quads from 6 triangles")
+    check("every quad has four corners",
+          all(len(q) == 4 for q in pq), "quad(0,1,2,3) needs four verts")
+    flat = _mod2.Mesh(
+        vertices=[_mod2.Vertex(0, 0, 0, 0, 1, 0, 0, 0), _mod2.Vertex(1, 0, 0, 0, 1, 0, 0, 0),
+                  _mod2.Vertex(0, 0, 1, 0, 1, 0, 0, 0)],
+        materials=[_mod2.Material("none", 0, 3, 0, 1)], faces=[(0, 1, 2)])
+    check("a floor is not mistaken for a wall",
+          tg.mesh_to_wall_quads(flat) == [], "horizontal faces are skipped")
+
+    collided = tg.scene_from_meshes(
+        {"objc0000.mod": prism, "road_a.mod": road_mesh},
+        centreline=circle, chunk_size=50.0, flags={"objc0000": 18, "road_a": 774})
+    check("a collision proxy becomes walls, not geometry",
+          len(collided.walls) == 3
+          and not any("objc" in o.name for o in collided.driveables + collided.scenery),
+          f"{len(collided.walls)} quads, drawn nowhere")
+
     # Walls. .sol was long treated as unwritable because its spatial tail is
     # not understood -- but it does not have to be synthesised: the surface file
     # declares wall quads, and MKWORLD turns each into one .sol primitive.

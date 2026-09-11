@@ -1199,8 +1199,9 @@ def main(argv: list[str] | None = None) -> int:
             line = _tg.resample(line, args.spacing, closed=closed)
         if args.keep_geometry:
             meshes = _tg.read_meshes(args.centreline)
-            scene = _tg.scene_from_meshes(meshes, centreline=line,
-                                          chunk_size=args.chunk_size)
+            scene = _tg.scene_from_meshes(
+                meshes, centreline=line, chunk_size=args.chunk_size,
+                flags=_tg.read_object_flags(args.centreline))
             half = _tg.road_half_width(scene) or args.road_width / 2.0
         else:
             scene = _tg.sweep(
@@ -1228,6 +1229,9 @@ def main(argv: list[str] | None = None) -> int:
         print()
         print(f"{len(scene.driveables)} driveable objects, written identically "
               f"to both scene files.")
+        if args.keep_geometry and scene.walls and not args.walls:
+            print(f"{len(scene.walls)} wall quads from the model's own collision "
+                  f"objects -- MKWORLD turns each into one .sol primitive.")
         if scene.scenery:
             walls = sum(1 for o in scene.scenery
                         if o.name.lower().startswith(("wall", "barrier", "fence")))

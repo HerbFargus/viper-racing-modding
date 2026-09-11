@@ -1016,6 +1016,7 @@ def scene_from_meshes(
     chunk_size: float = DEFAULT_CHUNK_SIZE,
     codes: dict[str, int] | None = None,
     roles: dict[str, str] | None = None,
+    flags: dict[str, int] | None = None,
 ) -> "TrackScene":
     """Build a TrackScene from geometry that already exists.
 
@@ -1066,10 +1067,26 @@ def scene_from_meshes(
     scene = TrackScene(centreline=[(p[0], p[1], p[2] if len(p) > 2 else 0.0)
                                    for p in centreline])
     roles = roles or {}
+    flags = flags or {}
+
+    def role_of(name: str, mesh: "mod.Mesh") -> str:
+        if name in roles:
+            return roles[name]
+        # the exporter's own answer first -- a stem may carry a #N suffix when
+        # one file held several objects
+        stem = Path(name).stem.split("#", 1)[0]
+        if stem in flags:
+            return role_from_flags(flags[stem])
+        return mesh_role(name, [m.name for m in mesh.materials])
+
     for name in sorted(meshes):
         mesh = meshes[name]
-        textures = [m.name for m in mesh.materials]
-        role = roles.get(name) or mesh_role(name, textures)
+        role = role_of(name, mesh)
+        if role == COLLIDER:
+            # a generated collision volume: it becomes .sol solids, and is not
+            # drawn at all -- it has no texture to draw with
+            scene.walls.extend(mesh_to_wall_quads(mesh))
+            continue
         code = _code_for(name, mesh, codes)
         base = re.sub(r"[^A-Za-z0-9_]", "", Path(name).stem) or "mesh"
         for n, piece in enumerate(chunk_mesh(mesh, size=chunk_size)):
@@ -1263,6 +1280,12 @@ def write_textures(source: str | Path, out_dir) -> list:
     d.mkdir(parents=True, exist_ok=True)
 
     meshes = read_meshes(src)
+    # Collision volumes have nothing to draw -- no texture, and none wanted.
+    # They reach .sol as solids, never the graphic file.
+    flags = read_object_flags(src)
+    meshes = {n: m for n, m in meshes.items()
+              if role_from_flags(flags.get(Path(n).stem.split("#", 1)[0], 0))
+              != COLLIDER}
     mapping = fit_texture_names(
         m.name for mesh in meshes.values() for m in mesh.materials)
 
@@ -1486,3 +1509,127 @@ def mesh_role(name: str, textures=(), default: str = SURFACE) -> str:
         if role is not None:
             return role
     return default
+
+
+# ---------------------------------------------------------------------------
+# Collision proxies
+#
+# Bob's Track Builder answers the collision question itself. Tick "Collide" on
+# an object and the export changes in three ways, measured on a controlled
+# export where exactly one of eight cones was toggled:
+#
+#   - that cone splits into its own .dof, where the other seven stay merged --
+#     so BTB groups objects by their PROPERTIES, and per-instance intent is
+#     readable rather than baked away;
+#   - its flags gain bit 2;
+#   - and a matching `objc*.dof` appears: no texture, six vertices, a triangular
+#     prism of three vertical quads standing on the object's own ground level,
+#     at the object's own x/z. A collision volume, generated for us.
+#
+# That prism is already the shape `.sol` wants. Each vertical quad becomes one
+# `object(<texture>,1,0)` in the surface file and one `.sol` primitive out of
+# MKWORLD -- the same path add_walls() uses.
+#
+# geometry.ini's flags, as measured:
+#
+#     2    Collide        track 774, walls 770, collidable cone 2, proxy 18
+#     4    Driveable      track 774, water ripples 4 -- not walls
+#     16   collision-only track's proxies only; the mesh is not drawn
+#     256  \  track structure: the road, the terrain and the walls
+#     512  /
+#
+# rFactor's `.scn` does NOT carry this. Its CollTarget is True on every cone
+# whatever the checkbox says, so the racer export is the one to read.
+
+FLAG_COLLIDE, FLAG_DRIVEABLE, FLAG_INVISIBLE = 2, 4, 16
+COLLIDER = "collider"
+
+
+def read_object_flags(path: str | Path) -> dict[str, int]:
+    """Read `geometry.ini`'s per-object flags. Empty when there is none."""
+    p = Path(path)
+    ini = p if p.name.lower() == "geometry.ini" else (
+        (p if p.is_dir() else p.parent) / "geometry.ini")
+    if not ini.exists():
+        return {}
+    text = ini.read_text("latin-1", errors="replace")
+    return {m.group(1): int(m.group(2)) for m in re.finditer(
+        r"(\w+)\s*\{\s*file=\S+\s*flags=(\d+)", re.sub(r"\s+", " ", text))}
+
+
+def role_from_flags(flags: int) -> str:
+    """A mesh's role from its exporter's own flags."""
+    if flags & FLAG_INVISIBLE:
+        return COLLIDER
+    if flags & FLAG_DRIVEABLE:
+        return SURFACE
+    if flags & FLAG_COLLIDE:
+        return WALL
+    return PROP
+
+
+def mesh_to_wall_quads(mesh: "mod.Mesh", *, max_tilt: float = 0.5) -> list[list[Point]]:
+    """Turn a collision mesh's vertical faces into wall quads.
+
+    `max_tilt` is how far a face's normal may lean off horizontal and still
+    count as a wall -- 0.5 keeps anything within 30 degrees of vertical, so a
+    sloped barrier qualifies and a floor does not.
+
+    Triangles that share an edge and face the same way are merged back into the
+    quad they were split from; anything left over is emitted as a triangle with
+    its last corner repeated, which is a quad MKWORLD accepts.
+
+    Returns SOURCE-frame points, ready for `TrackScene.walls`.
+    """
+    def to_source(v) -> Point:
+        # inverse of to_viper: game (x, height, z) -> source (x, y, elevation)
+        return (-v.x, -v.z, v.y)
+
+    vertical: list[tuple[tuple[int, int, int], tuple[float, float, float]]] = []
+    for face in mesh.faces:
+        a, b, c = (mesh.vertices[i] for i in face)
+        ux, uy, uz = b.x - a.x, b.y - a.y, b.z - a.z
+        wx, wy, wz = c.x - a.x, c.y - a.y, c.z - a.z
+        nx, ny, nz = uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx
+        length = math.sqrt(nx * nx + ny * ny + nz * nz)
+        if length < 1e-9:
+            continue
+        if abs(ny / length) <= max_tilt:
+            vertical.append((face, (nx / length, ny / length, nz / length)))
+
+    used: set[int] = set()
+    edges: dict[tuple[int, int], list[int]] = {}
+    for i, (face, _) in enumerate(vertical):
+        for a, b in ((face[0], face[1]), (face[1], face[2]), (face[2], face[0])):
+            edges.setdefault((min(a, b), max(a, b)), []).append(i)
+
+    quads: list[list[Point]] = []
+    for i, (face, normal) in enumerate(vertical):
+        if i in used:
+            continue
+        partner = None
+        for a, b in ((face[0], face[1]), (face[1], face[2]), (face[2], face[0])):
+            for j in edges.get((min(a, b), max(a, b)), ()):
+                if j == i or j in used:
+                    continue
+                other, other_n = vertical[j]
+                if sum(x * y for x, y in zip(normal, other_n)) < 0.95:
+                    continue
+                shared = [v for v in face if v in other]
+                if len(shared) == 2:
+                    partner = (j, other, shared)
+                    break
+            if partner:
+                break
+        used.add(i)
+        if partner is None:
+            quads.append([to_source(mesh.vertices[k]) for k in face]
+                         + [to_source(mesh.vertices[face[2]])])
+            continue
+        j, other, shared = partner
+        used.add(j)
+        lone_a = next(v for v in face if v not in shared)
+        lone_b = next(v for v in other if v not in shared)
+        ring = [lone_a, shared[0], lone_b, shared[1]]
+        quads.append([to_source(mesh.vertices[k]) for k in ring])
+    return quads
