@@ -35,6 +35,7 @@ from . import patchset, resolution, switcher, vrampatch
 BAD, WARN, OK, INFO = "bad", "warn", "ok", "info"
 
 RACE_BIN = "race.bin"
+DRIVERS_RES = "drivers.res"
 DGVOODOO_DLLS = ("ddraw.dll", "d3dimm.dll")
 OPTIONS = "options.def"
 
@@ -92,6 +93,54 @@ def race_bin_version(data_dir: Path) -> str | None:
     blob = f.read_bytes()
     m = re.search(rb"v\d+\.\d+\.\d+[ -~]{0,12}", blob)
     return m.group(0).decode("ascii", "replace").strip() if m else None
+
+
+def drivers_res_lines(data_dir: Path) -> int | None:
+    """How many baked AI racing lines `drivers.res` holds, or None if absent.
+
+    The shipped file carries 524 `.ilg` lines -- one per AI skill tier per track
+    section -- keyed to the STOCK track in each slot. Install a different track
+    into that slot and the AI keeps following the old track's line: it swerves
+    off the road at the start, or the game crashes outright on some layouts.
+
+    The community answer, circulated by Sucahyo from 2009, is a `drivers.res`
+    containing nothing at all. With no baked line to prefer, the AI falls back to
+    the track's own `default.ili`/`track.ild`, which is what an add-on ships.
+
+    Counting `.ilg` members rather than bytes because that is the thing that
+    causes the fault -- the `.dnt` driver tunings alongside them are harmless.
+    """
+    from . import archive
+
+    f = Path(data_dir) / DRIVERS_RES
+    if not f.is_file():
+        return None
+    try:
+        return sum(1 for e in archive.read(f) if e.name.lower().endswith(".ilg"))
+    except Exception:
+        return None
+
+
+def empty_drivers_res(data_dir: str | Path) -> tuple[Path, Path | None]:
+    """Replace `drivers.res` with an empty archive, backing up the original.
+
+    Returns (written, backup). Reversible: the backup is a plain copy and the
+    file we write is the same 16 bytes the community fix ships.
+    """
+    from . import archive
+
+    data_dir = Path(data_dir)
+    target = data_dir / DRIVERS_RES
+    backup = None
+    if target.is_file():
+        backup = target.with_suffix(".res.bak")
+        n = 1
+        while backup.exists():
+            n += 1
+            backup = target.with_suffix(f".res.bak{n}")
+        backup.write_bytes(target.read_bytes())
+    target.write_bytes(archive.to_bytes([]))
+    return target, backup
 
 
 def disc_check(data_dir: Path) -> list[Path]:
@@ -431,6 +480,34 @@ def check(data_dir: str | Path) -> Report:
                         names + ". Restore returns any of them to the stock track."))
         else:
             add(Finding(OK, "All 8 track slots are stock", "Nothing installed over them."))
+
+        # ---- drivers.res, which only matters once a slot holds an add-on ----
+        lines = drivers_res_lines(data_dir)
+        if lines is None:
+            add(Finding(WARN, "drivers.res is missing or unreadable",
+                        "The game reads its AI driver data from this file. An empty one is fine "
+                        "and is what add-on tracks want, but it should exist."))
+        elif lines and modded:
+            add(Finding(WARN, "The AI will drive the wrong line on your add-on tracks",
+                        f"drivers.res holds {lines} baked AI racing lines, one per skill tier per "
+                        f"section of each STOCK track. A slot holding a different track keeps "
+                        f"following the old track's line: the AI swerves off the road within "
+                        f"seconds of the start, and on some layouts the game crashes outright. "
+                        f"Nothing else gives it away -- the geometry, collision, timing and your "
+                        f"own car are all fine.",
+                        "Empty drivers.res. With no baked line to prefer, the AI follows each "
+                        "track's own racing line, which is what an add-on ships. The original is "
+                        "backed up first, and stock tracks are unaffected -- they carry their own "
+                        "lines too.",
+                        action="drivers"))
+        elif lines:
+            add(Finding(OK, f"drivers.res holds {lines} baked AI lines",
+                        "Correct for an all-stock install. If you install an add-on track, this "
+                        "file has to be emptied or the AI will follow the stock track's line."))
+        else:
+            add(Finding(OK, "drivers.res is empty, which add-on tracks need",
+                        "The AI takes its line from each track's own default.ili, so add-ons and "
+                        "stock tracks both drive correctly."))
     except Exception as e:
         add(Finding(WARN, "Could not read the track slots", f"{type(e).__name__}: {e}"))
 

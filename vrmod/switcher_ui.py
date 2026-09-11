@@ -422,7 +422,7 @@ async function loadHealth(){
       ${f.link ? `<div style="margin-top:5px"><a href="${esc(f.link)}" target="_blank"
         rel="noopener" style="color:var(--acc)">${esc(f.link)} &#8599;</a></div>` : ''}
       ${f.action ? `<div style="margin-top:7px"><button onclick="applyFix('${f.action}')"
-        >${({vram:'Apply startup fix',dpi:'Set DPI-aware',patch:'Apply enhancements'})[f.action]
+        >${({vram:'Apply startup fix',dpi:'Set DPI-aware',patch:'Apply enhancements',drivers:'Empty drivers.res'})[f.action]
           || 'Apply this fix'}</button></div>` : ''}
     </div>`).join('');
 }
@@ -1363,6 +1363,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                                        "message": f"Applied the patch set ({steps}). "
                                                   "Rebuildable from the snapshot; revert with "
                                                   "vrmod patch --revert."})
+                if action == "drivers":
+                    _, backup = doctor.empty_drivers_res(d)
+                    where = f" (original saved as {backup.name})" if backup else ""
+                    return self._json({"ok": True,
+                                       "message": "drivers.res emptied" + where + ". The AI now "
+                                                  "follows each track's own racing line."})
                 return self._json({"ok": False, "error": f"unknown fix: {action}"}, 400)
             if self.path == "/api/hornball":
                 if not hornball.available(d):
