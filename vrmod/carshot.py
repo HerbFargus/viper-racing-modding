@@ -233,11 +233,15 @@ def render(
 
     textured = style == "textured"
     shading = style in ("shaded", "textured")
+    # Both tables are read by the rasteriser whatever the style, so they are built
+    # for every style. Defining them only under `shading` is what once made the
+    # default wire render raise UnboundLocalError on its first pixel.
+    face_colour = [base] * len(mesh.faces)
+    face_tex = [None] * len(mesh.faces)
     if shading:
         ln = math.sqrt(sum(c * c for c in LIGHT)) or 1.0
         light = tuple(c / ln for c in LIGHT)
         # Material ranges are contiguous face runs, so this is just a lookup table.
-        face_colour = [base] * len(mesh.faces)
         if colours:
             for m in mesh.materials:
                 col = colours.get(m.name)
@@ -246,7 +250,6 @@ def render(
                 for fi in range(max(0, m.face_start), min(len(mesh.faces), m.face_end)):
                     face_colour[fi] = col
         # Same contiguous-run trick for the texture each face samples.
-        face_tex = [None] * len(mesh.faces)
         if textured and textures:
             for m in mesh.materials:
                 t = textures.get(m.name)
@@ -261,6 +264,11 @@ def render(
         area = (b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])
         if abs(area) < 1e-9:
             continue
+        # Bound on every path: the rasteriser below consults `tinfo` whatever the
+        # style is, and the wire style never enters the shading branch.
+        tinfo = face_tex[fi] if textured else None
+        if tinfo is not None:
+            va, vb, vc = mesh.vertices[ia], mesh.vertices[ib], mesh.vertices[ic]
         if shading:
             # Shade from the stored vertex normal, rotated into view space so
             # the lighting follows the rendered orientation, not model space.
@@ -269,9 +277,6 @@ def render(
             lam = max(0.0, (nx * light[0] + ny * light[1] + nz * light[2]) / nl)
             shade = AMBIENT + (1.0 - AMBIENT) * lam
             col = [min(255, int(ch * shade)) for ch in face_colour[fi]]
-            tinfo = face_tex[fi] if textured else None
-            if tinfo is not None:
-                va, vb, vc = mesh.vertices[ia], mesh.vertices[ib], mesh.vertices[ic]
 
         minx = max(0, int(min(a[0], b[0], c[0])))
         maxx = min(width - 1, int(max(a[0], b[0], c[0])) + 1)
