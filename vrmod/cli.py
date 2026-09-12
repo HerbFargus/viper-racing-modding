@@ -12,7 +12,7 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from . import aifield, archive, aspectfix, bpp as bppmod, car, carshot, catalog as catalog_mod, cf, cockpit_tab, doctor, envelope, hornball, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon, drawdistance, surface, writepaths
+from . import aifield, archive, aspectfix, bpp as bppmod, car, carshot, catalog as catalog_mod, cf, cockpit_tab, doctor, envelope, hornball, mapfile, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon, drawdistance, surface, writepaths
 
 COMMIT_PATH = "/__vrmod_commit__"
 
@@ -792,6 +792,19 @@ def main(argv: list[str] | None = None) -> int:
                       help="with --userdir, do NOT copy the existing settings, lap "
                            "records and ghosts into the new folder")
     p_wp.add_argument("--revert", action="store_true", help="put the absolute paths back")
+
+    p_crash = sub.add_parser(
+        "crashlog",
+        help="Read an except.log: resolve its raw addresses to function names. The "
+             "handler writes '?' for every frame unless the running binary carries "
+             "a map, so this recovers what it could not print at the time",
+    )
+    p_crash.add_argument("log", type=Path, help="the except.log to read")
+    p_crash.add_argument("data_dir", type=Path, nargs="?",
+                         help="the Data folder whose engine produced it "
+                              "(default: the log's own folder, then its parent)")
+    p_crash.add_argument("--raw", action="store_true",
+                         help="keep the decorated MSVC names instead of shortening them")
 
     p_res = sub.add_parser(
         "resolution",
@@ -1601,6 +1614,32 @@ def main(argv: list[str] | None = None) -> int:
             print("  NOTE: a relative path resolves against the working directory the "
                   "game is\n        STARTED from, not where the .exe lives. Launch it "
                   "from its own folder.")
+    elif args.command == "crashlog":
+        text = Path(args.log).read_text(errors="replace")
+        # An except.log normally sits in the install (or its log\ folder after
+        # `vrmod writepaths --logs`), so look beside it before asking.
+        cand = [args.data_dir] if args.data_dir else [
+            Path(args.log).parent, Path(args.log).parent.parent]
+        target = next((c for c in cand if c and any(
+            (c / n).is_file() for n in mapfile.ENGINE_NAMES)), None)
+        if target is None:
+            print("  no race.exe or race.bin found next to the log -- pass the Data "
+                  "folder explicitly")
+        else:
+            syms, src = mapfile.symbols(target)
+            print(f"  {mapfile.engine(target).name}: {len(syms):,} symbols ({src})\n")
+            frames = mapfile.resolve_trace(text, target)
+            if not frames:
+                print("  no stack frames in that file -- an empty except.log is normal, "
+                      "the game creates it at startup and only writes on a crash")
+            for addr, kind, name, off in frames:
+                shown = name if args.raw else mapfile.pretty(name)
+                warn = "   <-- outside any known function" if off > 0x4000 else ""
+                print(f"  0x{addr:08x}  {kind:26} {shown} +0x{off:x}{warn}")
+            if frames and src != "embedded map":
+                print("\n  NOTE: names were INFERRED from call targets, not read from a "
+                      "real map,\n        so a `sub_...` is a function this tool found "
+                      "rather than one the build named.")
     elif args.command == "resolution":
         if args.set:
             idx = int(args.set[0])

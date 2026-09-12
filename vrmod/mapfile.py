@@ -45,6 +45,17 @@ RACE_BIN = "race.bin"
 TEXT_SECTION = 1                 # .text is section 1 in every build seen
 END_MARKER = "FIXUPS"            # the handler stops parsing here
 
+# Engine binaries, live one first -- the v1.0 pressing runs race.exe and ships a
+# race.bin beside it that nothing loads, so a Data folder alone does not say
+# which binary a crash came from. Same rule as vrampatch and doctor.
+ENGINE_NAMES = ("race.exe", "race.bin")
+
+# A public-symbols line in the MSVC 4.0 map the handler parses:
+#     0001:000113a0       ?check_for_canary_launch@@YAEXZ 004123a0 f kernel:win32.obj
+# Section offset, name, then the loaded address -- the third field is the one to
+# resolve against, matching the handler's own sscanf.
+_MAP_LINE = re.compile(r"\s*0001:([0-9a-fA-F]+)\s+(\S+)\s+([0-9a-fA-F]+)")
+
 
 class MapError(RuntimeError):
     """The binary can't be read, or already carries trailing data."""
@@ -207,19 +218,112 @@ def remove(data_dir: str | Path) -> int:
     return trailing
 
 
+def engine(data_dir: str | Path) -> Path:
+    """The engine binary in a Data folder, preferring the one that actually runs."""
+    d = Path(data_dir)
+    for n in ENGINE_NAMES:
+        if (d / n).is_file():
+            return d / n
+    raise MapError(f"no {' or '.join(ENGINE_NAMES)} in {d}")
+
+
+def read_map(blob: bytes) -> dict[int, str]:
+    """Symbols from a map ALREADY present after the last section, {address: name}.
+
+    Empty when the binary carries none. This is the real thing where it exists
+    and is far better than what build() can reconstruct: the v1.0 `race.exe` is
+    a Release Candidate that shipped with its own linker map appended -- 10,465
+    genuine symbol names, against the `sub_<va>` placeholders inference gives.
+    Parsed exactly as the handler does, stopping at FIXUPS.
+    """
+    lay = _layout(blob)
+    tail = blob[lay.image_end:]
+    if not tail:
+        return {}
+    out: dict[int, str] = {}
+    for line in tail.decode("ascii", "replace").splitlines():
+        if END_MARKER in line:
+            break
+        m = _MAP_LINE.match(line)
+        if m:
+            out[int(m.group(3), 16)] = m.group(2)
+    return out
+
+
+def pretty(name: str) -> str:
+    """A readable form of an MSVC-decorated name. NOT a demangler.
+
+    `?my_handler@@YGJPAU_EXCEPTION_POINTERS@@@Z` -> `my_handler`. Just the
+    identifier between the leading `?` and the first `@@`; anything that does
+    not look decorated is returned unchanged, so `_WinMain@16` and `sub_004...`
+    pass straight through.
+    """
+    if name.startswith("?") and "@@" in name:
+        return name[1:name.index("@@")]
+    return name
+
+
+def symbols(blob_or_dir) -> tuple[dict[int, str], str]:
+    """({address: name}, source). Prefers a real embedded map over inference."""
+    p = Path(blob_or_dir)
+    blob = engine(p).read_bytes() if p.is_dir() else p.read_bytes()
+    real = read_map(blob)
+    if real:
+        return real, "embedded map"
+    lay = _layout(blob)
+    named = _known_names(blob, lay)
+    out = {va: named.get(va) or f"sub_{va:08x}"
+           for va in entry_points(blob, lay) | set(named)}
+    return out, "inferred from call targets"
+
+
 def lookup(blob_or_dir, address: int) -> tuple[str, int] | None:
     """Resolve an address the way the game does: nearest preceding symbol.
 
-    Useful for reading a crash log without restarting the game.
+    Useful for reading a crash log without restarting the game. A binary that
+    carries its own map is resolved against that; otherwise names are inferred.
     """
-    p = Path(blob_or_dir)
-    blob = (p / RACE_BIN).read_bytes() if p.is_dir() else p.read_bytes()
-    lay = _layout(blob)
-    named = _known_names(blob, lay)
+    syms, _ = symbols(blob_or_dir)
     best = None
-    for va in entry_points(blob, lay) | set(named):
+    for va in syms:
         if va <= address and (best is None or va > best):
             best = va
     if best is None:
         return None
-    return named.get(best) or f"sub_{best:08x}", address - best
+    return syms[best], address - best
+
+
+# The handler's own dump format, e.g.
+#     ( 00416049 , EXCEPTION_ACCESS_VIOLATION , ? )
+#     ( 00411407, call-stack , ? )
+_FRAME = re.compile(r"\(\s*([0-9a-fA-F]{6,8})\s*,\s*([^,]*?)\s*,")
+
+
+def resolve_trace(text: str, blob_or_dir) -> list[tuple[int, str, str, int]]:
+    """Symbolise an except.log. Returns [(address, kind, name, byte offset), ...].
+
+    The handler writes `?` for every frame when the running binary has no map
+    appended -- which is every build except the v1.0 RC. Reading the addresses
+    back against the binary that produced them recovers the names it could not
+    print at the time.
+
+    A large byte offset means the address is not really inside the named
+    function, so the map does not cover that region and the name is the nearest
+    thing below rather than the truth.
+    """
+    syms, _ = symbols(blob_or_dir)
+    ordered = sorted(syms)
+    out = []
+    for m in _FRAME.finditer(text):
+        addr = int(m.group(1), 16)
+        best = None
+        for va in ordered:
+            if va <= addr:
+                best = va
+            else:
+                break
+        if best is None:
+            out.append((addr, m.group(2), "?", 0))
+        else:
+            out.append((addr, m.group(2), syms[best], addr - best))
+    return out
