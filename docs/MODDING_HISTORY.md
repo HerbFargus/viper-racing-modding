@@ -245,7 +245,7 @@ stored as a plain string inside `race.bin` itself (near offset `0x0D37FD` — e.
 | Version | Patch file | Notes |
 |---|---|---|
 | 1.0 | (retail, first pressing) | engine is `race.exe`, built **Oct 21 1998 08:49:56**. A **release candidate** — see below |
-| 1.1 | `viper11.zip` **and** a retail repressing | both exist. The second pressing's engine is `race.bin`, built **Jan 25 1999 11:47:39**, readme dated 8 Feb 1999. Whether the downloadable patch performs the same `race.exe` → `race.bin` transition is **untested** |
+| 1.1 | `viper11.zip` **and** a retail repressing | both exist. The second pressing's engine is `race.bin`, built **Jan 25 1999 11:47:39**, readme dated 8 Feb 1999. The downloadable patch ships that engine as a **binary delta** whose new strings include that same build banner, so both routes deliver the same build — whether the patch also performs the `race.exe` → `race.bin` **filename** transition is still untested. See *How 1.1 is actually delivered* |
 | 1.2 beta | `viperpatch12beta.zip` | **probably never a distinct release** — see below. The URL is indexed but was never observed serving a file |
 | 1.2.1 beta | `viperpatch121beta.zip` | Windows 2000 support, multiple controllers, an XP sound tweak. The **last patch MGI distributed themselves** |
 | 1.2.3 beta | `Patch_1.2.3(Beta).zip` | built by **Dave Broske (MGI)** for the VRgt team and released by *them*, not by MGI. Every community build is hex-edited from this binary |
@@ -316,9 +316,14 @@ with two consequences worth knowing: archivers cannot open it, and **it will not
 64-bit Windows**, which dropped 16-bit support entirely. Its payload has to be recovered
 by other means.
 
-Inside is `race.res` **byte-identical to the second pressing's** — so the patch and the
-repressing carry the same updated resources — and a readme dated **19 January 1999**
-listing the fixes in MGI's own words:
+Inside are **ten deflate streams**, recovered by scanning the file for raw-deflate
+streams and decompressing each in turn. Six are Wise's own scaffolding (its version
+resources, two small helper executables, `REBOOTNT.EXE`, the installer's 118×258 dialog
+bitmap, and the readme — the bitmap and readme each stored twice). The other four matter,
+and two of them carry the whole patch: **a 192,369-byte engine delta** and **a 1,837,008-byte
+`race.res`**. Both are dissected under *How 1.1 is actually delivered* below.
+
+The readme is dated **19 January 1999** and lists the fixes in MGI's own words:
 
 | area | what 1.1 changed |
 |---|---|
@@ -337,10 +342,6 @@ reporting a memory leak"* is the **same panic class** a modern builder hits when
 are created without reaching the engine's master object array (runtime reference §4):
 MGI shipped a fix for it in 1999.
 
-> What the patch does **not** contain is a game executable or a `race.bin`, and there is
-> no room for one — `race.exe` alone is 2,404,451 bytes. How the engine changes above are
-> actually delivered is **not established**.
-
 > **A note on "official".** The Patches Scrolls — which mirrored these for decades — lists
 > **1.1 as official** and both **1.2.1 beta and 1.2.3 beta as unofficial**. That is a
 > classification by *support status*, not by origin: 1.2.1 was hosted on mgiracing.com
@@ -348,6 +349,79 @@ MGI shipped a fix for it in 1999.
 > installed anywhere in the office yet"). The table above classifies by **where the file
 > actually came from**, which is why 1.2.1 sits under official here and 1.2.3 — built by
 > an MGI programmer but released by the VRgt team — sits on its own.
+
+#### How 1.1 is actually delivered
+
+The patch contains **no game executable and no `race.bin`** — and there is no room for one,
+since `race.exe` alone is 2,404,451 bytes. For a long time that left the obvious question
+open. It is now answered: **the engine ships as a binary delta, and `race.res` ships whole.**
+
+##### The engine: a 192 KB delta
+
+192,369 bytes stand in for a 1,298,432-byte engine. The stream is 44.5% printable — literal
+runs interleaved with binary copy instructions — and the decisive evidence is *which* strings
+those literal runs contain. A replacement binary would carry everything the engine carries.
+A delta carries only what changed:
+
+| string | in the delta | v1.0 `race.bin` | v1.0 `race.exe` |
+|---|---|---|---|
+| `Task "%s" called module "%s" after module ended.` | — | yes | yes |
+| `except.log` | — | yes | yes |
+| `KERNEL32.dll`, `DDRAW.dll` | — | yes | yes |
+| `setups`, `ghostcar` | — | yes | yes |
+| `v1.0` | — | yes | — |
+| `Oct 21 1998` (the RC's banner) | — | — | yes |
+| **`Jan 25 1999 11:47:39`** | **yes** | — | — |
+| **`NON-DEBUG MSVC-4.0 Release`** | **yes** | — | — |
+| **`v1.1`** | **yes** | — | — |
+| **`nointro`** | **yes** | — | — |
+| **`Server: vipergt`** | **yes** | — | — |
+| **`FOV: %5.2f`** | **yes** (×2) | — | — |
+
+Every string v1.0 already has is absent; every string v1.1 introduces is present. So the
+literal runs are exactly the changed regions — the new build banner and version, the
+`-nointro` flag this very readme introduces, and the new multiplayer and FOV strings — and
+the installer stitches them into the binary already on disk.
+
+That also narrows the table's open question at the top of this section. The delta's banner is
+`Jan 25 1999 11:47:39`, **the same build timestamp as the second pressing's `race.bin`**. So
+the patch and the repressing deliver the *same build*; whether the patch also performs the
+`race.exe` → `race.bin` filename transition is still untested, but it is aiming at the same
+binary.
+
+##### `race.res`: shipped whole, and only one resource changed
+
+The 1,837,008-byte stream is a **complete** `race.res`, not a delta — `0TSR` magic, the same
+header words as the retail archive, and it parses as **57 members**, the same count as v1.0's
+1,850,130-byte `race.res`. Diffing member by member (sha256 of each payload) against the
+v1.0 RC:
+
+| | |
+|---|---|
+| identical | **56** |
+| changed | **1** — `horn.sfx`, 23,692 b → 10,570 b |
+| added | 0 |
+| removed | 0 |
+
+The entire 1.8 MB archive rides along to deliver **one new sound**. Decoding both revisions:
+
+| | payload | fmt | ch | rate | bits | samples | seconds | peak |
+|---|---|---|---|---|---|---|---|---|
+| v1.0 | 23,692 | PCM | 1 | 22,050 | 16 | 9,787 | 0.444 | 32,339 |
+| v1.1 | 10,570 | PCM | 1 | 22,050 | 16 | 3,226 | 0.146 | 15,104 |
+
+Same format and rate, an entirely different clip — a third as long and roughly half the
+amplitude. 32,339 is within 1.3% of 16-bit full scale, so the v1.0 horn was recorded
+essentially at the clipping point; 15,104 is about −6.7 dBFS. **A shorter, quieter horn.**
+
+And the readme never mentions it. Its only audio item is "Replay: Some Cars Have no Engine
+Sound". So the one resource change in the entire patch is undocumented — MGI evidently
+decided the launch horn was too loud and too long and said nothing about it.
+
+> An earlier pass here recorded the patch's `race.res` as byte-identical to the second
+> pressing's. That is **not** carried forward: no second-pressing tree survives locally, so
+> the claim is untestable and has been dropped rather than repeated. The diff above is
+> against the v1.0 RC, which can actually be checked.
 
 **Community `race.bin` (unofficial, built on 1.2.3):**
 
