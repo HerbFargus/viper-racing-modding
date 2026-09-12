@@ -614,7 +614,7 @@ def texture_provenance(
 
 def resolve_textures(
     car_path: str | Path, material_names: set[str], shared_archives: list[str] | None = None,
-    paint_texture: str | Path | None = None,
+    paint_texture: str | Path | None = None, shared_dir: str | Path | None = None,
 ) -> dict[str, bytes | None]:
     """Find the raw .tex bytes for each of a set of material names, checking the car's
     own archive first, then a set of shared resource archives (in the same directory as
@@ -630,6 +630,11 @@ def resolve_textures(
     from static files alone. Still-unresolved names come back as None so callers can
     fall back to a flat color."""
     car_path = Path(car_path)
+    # Where the shared archives live. Beside the car by default, which is how a
+    # real install is laid out -- but a caller holding a lone .car (a gallery
+    # build, an extracted pack) has no Data folder there, and every shared
+    # material would resolve to nothing. shared_dir lets it point at one.
+    base = Path(shared_dir) if shared_dir is not None else car_path.parent
     lookup: dict[str, bytes] = {}
 
     def index_archive(path: Path) -> None:
@@ -642,7 +647,7 @@ def resolve_textures(
 
     index_archive(car_path)
     for res_name in (shared_archives if shared_archives is not None else DEFAULT_SHARED_ARCHIVES):
-        index_archive(car_path.parent / res_name)
+        index_archive(base / res_name)
 
     paint_bytes = Path(paint_texture).read_bytes() if paint_texture is not None else None
     return {name: lookup.get(name.lower(), paint_bytes) for name in material_names}

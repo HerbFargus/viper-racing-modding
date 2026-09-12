@@ -85,6 +85,13 @@ def analyse_car(path: Path, render: bool) -> dict:
             pass
     out = {"parts": len(mods), "peak_vertices": peak,
            "provenance": prov["verdict"], "missing": len(prov["missing"]),
+           # The names, not just the counts: if the "incomplete" cars turn out
+           # to be missing the SAME handful of files, the shared-texture list is
+           # what is wrong, not 300 cars.
+           "missing_names": sorted(prov["missing"])[:12],
+           "shared_names": sorted(prov["shared"])[:12],
+           "n_own": len(prov["own"]), "n_shared": len(prov["shared"]),
+           "n_paint": len(prov["paint"]),
            "cockpit": any(e.name.lower() == "cockpit.tab" for e in entries)}
     if render:
         carshot.to_png(path)
