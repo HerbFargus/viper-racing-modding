@@ -33,10 +33,22 @@ means a bad run is undone by the next good one. The alternative -- patching
 whatever is currently on disk -- is how the working binary in this project ended
 up unreproducible across fifteen backups.
 
-THE SNAPSHOT. The first run copies race.bin to `race.bin.vrmod-original` and
+WHICH BINARY. The set follows the engine the install actually RUNS: `race.exe` on
+the v1.0 pressing, `race.bin` on v1.1 and the community builds. A v1.0 folder
+holds both, and only race.exe is ever loaded, so targeting the name rather than
+the live file rewrites a dormant copy and reports success.
+
+THE SNAPSHOT. The first run copies that binary to `<name>.vrmod-original` and
 that file is never written again. It is only taken if the binary looks untouched,
 so a half-patched file cannot be captured as the baseline; `baseline()` reports
-what it found. `revert()` restores it and removes the appended map.
+what it found. `revert()` restores it.
+
+Two v1.0 wrinkles follow from the RC shipping with its own linker map appended.
+Trailing data past the last section normally means WE put a map there, so
+`looks_pristine` would call an untouched race.exe dirty and refuse to snapshot
+it; it now asks `mapfile.is_generated` whether the map is ours. And step 6 skips
+on such a build -- the shipped map has real symbol names where ours can only
+infer `sub_<va>`, so replacing it would be a downgrade even if it were possible.
 
 NOT INCLUDED BY DEFAULT: the DPI-awareness flag. On a high-DPI display the game
 is handed a virtualised surface smaller than the mode it asked for and draws
@@ -54,7 +66,16 @@ from pathlib import Path
 from . import aspectfix, mapfile, needlefix, resolution, tablefix, vertexbuffer, vrampatch
 
 RACE_BIN = "race.bin"
-SNAPSHOT = "race.bin.vrmod-original"
+
+# Engine binaries, live one first. The v1.0 pressing runs race.exe and ships a
+# race.bin beside it that nothing loads, so the whole set has to follow the live
+# binary or it rewrites a dormant file and reports success.
+ENGINE_NAMES = ("race.exe", RACE_BIN)
+
+# The snapshot is named after whichever binary it was taken from, so a folder
+# holding both cannot end up with one file's baseline restored over the other's.
+SNAPSHOT_SUFFIX = ".vrmod-original"
+SNAPSHOT = RACE_BIN + SNAPSHOT_SUFFIX          # retained: older installs have this
 
 DEFAULT_MODE = (1920, 1080)
 DEFAULT_INDEX = 4               # menu index; 2 is the boot gate and must not be used
@@ -75,10 +96,22 @@ class Report:
 
 
 def _race_bin(data_dir: str | Path) -> Path:
-    f = Path(data_dir) / RACE_BIN
-    if not f.is_file():
-        raise PatchSetError(f"no {RACE_BIN} in {data_dir}")
-    return f
+    """The engine binary this install actually runs."""
+    d = Path(data_dir)
+    for n in ENGINE_NAMES:
+        if (d / n).is_file():
+            return d / n
+    raise PatchSetError(f"no {' or '.join(ENGINE_NAMES)} in {d}")
+
+
+def _snapshot_path(data_dir: str | Path) -> Path:
+    """Where this install's pristine baseline lives, named for its engine."""
+    d = Path(data_dir)
+    eng = _race_bin(d)
+    new = d / (eng.name + SNAPSHOT_SUFFIX)
+    if not new.exists() and eng.name == RACE_BIN and (d / SNAPSHOT).exists():
+        return d / SNAPSHOT                    # a baseline taken before the rename
+    return new
 
 
 def looks_pristine(data_dir: str | Path) -> tuple[bool, str]:
@@ -93,33 +126,39 @@ def looks_pristine(data_dir: str | Path) -> tuple[bool, str]:
     if aspectfix.status(d) != aspectfix.UNPATCHED:
         return False, f"aspect fix is {aspectfix.status(d)}"
     _, _, trailing = mapfile.status(d)
+    if trailing and mapfile.is_generated(_race_bin(d).read_bytes()):
+        return False, f"{trailing:,} bytes appended after the last section (our symbol map)"
     if trailing:
-        return False, f"{trailing:,} bytes appended after the last section (a symbol map?)"
+        # The v1.0 race.exe is a Release Candidate that SHIPPED with its own
+        # linker map appended. That is the untouched file, not a patched one.
+        return True, f"no vrmod patches detected ({trailing:,} bytes of the build's own map)"
     return True, "no vrmod patches detected"
 
 
 def baseline(data_dir: str | Path) -> str:
     """Describe the snapshot this install would rebuild from."""
     d = Path(data_dir)
-    snap = d / SNAPSHOT
+    snap = _snapshot_path(d)
     if snap.exists():
-        return f"{SNAPSHOT} ({snap.stat().st_size:,} bytes)"
+        return f"{snap.name} ({snap.stat().st_size:,} bytes)"
+    eng = _race_bin(d).name
     ok, why = looks_pristine(d)
-    return (f"none yet; the current race.bin would be captured ({why})" if ok
-            else f"none yet, and the current race.bin is NOT clean: {why}")
+    return (f"none yet; the current {eng} would be captured ({why})" if ok
+            else f"none yet, and the current {eng} is NOT clean: {why}")
 
 
 def _snapshot(data_dir: Path, force: bool) -> Path:
-    snap = data_dir / SNAPSHOT
+    snap = _snapshot_path(data_dir)
     if snap.exists():
         return snap
+    eng = _race_bin(data_dir)
     ok, why = looks_pristine(data_dir)
     if not ok and not force:
         raise PatchSetError(
-            f"refusing to snapshot a patched race.bin as the baseline: {why}.\n"
-            f"Restore an original race.bin first, or pass force=True if you are "
+            f"refusing to snapshot a patched {eng.name} as the baseline: {why}.\n"
+            f"Restore an original {eng.name} first, or pass force=True if you are "
             f"certain this file is the one you want to rebuild from every time.")
-    shutil.copy2(_race_bin(data_dir), snap)
+    shutil.copy2(eng, snap)
     return snap
 
 
@@ -221,11 +260,21 @@ def apply(data_dir: str | Path,
                             f"verts/object at {info['at']:#x}")
 
     # 6 -- symbols, last
-    if with_map:
-        syms, added = mapfile.install(d)
-        rep.add("mapfile", f"{syms:,} symbols, {added:,} bytes appended")
-    else:
+    if not with_map:
         rep.add("mapfile", "skipped")
+    else:
+        _, _, trailing = mapfile.status(d)
+        if trailing and not mapfile.is_generated(f.read_bytes()):
+            # The v1.0 race.exe already carries its OWN linker map -- 10,000-odd
+            # real names against the sub_<va> placeholders we can infer. Appending
+            # ours would sit after it and be parsed as a continuation, and would
+            # be the worse map anyway.
+            have, _src = mapfile.symbols(d)
+            rep.add("mapfile", f"left alone: this build ships its own map "
+                               f"({len(have):,} symbols, {trailing:,} bytes)")
+        else:
+            syms, added = mapfile.install(d)
+            rep.add("mapfile", f"{syms:,} symbols, {added:,} bytes appended")
 
     if not dpi_aware(d):
         rep.notes.append(
@@ -239,11 +288,12 @@ def apply(data_dir: str | Path,
 def revert(data_dir: str | Path) -> str:
     """Put the pristine snapshot back."""
     d = Path(data_dir)
-    snap = d / SNAPSHOT
+    snap = _snapshot_path(d)
     if not snap.exists():
-        raise PatchSetError(f"no {SNAPSHOT} to restore from")
-    shutil.copy2(snap, _race_bin(d))
-    return f"restored {RACE_BIN} from {SNAPSHOT} ({snap.stat().st_size:,} bytes)"
+        raise PatchSetError(f"no {snap.name} to restore from")
+    eng = _race_bin(d)
+    shutil.copy2(snap, eng)
+    return f"restored {eng.name} from {snap.name} ({snap.stat().st_size:,} bytes)"
 
 
 # --------------------------------------------------------------------------
