@@ -10,7 +10,8 @@ the launch routine reads: how fast the ball is thrown, and how long you must
 wait between throws. This lets you dial both -- a gentle lob every couple of
 seconds (stock) up to a rapid-fire cannon.
 
-WHAT IT CHANGES, EXACTLY. Two 32-bit floats in race.bin's .rdata:
+WHAT IT CHANGES, EXACTLY. Two 32-bit floats in the engine's .rdata
+(race.exe on v1.0, race.bin on v1.1 and the community builds):
 
     speed     the velocity added to the ball in the car's facing direction
               (and the speed cap). Stock 31.111. Exposed here as a MULTIPLIER
@@ -45,7 +46,7 @@ import struct
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import safewrite
+from . import pe, safewrite
 
 RACE_BIN = "race.bin"
 IMAGE_BASE = 0x400000
@@ -79,27 +80,42 @@ class Tuning:
     is_stock: bool
 
 
+# Engine binaries, live one first -- the v1.0 pressing runs race.exe and ships a
+# dormant race.bin beside it.
+ENGINE_NAMES = ("race.exe", RACE_BIN)
+
+
 def _race_bin(data_dir: str | Path) -> Path:
-    f = Path(data_dir) / RACE_BIN
-    if not f.is_file():
-        raise HornballError(f"no {RACE_BIN} in {data_dir}")
-    return f
+    """The engine binary this install actually runs."""
+    d = Path(data_dir)
+    for n in ENGINE_NAMES:
+        if (d / n).is_file():
+            return d / n
+    raise HornballError(f"no {' or '.join(ENGINE_NAMES)} in {d}")
 
 
 def _find_const(blob: bytes, anchor: bytes, back: int, op2: int) -> int:
     """File offset of the float an anchored `D8 <op2> <abs32>` instruction reads.
 
     Scans back up to `back` bytes from `anchor` for the `D8 <op2>` opcode, reads
-    its absolute address operand, and converts to a file offset (rawptr==VA for
-    every section of this image, so VA - IMAGE_BASE is the offset)."""
+    its absolute address operand, and converts that VIRTUAL address to a file
+    offset through the section table.
+
+    The conversion used to be `va - IMAGE_BASE`, which is the RVA, not the
+    offset: .rdata's PointerToRawData sits 0xe00 below its VirtualAddress in
+    race.bin and 0x1600 below it in race.exe. That landed a few kilobytes past
+    the real constants -- still inside .rdata, so every read and write succeeded
+    and returned plausible floats, while the game went on reading the untouched
+    originals. See pe.va_to_offset.
+    """
     a = blob.find(anchor)
     if a < 0:
-        raise HornballError("horn-ball launch signature not found in this race.bin")
+        raise HornballError("horn-ball launch signature not found in this build")
     for i in range(a - back, a):
         if blob[i] == 0xD8 and blob[i + 1] == op2:
             va = struct.unpack_from("<I", blob, i + 2)[0]
-            off = va - IMAGE_BASE
-            if 0 <= off <= len(blob) - 4:
+            off = pe.va_to_offset(blob, va)
+            if off is not None and off <= len(blob) - 4:
                 return off
     raise HornballError("horn-ball constant not found near its launch signature")
 
