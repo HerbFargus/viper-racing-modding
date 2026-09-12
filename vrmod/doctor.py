@@ -37,7 +37,7 @@ import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import patchset, resolution, switcher, vrampatch
+from . import patchset, resolution, switcher, vrampatch, writepaths
 
 # Severity, worst first. "bad" means the game probably will not run or work
 # right; "warn" is worth acting on; "info" is context, not a problem.
@@ -582,6 +582,70 @@ def check(data_dir: str | Path) -> Report:
                     "A local dsound.dll is in the Data folder. Harmless, but this community build "
                     "already fixes the DirectSound crackle in its own code, so the wrapper is not "
                     "required here."))
+
+    # ---- where the game writes ------------------------------------------
+    # Not a fault, so INFO -- but the two consequences below bite in practice,
+    # and neither is visible from inside the install folder.
+    try:
+        wstate = writepaths.status(data_dir)
+        wlive = writepaths.where(data_dir)
+        if wstate:
+            first = wlive.get("binary", live)
+            logs_state = wstate.get(first, {}).get(writepaths.LOGS_KIND)
+            user_state = wstate.get(first, {}).get(writepaths.USER_DIR_KIND)
+
+            if logs_state == writepaths.UNPATCHED:
+                add(Finding(INFO, "Logs are written to the root of C:",
+                            f"This build writes {wlive.get('logs', '')}. The paths are "
+                            "absolute literals compiled into the engine, so they ignore "
+                            "where the game is installed. Without admin rights Windows "
+                            "redirects them into %LOCALAPPDATA%\\VirtualStore\\ instead, "
+                            "which is why they sometimes seem to vanish. Nobody ever "
+                            "fixed this -- not the 1.1 release, not the 2016 community "
+                            "build.",
+                            "Make them relative with: vrmod writepaths <Data> --logs "
+                            "(reversible). They then land in a log\\ folder beside the "
+                            "game -- resolved against the working directory it is "
+                            "STARTED from, so launch it from its own folder.",
+                            action="wp_logs"))
+            elif logs_state == writepaths.PATCHED:
+                folder = data_dir / writepaths.LOG_DIR
+                if folder.is_dir():
+                    add(Finding(OK, "Logs are written beside the game",
+                                f"Relative paths ({wlive.get('logs', '')}), and the "
+                                f"{writepaths.LOG_DIR}\\ folder exists."))
+                else:
+                    add(Finding(BAD, f"Logs are relative but {writepaths.LOG_DIR}\\ "
+                                     "is missing",
+                                "The engine writes relative log paths but the folder "
+                                "they point at is not here. fopen does not create "
+                                "directories, so the log opens will fail SILENTLY -- "
+                                "including except.log, the crash dump, which is exactly "
+                                "the file you need when something goes wrong.",
+                                f"Create a folder named {writepaths.LOG_DIR} here, or "
+                                "run: vrmod writepaths <Data> --logs --revert"))
+
+            if user_state == writepaths.UNPATCHED:
+                add(Finding(INFO, "Settings and records are stored outside this install",
+                            f"This build writes its user data to {wlive.get('user_data', '')} "
+                            "-- a path compiled into the engine, not derived from where "
+                            "the game lives. Two consequences: every install on this "
+                            "machine shares ONE options.cfg, so a setting changed while "
+                            "testing one build is still set when you run another; and "
+                            "deleting an install resets nothing, because the settings, "
+                            "lap records and ghosts were never in it. The 1.1 release "
+                            "made this relative; this build predates that.",
+                            "Move it into the install with: vrmod writepaths <Data> "
+                            "--userdir (reversible; existing settings, records and "
+                            "ghosts are copied across).",
+                            action="wp_userdir"))
+            elif user_state == writepaths.PATCHED:
+                add(Finding(OK, "Settings and records are stored with this install",
+                            f"User data goes to {wlive.get('user_data', '')} beside the "
+                            "game, so this install has its own settings, lap records and "
+                            "ghosts rather than sharing them with every other copy."))
+    except Exception as e:
+        add(Finding(INFO, "Could not read the write-path state", f"{type(e).__name__}: {e}"))
 
     # ---- resolution ------------------------------------------------------
     try:

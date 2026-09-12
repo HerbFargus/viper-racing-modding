@@ -46,7 +46,7 @@ import threading
 import webbrowser
 from pathlib import Path
 
-from . import aifield, archive, carshot, cf, doctor, envelope, grf, hornball, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch, headon, drawdistance
+from . import aifield, archive, carshot, cf, doctor, envelope, grf, hornball, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch, headon, drawdistance, writepaths
 
 _PAGE = r"""<!doctype html>
 <meta charset="utf-8"><title>Viper Racing -- Mod Manager</title>
@@ -422,7 +422,7 @@ async function loadHealth(){
       ${f.link ? `<div style="margin-top:5px"><a href="${esc(f.link)}" target="_blank"
         rel="noopener" style="color:var(--acc)">${esc(f.link)} &#8599;</a></div>` : ''}
       ${f.action ? `<div style="margin-top:7px"><button onclick="applyFix('${f.action}')"
-        >${({vram:'Apply startup fix',dpi:'Set DPI-aware',patch:'Apply enhancements',drivers:'Empty drivers.res'})[f.action]
+        >${({vram:'Apply startup fix',dpi:'Set DPI-aware',patch:'Apply enhancements',drivers:'Empty drivers.res',wp_logs:'Keep logs here',wp_userdir:'Keep settings here'})[f.action]
           || 'Apply this fix'}</button></div>` : ''}
     </div>`).join('');
 }
@@ -1035,7 +1035,7 @@ async function renderGame(){
    </div>`;
   })();
 
-  const fixBtn = {vram:'Apply', dpi:'Set DPI-aware', patch:'Apply'};
+  const fixBtn = {vram:'Apply', dpi:'Set DPI-aware', patch:'Apply', wp_logs:'Keep logs here', wp_userdir:'Keep settings here'};
   const fixes = `
    <div class="panel">
      <div class="panel-head"><h2>Compatibility &amp; fixes</h2>
@@ -1485,6 +1485,19 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                                        "message": f"Applied the patch set ({steps}). "
                                                   "Rebuildable from the snapshot; revert with "
                                                   "vrmod patch --revert."})
+                if action in ("wp_logs", "wp_userdir"):
+                    kind = (writepaths.LOGS_KIND if action == "wp_logs"
+                            else writepaths.USER_DIR_KIND)
+                    rep = writepaths.apply(d, kind)
+                    n = sum(len(v) for v in rep["changed"].values())
+                    extra = (f", copied {len(rep['migrated'])} existing file(s) across"
+                             if rep["migrated"] else "")
+                    return self._json({"ok": True,
+                                       "message": f"{n} path(s) made relative; "
+                                                  f"{Path(rep['folder']).name}\\ created"
+                                                  f"{extra}. Launch the game from its "
+                                                  "own folder -- relative paths resolve "
+                                                  "against the working directory."})
                 if action == "drivers":
                     _, backup = doctor.empty_drivers_res(d)
                     where = f" (original saved as {backup.name})" if backup else ""

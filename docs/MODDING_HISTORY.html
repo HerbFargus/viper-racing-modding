@@ -416,6 +416,31 @@
       <p><strong>Re-Volt topping the list is the surprise</strong>, and it makes sense once you see why: it is a radio-control racer, so its cars are small, low-poly, cleanly UV-mapped meshes &mdash; far easier to bring into a 1998 engine with tight vertex limits than a modern high-detail model. The conversions credit the original Re-Volt car authors by name, not just the game.</p>
       <blockquote><strong>The chain was long.</strong> A typical car passed from its origin game, through Zmodeler 1.07 for the mesh, <span class="mono">vrl2wrl</span> or a hand conversion for the format, <span class="mono">tga2tex</span> for the textures, and <span class="mono">cf2txt</span> for the physics &mdash; every step a separate command-line tool.</blockquote>
 
+      <h3>How good were the models, actually?</h3>
+      <p>The VRgt team ran to a higher standard than the open community, and it shows in the binaries. Measured across <strong>1,792 cars</strong> &mdash; every car in this archive &mdash; reading body vertex counts, material splits and texture counts straight out of each <span class="mono">&lt;prefix&gt;0.mod</span>. VRgt-authored cars are excluded from the community column so they don't inflate the baseline they're being compared against:</p>
+      <div class="tablewrap"><table>
+        <thead><tr><th></th><th>Retail (MGI)</th><th>VRgt</th><th>Community</th></tr></thead>
+        <tbody>
+          <tr><td>cars measured</td><td>5</td><td>81</td><td>1,706</td></tr>
+          <tr><td>body vertices (median)</td><td>199</td><td><strong>3,361</strong></td><td>1,130</td></tr>
+          <tr><td>faces</td><td>197</td><td><strong>3,444</strong></td><td>1,066</td></tr>
+          <tr><td>materials</td><td>6</td><td><strong>10</strong></td><td>5</td></tr>
+          <tr><td>textures</td><td>1</td><td><strong>24</strong></td><td>15</td></tr>
+        </tbody>
+      </table></div>
+      <p>Three times the geometry, twice the material splits, and over half again the texture work. 90% of VRgt cars clear 2,000 vertices against 23% of community cars, and their heaviest &mdash; the <em>Edo Competition Enzo</em> at <strong>13,536 vertices</strong> &mdash; is 68&times; the body of the retail Viper it parks next to.</p>
+      <p><strong>The ranking inverts on LOD discipline, though.</strong> A car ships <span class="mono">&lt;prefix&gt;1.mod</span> through <span class="mono">&lt;prefix&gt;7.mod</span> as progressively cheaper stand-ins for distance, roster shots and traffic. Counting a level as real only when it is <em>actually decimated</em> &mdash; bytes that merely differ prove nothing, since some cars ship LOD1&ndash;7 at equal or higher detail:</p>
+      <div class="tablewrap"><table>
+        <thead><tr><th></th><th>Levels truly decimated</th><th>Cars with any real LOD</th><th>LOD7 vs LOD0</th></tr></thead>
+        <tbody>
+          <tr><td>retail (MGI)</td><td>5.60</td><td>100%</td><td><strong>11%</strong></td></tr>
+          <tr><td>VRgt</td><td>2.41</td><td>53%</td><td>76%</td></tr>
+          <tr><td>community</td><td>0.06</td><td><strong>1.3%</strong></td><td>99%</td></tr>
+        </tbody>
+      </table></div>
+      <p>MGI built a genuine ladder &mdash; <span class="mono">viper.car</span> steps 325 &rarr; 299 &rarr; 221 &rarr; 186 &rarr; 122 &rarr; 79 &rarr; 48 &rarr; 26 vertices. The community ships the full seven-level chain as <em>copies of LOD0</em>: <span class="mono">ks360.rar</span> is 9,268 vertices replicated eight times, so it renders at full detail at every distance and the chain buys nothing at all. VRgt did roughly half the work &mdash; just over half their cars reduce at all, and even those only reach 76% of LOD0 by the last level.</p>
+      <p>So the fair summary is that VRgt modelled better and were the only group besides MGI doing <em>any</em> optimisation, but they built three times the geometry while only partly paying for it. A grid of VRgt cars costs far more than anything MGI shipped &mdash; which is the pressure behind the community <span class="mono">race.bin</span> builds raising the vertex budget to 20k.</p>
+      <p>One incidental result of the sweep: <strong>not one of the 1,792 cars ships its own <span class="mono">cockpit.mod</span></strong>. Every car in the scene, VRgt included, puts the driver behind the Viper's dashboard &mdash; the per-car cockpit override the engine supports was never once used.</p>
       <h3>Engine patches &amp; <span class="mono">race.bin</span> versions</h3>
 
       <p>Every modern install runs a community-patched <code>race.bin</code> (the game engine). The version shows in-game at the <strong>Options screen, bottom-right</strong>, and is stored as a plain string inside <code>race.bin</code> itself (near offset <code>0x0D37FD</code>).</p>

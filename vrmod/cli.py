@@ -12,7 +12,7 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from . import aifield, archive, aspectfix, bpp as bppmod, car, carshot, catalog as catalog_mod, cf, cockpit_tab, doctor, envelope, hornball, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon, drawdistance, surface
+from . import aifield, archive, aspectfix, bpp as bppmod, car, carshot, catalog as catalog_mod, cf, cockpit_tab, doctor, envelope, hornball, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon, drawdistance, surface, writepaths
 
 COMMIT_PATH = "/__vrmod_commit__"
 
@@ -773,6 +773,25 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_vram.add_argument("data_dir", type=Path, help="the game's Data folder")
     p_vram.add_argument("--revert", action="store_true", help="put the original instruction back")
+
+    p_wp = sub.add_parser(
+        "writepaths",
+        help="Stop the game writing outside its own folder: logs to the root of C:, "
+             "and (on the 1.0 pressing) settings and lap records to a hardcoded "
+             "C:\\Program Files\\MGI\\Viper98\\",
+    )
+    p_wp.add_argument("data_dir", type=Path, help="the game's Data folder")
+    p_wp.add_argument("--logs", action="store_true",
+                      help="make the log paths relative (log\\ beside the game). "
+                           "Applies to every build -- nobody ever fixed these")
+    p_wp.add_argument("--userdir", action="store_true",
+                      help="make the user directory relative (Config\\ beside the game), "
+                           "so this install keeps its own settings, records and ghosts. "
+                           "1.0 only; later builds are already relative")
+    p_wp.add_argument("--no-migrate", action="store_true",
+                      help="with --userdir, do NOT copy the existing settings, lap "
+                           "records and ghosts into the new folder")
+    p_wp.add_argument("--revert", action="store_true", help="put the absolute paths back")
 
     p_res = sub.add_parser(
         "resolution",
@@ -1548,6 +1567,40 @@ def main(argv: list[str] | None = None) -> int:
             print("  original backed up as race.bin.vram-backup")
             print("  This is the STARTUP fix only. The community race.bin (v1.2.5) also")
             print("  raises the polygon and vertex limits, which high-detail mods need.")
+    elif args.command == "writepaths":
+        kinds = ([writepaths.LOGS_KIND] if args.logs else []) + \
+                ([writepaths.USER_DIR_KIND] if args.userdir else [])
+        if not kinds:
+            st = writepaths.status(args.data_dir)
+            w = writepaths.where(args.data_dir)
+            print(f"  live binary: {w.get('binary', '?')}")
+            print(f"  logs      -> {w.get('logs', '?')}")
+            print(f"  user data -> {w.get('user_data', '?')}")
+            for name, kk in st.items():
+                print(f"  {name:12} logs={kk['logs']}  userdir={kk['userdir']}")
+            print("\n  Pass --logs and/or --userdir to change them, --revert to undo.")
+        for kind in kinds:
+            if args.revert:
+                out = writepaths.revert(args.data_dir, kind)
+                for name, restored in out.items():
+                    print(f"  {name}: restored {len(restored)} absolute path(s)")
+                if not out:
+                    print(f"  {kind}: not patched -- nothing to undo")
+                continue
+            rep = writepaths.apply(args.data_dir, kind,
+                                   migrate=not args.no_migrate)
+            if not rep["changed"]:
+                print(f"  {kind}: already relative, or not present in this build")
+            for name, pairs in rep["changed"].items():
+                print(f"  {name}: {len(pairs)} path(s) made relative")
+                for old, new in pairs:
+                    print(f"      {old}  ->  {new}")
+            print(f"  folder ready: {rep['folder']}")
+            if rep["migrated"]:
+                print(f"  copied across: {', '.join(rep['migrated'])}")
+            print("  NOTE: a relative path resolves against the working directory the "
+                  "game is\n        STARTED from, not where the .exe lives. Launch it "
+                  "from its own folder.")
     elif args.command == "resolution":
         if args.set:
             idx = int(args.set[0])

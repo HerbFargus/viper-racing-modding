@@ -353,12 +353,48 @@ as verified switches.
 Software\Sierra On-Line\Viper Racing      ← registry key
   DataDirectory                            ← values
   CDDirectory
-MGI\Viper98\
 Data\        \Data        %sdata\%s        common.res
 "Can't find data directory--Game may not be installed"
 ```
 
 `common.res` is the file it checks to decide a directory really is the data directory.
+
+### The user directory is a HARDCODED absolute path ✅ CONFIRMED (string + observed on disk)
+
+`MGI\Viper98\` sits next to those registry names in the string table, which makes it
+look like another place the game *searches*. It is not. It is where the game **writes**,
+and the binary carries the whole path as a literal:
+
+```
+C:\Program Files\MGI\Viper98\   |   Config Dir: %s
+```
+
+Not derived from the registry, not relative to the install, not affected by where you
+put the game. `Win32GetUserDirectory` and `get_user_directory` are the functions behind
+it (both named in the RC symbol map), and `Long User Directory (%d), I am scared.` is
+the length guard.
+
+**Observed in that folder after playing a v1.0 install kept elsewhere entirely:**
+
+| file | what it is |
+|---|---|
+| `options.cfg` | the live settings — `realism`, `opponent_strength`, controls, video mode |
+| `options.def` | the shipped defaults, copied here |
+| `bemidji.sco` | the per-track score/record file (`RecordMgr`, `RecordFile`; `SCO file !exists or !legit; creating empty one`) |
+| `ghostcar\` | saved ghost laps (`GhostBegin()`, `Ghost::submit`) |
+| `paint0.tex` … `paint8.tex`, `exotic.tex`, `sedan.tex`, `sports.tex` | the runtime paint slots |
+
+Three consequences worth knowing before testing anything:
+
+- **Settings do not live with the install.** Two installs on the same machine share one
+  `options.cfg`, so a setting changed while testing one build is still set when you run
+  the other. Comparing builds means checking this folder, not the install folder.
+- **Deleting and rebuilding an install does not reset anything.** A "clean" tree still
+  starts with the previous run's settings, records and ghosts.
+- **The registry key is a red herring for this.** `DataDirectory` and `CDDirectory`
+  under `Software\Sierra On-Line\Viper Racing` are read by the launcher to find the
+  *data*; they have nothing to do with the user directory, and setting them does not
+  move it.
 
 ### It chooses between two engine modules ✅
 
@@ -376,16 +412,27 @@ Stored adjacent, in that order. So the retail launcher will load an engine modul
 > and be warned that a string search for `-DEBUG` hits the tail of `NON-DEBUG` in the
 > build banners, which is a false positive, not a discovery.
 
-### Single instance, and a "Canary" ⚪
+### Single instance, and a "Canary" ✅ CONFIRMED (symbol name + failure string)
 
 ```
 MGI Viper Racing 1998            MGI Viper Racing 1998 Canary
 Viper Racing Window
 ```
 
-Two instance names differing only by the suffix, alongside the `-nocanary` flag. Purpose
-unknown; the pairing suggests an alternate build or mode the launcher can be told to
-skip.
+Two named kernel objects differing only by the suffix. The canary is the launcher's
+**tether to the engine, and it is the game's copy protection**: the launcher checks
+the CD, creates the named semaphore, and spawns the engine, which refuses to run
+unless that name already exists. The full mechanism — the `CreateSemaphoreA` call
+site, the required `ERROR_ALREADY_EXISTS`, and what `-nocanary` actually does — is
+documented once in **`VIPER_RACING_FILE_FORMATS.md` §5.2.5**; it is not repeated here.
+
+One detail belongs to this section, because it explains the second binary on the
+first disc. The function is named in the RC's own symbol map —
+`check_for_canary_launch`, at `0x004123a0` — but the failure message
+`"Sneaky user!  Where is my canary!"` sits in both `race.bin`s and in **neither**
+v1.0 `race.exe`. On v1.0 *you* start the engine directly: there is no launcher to
+have left a canary, so the build that ships as the game has no such check to fail.
+See "v1.0 has no launcher at all" below.
 
 ### Everything it refuses to run on ✅
 
@@ -462,9 +509,79 @@ v1.1  launcher        no banner
 The compiled program stamps itself, and in v1.0 that is the `.exe`. Both were built with
 **MSVC 4.0**, a 1995 compiler. `Oct 21 1998` matches the v1.0 disc readme date exactly.
 
-> **Open question, and it decides which retail build is the right test baseline.** Does
-> a v1.0 install use `race.bin` at all? Against: its only launcher never mentions a
-> `.bin`. For: `race.exe` carries **no version string** while `race.bin` carries
-> `"v1.0"`, and the Options screen displays a version — so if a v1.0 install shows
-> `v1.0` bottom-right, `race.bin` must be live. Neither `race.bin` is a DLL and neither
-> exports anything, so whatever loads it is not `LoadLibrary`.
+#### Does a v1.0 install use `race.bin` at all? ✅ RESOLVED — no, nothing can load it
+
+This mattered because it decides which retail build is the right test baseline. The
+answer is that `race.exe` is live and `race.bin` is **unreachable**: present on disk,
+named by nothing, loaded by no code path.
+
+| | finding |
+|---|---|
+| Game executables on the v1.0 disc | exactly one, `Data\race.exe`. No `Viper Racing.exe` anywhere on it |
+| `autoplay.exe` at the disc root | the autorun shell — references `setup.exe`, and neither `race.exe` nor `race.bin` |
+| Occurrences of the string `race.bin` in v1.0 `race.exe` | **0** |
+| Occurrences anywhere in a v1.0 install | **0** — only the v1.1 launcher ever names it |
+| Patching each and launching | changing `race.exe` changes behaviour; changing `race.bin` changes nothing |
+
+The "For" argument above is now settled in the opposite direction. `race.exe` carries
+no version string, but it does carry `"Release Candidate 1:  CONFIDENTIAL"` — and that
+is exactly what a v1.0 install prints on its title screen. That string exists **only**
+in `race.exe`, so the running binary identifies itself. The Options screen shows no
+version at all, which is consistent: the build that is live has none to show.
+
+#### So why is there a second engine on the first disc?
+
+Because it is the same engine built for the *other* architecture — the one that
+arrives in v1.1. All three binaries are one program:
+
+Percentages read **row into column**: what share of *this* file's strings also appear
+in *that* one.
+
+| | distinct strings | → found in `race.exe` | → found in v1.1 `race.bin` |
+|---|---:|---:|---:|
+| v1.0 `race.exe` | 18,484 | — | 25.1% |
+| v1.0 `race.bin` | 4,928 | **95.3%** | **94.9%** |
+| v1.1 `race.bin` | 4,960 | 93.5% | — |
+
+The relationship is **containment, not symmetry**: each `.bin`'s strings are almost
+entirely a subset of `race.exe`'s, while only a quarter of `race.exe`'s are found in a
+`.bin`. That asymmetry is the whole story — `race.exe` is the same engine *plus*
+13,784 strings nothing else has: the embedded linker map
+(`Address  Publics by Value  Rva+Base  Lib:Object`) and debug formatters
+(`CHAR %d`, `CSTR "%s"`, `FLOAT %f`). That is the Release Candidate instrumentation,
+and it is why the crash handler can name its own functions (§4).
+
+Add the canary asymmetry — `"Sneaky user!"` present in `race.bin`, absent from
+`race.exe` — and the shape is clear. The v1.0 disc carries **two builds of one
+engine**: the debug-instrumented one it actually runs, and a clean, launcher-partnered
+`race.bin` with no launcher on the disc to partner it. v1.1 is where that second
+architecture ships for real.
+
+Which sharpens what the RC discovery actually means: MGI did not merely ship a
+debug build by accident, they shipped it **instead of** the clean release build
+sitting in the same folder.
+
+#### The AI names prove it from the other end ✅ OBSERVED IN GAME
+
+A v1.0 install fields opponents called **`E-1`, `E-2`, `E-3`…** where the release
+gives them proper names. That is visible without any tooling, and it is the RC
+build showing through.
+
+Every binary carries the same opening roster — `Frank`, `Charles`, `Radar`, `Jerry`,
+`Elaine`, `Kramer`, `George`, then `Taro`, `Miyuki`, `Shoichiro`, `Kenji`, `Takeshi`
+and the rest, then `Mr. C1`–`Mr. C5`. What follows differs:
+
+| build | after `Mr. C5` | tier placeholders present |
+|---|---|---:|
+| v1.0 `race.exe` — the RC, and what you run | `E-1 … E-16`, `I-1 … I-16`, `H-1 … H-16`, `C1-1 …` | **112 / 112** |
+| v1.0 `race.bin` — dormant | `Easy`, `Intermediate`, `Hard` | **0** |
+| v1.2.5 / v1.2.6 community (1.1 lineage) | `Easy`, `Intermediate`, `Hard` | **0** |
+
+The prefixes are the difficulty and career tiers — **E**asy, **I**ntermediate,
+**H**ard, **C1**–**C4** — matching `easy.res`, `medium.res`, `hard.res` and
+`career1.res`–`career4.res`. So the RC shipped with an unfilled name slot per driver
+per tier, 112 of them, and the release build has no such block at all.
+
+This is independent of the string-table and canary evidence above, and it points the
+same way: the `race.bin` sitting unused on the v1.0 disc is the **finished** build,
+and the one the disc actually runs is the unfinished one.
