@@ -172,6 +172,57 @@ def main() -> int:
         check("  ...and it still carries a hash, so it can be identified",
               len(i3.sha256) == 64)
 
+        print("\njoining the corpus to a rendered asset\n")
+
+        manifest = {"items": [
+            {"path": "valscars/0cop.rar", "sha256": "a" * 64,
+             "collection": "valscars", "filename": "0cop.rar", "author": "Val",
+             "author_raw": "VAL IN MOOSE JAW", "title": None,
+             "dated": "DEC 28 2004", "converted_from": "NFS4",
+             "readme_name": "0cop.txt", "cars": ["0cop.car"], "tracks": []},
+            {"path": "valscars/retex.rar", "sha256": "b" * 64,
+             "collection": "valscars", "filename": "retex.rar",
+             "author": "Somebody Else", "author_raw": "Somebody Else",
+             "title": None, "dated": None, "converted_from": None,
+             "readme_name": None, "cars": ["viper.car"], "tracks": []},
+            {"path": "otherscars/retex2.zip", "sha256": "c" * 64,
+             "collection": "otherscars", "filename": "retex2.zip",
+             "author": "Third Party", "author_raw": "Third Party", "title": None,
+             "dated": None, "converted_from": None, "readme_name": None,
+             "cars": ["viper.car"], "tracks": ["nfield.trk"]},
+        ]}
+        idx = carpack.provenance_index(manifest)
+        check("the index covers cars and tracks alike",
+              set(idx) == {"0cop.car", "viper.car", "nfield.trk"}, str(sorted(idx)))
+
+        got = carpack.provenance_for(idx, "0cop.car")
+        check("an asset in exactly one pack gets its provenance",
+              got and got["author"] == "Val" and got["dated"] == "DEC 28 2004")
+        check("  ...including which pack, by path and hash",
+              got and got["path"] == "valscars/0cop.rar" and got["sha256"] == "a" * 64)
+
+        # The real reason this must not guess: viper.car ships inside 31 packs
+        # in the actual collection, because retexture packs carry the stock car.
+        check("an asset several packs ship is NOT attributed to one of them",
+              carpack.provenance_for(idx, "viper.car") is None)
+        check("  ...though the index still lists every pack that has it",
+              len(idx["viper.car"]) == 2)
+        check("an unknown asset is simply unknown",
+              carpack.provenance_for(idx, "nothing.car") is None)
+        check("a full path joins on the basename",
+              (carpack.provenance_for(idx, "some/dir/0cop.car") or {}).get("author")
+              == "Val")
+        check("the join is case-insensitive",
+              (carpack.provenance_for(idx, "0COP.CAR") or {}).get("author") == "Val")
+
+        bad = tmp / "notmanifest.json"
+        bad.write_text('{"nope": 1}', encoding="utf-8")
+        try:
+            carpack.load_manifest(bad)
+            check("a file that is not a manifest is refused", False)
+        except carpack.CarPackError:
+            check("a file that is not a manifest is refused", True)
+
         print("\nthe .rar path\n")
         real = Path(sys.argv[1]) if len(sys.argv) > 1 else None
         if real is None:

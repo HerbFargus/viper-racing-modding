@@ -33,6 +33,7 @@ the people named are credited nowhere else. Attribution is extracted and stored.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -312,3 +313,59 @@ def describe(path: str | Path, *, collection: str = "",
         info.readme, info.emails_redacted = redact_emails(text, keep_domains)
         break
     return info
+
+
+# ---------------------------------------------------------------------------
+# Joining the corpus index to a rendered asset.
+#
+# Two catalogues describe these mods and neither is redundant:
+#
+#   the corpus index (this module)  -- every ARCHIVE: hash, author, date, which
+#                                      game it was converted from, the readme.
+#                                      Provenance. Covers all 2,035 packs.
+#   the gallery manifest            -- every extracted ASSET: its garage name and
+#                                      spec, parts, vertex count, texture
+#                                      portability, a baked thumbnail. What the
+#                                      thing IS. Covers what has been curated.
+#
+# The join is the asset's filename, which the corpus records for every pack. On
+# the real collection 93% of asset names are claimed by exactly one pack, so the
+# gallery can inherit a person and a date for most of what it shows.
+#
+# The other 7% are not corruption -- they are retexture and add-on packs
+# shipping the STOCK file alongside their own: viper.car appears in 31 packs,
+# nfield.trk in 7. `provenance_for` returns nothing for an ambiguous name rather
+# than picking one, because picking would credit MGI's own car to whoever last
+# repacked it.
+
+def load_manifest(path: str | Path) -> dict:
+    """Read a manifest written by scripts/index_carpacks.py."""
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if "items" not in data:
+        raise CarPackError(f"{path} is not a carpack manifest (no 'items')")
+    return data
+
+
+_PROVENANCE_FIELDS = ("path", "sha256", "collection", "filename", "author",
+                      "author_raw", "title", "dated", "converted_from",
+                      "readme_name")
+
+
+def provenance_index(manifest: dict) -> dict[str, list[dict]]:
+    """asset filename (lowercased) -> the pack(s) shipping it."""
+    out: dict[str, list[dict]] = {}
+    for item in manifest.get("items", ()):
+        summary = {k: item.get(k) for k in _PROVENANCE_FIELDS}
+        for name in list(item.get("cars") or ()) + list(item.get("tracks") or ()):
+            key = name.replace("\\", "/").split("/")[-1].lower()
+            out.setdefault(key, []).append(summary)
+    return out
+
+
+def provenance_for(index: dict[str, list[dict]], filename: str) -> dict | None:
+    """The pack an asset came from, only when exactly one pack claims it.
+
+    Ambiguity returns None on purpose -- see the note above.
+    """
+    packs = index.get(Path(filename).name.lower(), ())
+    return dict(packs[0]) if len(packs) == 1 else None
