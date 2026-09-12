@@ -57,6 +57,8 @@ import re
 import shutil
 from pathlib import Path
 
+from . import safewrite
+
 # Engine binaries, LIVE ONE FIRST -- see "TWO LAYOUTS" above. Order is load-bearing:
 # status() reports on the live binary, and apply() returns its offset.
 TARGETS = ("race.exe", "race.bin")
@@ -143,7 +145,7 @@ def _patch_file(f: Path) -> int | None:
     backup = f.with_suffix(f.suffix + ".vram-backup")
     if not backup.exists():
         shutil.copy2(f, backup)
-    f.write_bytes(bytes(blob))
+    safewrite.write_atomic(f, bytes(blob))
     return at
 
 
@@ -198,7 +200,7 @@ def revert(data_dir: str | Path) -> int:
                 raise PatchError("the patch site does not hold this patch")
             continue
         blob[at:at + len(VRAM_ADD)] = VRAM_ADD
-        f.write_bytes(bytes(blob))
+        safewrite.write_atomic(f, bytes(blob))
         if f is files[0]:
             live_at = at
     return live_at

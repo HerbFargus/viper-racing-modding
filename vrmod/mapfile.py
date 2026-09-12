@@ -41,6 +41,8 @@ import struct
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import safewrite
+
 RACE_BIN = "race.bin"
 TEXT_SECTION = 1                 # .text is section 1 in every build seen
 END_MARKER = "FIXUPS"            # the handler stops parsing here
@@ -201,7 +203,7 @@ def install(data_dir: str | Path) -> tuple[int, int]:
     backup = f.with_suffix(f.suffix + ".map-backup")
     if not backup.exists():
         shutil.copy2(f, backup)
-    f.write_bytes(blob + text.encode("ascii"))
+    safewrite.write_atomic(f, blob + text.encode("ascii"))
     return text.count("\n 0001:"), len(text)
 
 
@@ -223,7 +225,7 @@ def remove(data_dir: str | Path) -> int:
         raise MapError(
             f"{f.name} carries {trailing:,} bytes of a map this tool did not "
             "append -- it shipped that way. Refusing to truncate it.")
-    f.write_bytes(blob[:lay.image_end])
+    safewrite.write_atomic(f, blob[:lay.image_end])
     return trailing
 
 

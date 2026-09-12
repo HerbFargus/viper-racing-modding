@@ -95,6 +95,8 @@ import shutil
 import struct
 from pathlib import Path
 
+from . import safewrite
+
 RACE_BIN = "race.bin"
 TABLE_ENTRIES = 0x400            # 4096-byte table / 4 bytes per scanline
 
@@ -314,7 +316,7 @@ def apply(data_dir: str | Path, entries: int = TABLE_ENTRIES) -> dict[str, str]:
 
     if len(blob) != backup.stat().st_size and not backup.exists():
         raise NeedleFixError("internal error: patch changed the file size")
-    f.write_bytes(bytes(blob))
+    safewrite.write_atomic(f, bytes(blob))
     return done
 
 

@@ -115,6 +115,8 @@ import shutil
 import struct
 from pathlib import Path
 
+from . import safewrite
+
 RACE_BIN = "race.bin"
 
 # The vertical half-field the ORIGINAL race view has. Not the screen's 0.75 --
@@ -297,5 +299,5 @@ def apply(data_dir: str | Path, ratio: float = RATIO_ORIGINAL) -> tuple[int, int
     backup = f.with_suffix(f.suffix + ".aspect-backup")
     if not backup.exists():
         shutil.copy2(f, backup)
-    f.write_bytes(bytes(blob))
+    safewrite.write_atomic(f, bytes(blob))
     return at, r0_va, half_va

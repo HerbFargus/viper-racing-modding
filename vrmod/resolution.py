@@ -68,6 +68,8 @@ import struct
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import safewrite
+
 RACE_BIN = "race.bin"
 SLOT = 12                    # bytes per label, including the NUL padding
 MODES = 4
@@ -322,7 +324,7 @@ def set_mode(data_dir: str | Path, index: int, width: int, height: int,
     backup = f.with_suffix(f.suffix + ".res-backup")
     if not backup.exists():
         shutil.copy2(f, backup)
-    f.write_bytes(bytes(blob))
+    safewrite.write_atomic(f, bytes(blob))
     return old_w, old_h
 
 

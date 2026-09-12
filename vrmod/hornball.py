@@ -45,6 +45,8 @@ import struct
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import safewrite
+
 RACE_BIN = "race.bin"
 IMAGE_BASE = 0x400000
 
@@ -145,7 +147,7 @@ def apply(data_dir: str | Path, *, speed_mult: float | None = None,
     if cooldown is not None:
         c = max(COOLDOWN_MIN, min(COOLDOWN_MAX, float(cooldown)))
         struct.pack_into("<f", blob, co, c)
-    f.write_bytes(blob)
+    safewrite.write_atomic(f, blob)
     return _tuning(blob)
 
 

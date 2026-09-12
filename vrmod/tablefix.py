@@ -64,6 +64,8 @@ import shutil
 import struct
 from pathlib import Path
 
+from . import safewrite
+
 RACE_BIN = "race.bin"
 
 OLD_FRAME, NEW_FRAME = 0x2000, 0x4000
@@ -200,7 +202,7 @@ def apply(data_dir: str | Path) -> dict[str, object]:
     backup = f.with_suffix(f.suffix + ".table-backup")
     if not backup.exists():
         shutil.copy2(f, backup)
-    f.write_bytes(bytes(blob))
+    safewrite.write_atomic(f, bytes(blob))
     return {"result": "patched", "at": start, "bytes": len(body),
             "table_b_refs": moved["table_b"], "arg_refs": moved["args"],
             "entries": 0x800}
