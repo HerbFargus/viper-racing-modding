@@ -402,12 +402,19 @@
         <tbody>
           <tr><td>1.0</td><td>(retail, first pressing)</td><td>engine is <code>race.exe</code>, built <strong>Oct 21 1998 08:49:56</strong>. A <strong>release candidate</strong> &mdash; see below</td></tr>
           <tr><td>1.1</td><td><code>viper11.zip</code> <strong>and</strong> a retail repressing</td><td>both exist. The second pressing's engine is <code>race.bin</code>, built <strong>Jan 25 1999 11:47:39</strong>, readme dated 8 Feb 1999. Whether the downloadable patch performs the same <code>race.exe</code> &rarr; <code>race.bin</code> transition is <strong>untested</strong></td></tr>
-          <tr><td>1.2 beta</td><td><code>viperpatch12beta.zip</code></td><td>hosted on mgiracing.com. <strong>Lost</strong> &mdash; every Wayback capture 404s</td></tr>
+          <tr><td>1.2 beta</td><td><code>viperpatch12beta.zip</code></td><td><strong>probably never a distinct release</strong> &mdash; see below. The URL is indexed but was never observed serving a file</td></tr>
           <tr><td>1.2.1 beta</td><td><code>viperpatch121beta.zip</code></td><td>Windows 2000 support, multiple controllers, an XP sound tweak. The <strong>last patch MGI distributed themselves</strong></td></tr>
           <tr><td>1.2.3 beta</td><td><code>Patch_1.2.3(Beta).zip</code></td><td>built by <strong>Dave Broske (MGI)</strong> for the VRgt team and released by <em>them</em>, not by MGI. Every community build is hex-edited from this binary</td></tr>
         </tbody>
       </table></div>
-      <p>Monster Games' own server only ever hosted <strong>five</strong> downloads: those two Viper patches, two NASCAR&nbsp;Heat patches and a Heat changelog. <strong>No official car or track ever existed.</strong></p>
+      <p>Monster Games' own server only ever hosted a handful of downloads: the Viper patches, two NASCAR&nbsp;Heat patches and a Heat changelog. <strong>No official car or track ever existed.</strong></p>
+      <h4>Is there a 1.2 beta at all?</h4>
+      <p>Probably not, and it is worth writing down so nobody spends another decade looking. <code>viperpatch12beta.zip</code> appears in the Wayback index, which is why it gets cited as a lost release &mdash; but a URL enters that index when a crawler <strong>follows a link</strong> to it. Being indexed is not evidence it ever served anything. Its capture history is one line:</p>
+      <pre><code>viperpatch12beta.zip    2021-01-26   404          &lt;- the only capture, ever
+viperpatch121beta.zip   2005 404 · 2006 200 · 2007 200 · 2021 404</code></pre>
+      <p>The 1.2.1 was retrieved successfully twice, in 2006 and 2007, with the same content digest both times. The 1.2 was <strong>never</strong> seen served, in any capture, by anyone.</p>
+      <p>Two further things point the same way. A June 2002 thread on NTCompatible has someone hunting specifically for &ldquo;the Viper Racing 1.2 Beta patch&rdquo; for days &mdash; and what he eventually finds, quotes the readme of, and declares fixed is <strong><code>viper121beta.zip</code></strong>. Nobody in the thread produces a 1.2. And of the ten distinct <code>race.bin</code> builds catalogued for this project, <strong>none carries a <code>v1.2</code> stamp</strong>.</p>
+      <blockquote>The likeliest reading is that &ldquo;1.2 beta&rdquo; is simply how people referred to the 1.2.1 beta, or that a 1.2 existed so briefly it was replaced before anyone archived it. Either way, the patch everyone has been hunting for is the one already in hand.</blockquote>
       <h4>What 1.1 actually fixed &mdash; from the patch's own readme</h4>
       <p>The official patch survives as <code>viper11.zip</code> &rarr; <strong><code>viper11.exe</code>, 988,905 bytes, dated 26 February 1999</strong>. It is a <strong>16-bit NE executable</strong> (a Wise &ldquo;Sierra Patch Installation&rdquo;), with two consequences worth knowing: archivers cannot open it, and <strong>it will not run on 64-bit Windows</strong>. Its payload has to be recovered by other means.</p>
       <p>Inside is <code>race.res</code> <strong>byte-identical to the second pressing's</strong>, and a readme dated <strong>19 January 1999</strong> listing the fixes in MGI's own words:</p>

@@ -143,12 +143,39 @@ stored as a plain string inside `race.bin` itself (near offset `0x0D37FD` — e.
 |---|---|---|
 | 1.0 | (retail, first pressing) | engine is `race.exe`, built **Oct 21 1998 08:49:56**. A **release candidate** — see below |
 | 1.1 | `viper11.zip` **and** a retail repressing | both exist. The second pressing's engine is `race.bin`, built **Jan 25 1999 11:47:39**, readme dated 8 Feb 1999. Whether the downloadable patch performs the same `race.exe` → `race.bin` transition is **untested** |
-| 1.2 beta | `viperpatch12beta.zip` | hosted on mgiracing.com. **Lost** — every Wayback capture 404s |
+| 1.2 beta | `viperpatch12beta.zip` | **probably never a distinct release** — see below. The URL is indexed but was never observed serving a file |
 | 1.2.1 beta | `viperpatch121beta.zip` | Windows 2000 support, multiple controllers, an XP sound tweak. The **last patch MGI distributed themselves** |
 | 1.2.3 beta | `Patch_1.2.3(Beta).zip` | built by **Dave Broske (MGI)** for the VRgt team and released by *them*, not by MGI. Every community build is hex-edited from this binary |
 
-Monster Games' own server only ever hosted **five** downloads: those two Viper patches,
+Monster Games' own server only ever hosted a handful of downloads: the Viper patches,
 two NASCAR Heat patches and a Heat changelog. **No official car or track ever existed.**
+
+##### Is there a 1.2 beta at all?
+
+Probably not, and it is worth writing down so nobody spends another decade looking.
+
+`viperpatch12beta.zip` appears in the Wayback index, which is why it gets cited as a lost
+release. But a URL enters that index when a crawler **follows a link** to it — being
+indexed is not evidence it ever served anything. Its capture history is one line:
+
+```
+viperpatch12beta.zip    2021-01-26   404          <- the only capture, ever
+viperpatch121beta.zip   2005 404 · 2006 200 · 2007 200 · 2021 404
+```
+
+The 1.2.1 was retrieved successfully twice, in 2006 and 2007, with the same content
+digest both times. The 1.2 was **never** seen served, in any capture, by anyone.
+
+Two further things point the same way. A June 2002 thread on NTCompatible has someone
+hunting specifically for "the Viper Racing 1.2 Beta patch" for days, on a compatibility
+note's recommendation — and what he eventually finds, quotes the readme of, and declares
+fixed is **`viper121beta.zip`**. Nobody in the thread produces a 1.2. And of the ten
+distinct `race.bin` builds catalogued for this project, **none carries a `v1.2` stamp** —
+they run 1.0, 1.1, 1.2.1, 1.2.3, 1.2.4, 1.2.5.
+
+The likeliest reading is that "1.2 beta" is simply how people referred to the 1.2.1 beta,
+or that a 1.2 existed so briefly it was replaced before anyone archived it. Either way,
+the patch everyone has been hunting for is the one already in hand.
 
 #### What 1.1 actually fixed — from the patch's own readme
 
