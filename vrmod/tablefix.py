@@ -87,11 +87,21 @@ class TableFixError(RuntimeError):
     """The rasteriser is not in a shape this patch recognises."""
 
 
+# Engine binaries, live one first. The v1.0 pressing runs race.exe; growing the
+# tables in the race.bin sitting beside it changes a file nothing loads, and the
+# game still smashes its stack above row 1024. The rasteriser is the SAME 409-byte
+# function in all three builds -- same prologue, same 21 disp32 references, same
+# multiset -- so this is only a question of which file to open.
+ENGINE_NAMES = ("race.exe", RACE_BIN)
+
+
 def _race_bin(data_dir: str | Path) -> Path:
-    f = Path(data_dir) / RACE_BIN
-    if not f.is_file():
-        raise TableFixError(f"no {RACE_BIN} in {data_dir}")
-    return f
+    """The engine binary whose rasteriser the game actually runs."""
+    d = Path(data_dir)
+    for n in ENGINE_NAMES:
+        if (d / n).is_file():
+            return d / n
+    raise TableFixError(f"no {' or '.join(ENGINE_NAMES)} in {d}")
 
 
 def _refs(body: bytes) -> list[tuple[int, int]]:
@@ -126,8 +136,9 @@ def _locate(blob: bytes) -> tuple[int, int]:
 
 
 def status(data_dir: str | Path) -> str:
-    f = Path(data_dir) / RACE_BIN
-    if not f.is_file():
+    try:
+        f = _race_bin(data_dir)
+    except TableFixError:
         return MISSING
     blob = f.read_bytes()
     if len(_PROLOGUE.findall(blob)) == 1 and _EPILOGUE in blob:

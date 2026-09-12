@@ -161,11 +161,19 @@ class NeedleFixError(RuntimeError):
     """A patch site can't be found, or isn't in a state we recognise."""
 
 
+# Engine binaries, live one first. The v1.0 pressing runs race.exe, and raising
+# the rasteriser bounds in the race.bin beside it changes a file nothing loads.
+# The guard sites are found by pattern and those patterns match all three builds.
+ENGINE_NAMES = ("race.exe", RACE_BIN)
+
+
 def _race_bin(data_dir: str | Path) -> Path:
-    f = Path(data_dir) / RACE_BIN
-    if not f.is_file():
-        raise NeedleFixError(f"no {RACE_BIN} in {data_dir}")
-    return f
+    """The engine binary whose rasteriser the game actually runs."""
+    d = Path(data_dir)
+    for n in ENGINE_NAMES:
+        if (d / n).is_file():
+            return d / n
+    raise NeedleFixError(f"no {' or '.join(ENGINE_NAMES)} in {d}")
 
 
 def _sections(blob: bytes):
@@ -212,8 +220,9 @@ def _slack(blob: bytearray, size: int) -> tuple[int, int]:
 
 
 def status(data_dir: str | Path) -> str:
-    f = Path(data_dir) / RACE_BIN
-    if not f.is_file():
+    try:
+        f = _race_bin(data_dir)
+    except NeedleFixError:
         return MISSING
     blob = f.read_bytes()
     try:
