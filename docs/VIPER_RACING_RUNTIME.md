@@ -228,9 +228,18 @@ A deliberate handbrake spin, then — not an avoidance line that overshoots. The
 car stamps the handbrake, lifts, dumps the clutch and throws full lock.
 
 `vrmod headon --disable` writes a single `RET` at the function's entry, skipping
-all five. **Confirmed in game:** the panic stops and ordinary object avoidance
-continues — the first direct evidence that `headon_panic`, `passer` and
-`slow_interact` really are independent rather than one behaviour with thresholds.
+all five. **Confirmed in game on both retail pressings** — v1.1's `race.bin` and
+v1.0's `race.exe`: the panic stops and ordinary object avoidance continues. That
+is the first direct evidence that `headon_panic`, `passer` and `slow_interact`
+really are independent rather than one behaviour with thresholds, and the two
+pressings agreeing rules out the result being an artefact of one build.
+
+> The signature is found by scanning for the prologue, so it locates the site
+> correctly in any build. What it could not do until recently was choose the
+> right FILE: on a v1.0 install it opened the `race.bin` sitting beside
+> `race.exe`, which that pressing never loads, so the toggle reported success
+> and changed nothing. See the note on the horn ball below — the same class of
+> mistake, caught the same way.
 
 Worth knowing when placing obstacles: this is a **car-to-car** response. Static
 solids are handled elsewhere — `.sol` primitives reach the AI's own avoidance, so
@@ -279,6 +288,41 @@ string search and is not the thing: the threat chain at `0x40E81E` is the
 > in the AI struct and a scratch position vector in the physics code. A live
 > debugger with a breakpoint on steering writes, while driving oncoming, finds it
 > far faster.
+
+### The horn ball, and a warning about how patches get verified ✅ CONFIRMED IN GAME
+
+The HACKS tab's horn ball reads two floats out of the engine's `.rdata` — the
+velocity added to the ball (**31.111** stock) and the seconds enforced between
+throws (**2.0**). `vrmod hornball` retunes both, confirmed in game on the v1.0
+pressing: a 5× throw with a half-second cooldown behaves as asked.
+
+**It did not work before, and the way it failed is the point.** The constants are
+named by *virtual* address in the instructions that read them, and the code
+converted with `va - IMAGE_BASE`. That is the RVA, not the file offset —
+`.rdata`'s `PointerToRawData` sits `0xe00` below its `VirtualAddress` in
+`race.bin` and `0x1600` below in `race.exe` — so every read and write landed a
+few kilobytes past the real constants.
+
+Nothing failed. The target was still inside `.rdata`, so the write succeeded, and
+the read came back from the same wrong place:
+
+| | what the tool located | what the game reads |
+|---|---|---|
+| cooldown | 0.25 — as written | **2.0** — stock |
+| speed | 194.44 — as written | **31.111** — stock |
+
+A self-consistent round-trip, reporting tuning that was never in effect. It also
+overwrote whatever did live there: two unrelated `.rdata` floats, `20.0` and
+`4.0`.
+
+> **The general warning.** A patch that reads back its own write proves only that
+> it can find its own write. Three separate checks in this toolkit did exactly
+> that — this one, a DPI flag that read back the registry value it had just set,
+> and an audio check that confirmed a DLL's *filename* without noticing it was
+> the wrong architecture to load. All three reported success while the game
+> carried on unaffected. **Verify against what the game does, not against what
+> you wrote**; here that means asserting the STOCK value is gone from the site
+> the instruction points at.
 
 ---
 
