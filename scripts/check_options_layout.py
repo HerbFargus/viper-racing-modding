@@ -178,6 +178,27 @@ def main() -> int:
         check("a file with only the junk line reports no video mode",
               doctor.video_mode(d) is None)
 
+    print("\nthe CLI teaches the same numbering\n")
+
+    # `--set` takes a menu index, but the listing beside it used to print bare
+    # table positions 0-3, and the help text's own example was `--set 0`. So the
+    # tool documented an index that set_mode rejects. Pin the example to a value
+    # set_mode will actually accept.
+    import re as _re
+    import subprocess
+
+    out = subprocess.run(
+        [sys.executable, "-m", "vrmod.cli", "resolution", "--help"],
+        cwd=str(Path(__file__).resolve().parent.parent),
+        capture_output=True, text=True).stdout
+    examples = [int(x) for x in _re.findall(r"--set (\d+)", out)]
+    check("the --set help gives an example at all", bool(examples), str(examples))
+    check("every index the --set help suggests is one set_mode accepts",
+          all(1 <= e <= resolution.MODES and e != resolution.BOOT_GATE_INDEX
+              for e in examples),
+          f"suggests {examples}, valid is 1-{resolution.MODES} "
+          f"except {resolution.BOOT_GATE_INDEX}")
+
     print(f"\n{PASS}/{PASS + FAIL} passed")
     return 1 if FAIL else 0
 
