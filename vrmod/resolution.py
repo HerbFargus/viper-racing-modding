@@ -107,11 +107,22 @@ class Mode:
         return self.label == (self.width, self.height) and self.sites == 4
 
 
+# Engine binaries, live one first. The v1.0 pressing runs race.exe and ships a
+# race.bin beside it that nothing loads, so writing the mode table into
+# "race.bin" on that install changes a file the game never opens -- the menu
+# still tops out at 1024x768 and nothing says why. The four sites are found by
+# PATTERN, and those patterns match race.exe unmodified, so this is only a
+# question of which file to open. Same rule as vrampatch, mapfile and doctor.
+ENGINE_NAMES = ("race.exe", RACE_BIN)
+
+
 def _race_bin(data_dir: Path) -> Path:
-    f = Path(data_dir) / RACE_BIN
-    if not f.is_file():
-        raise ResolutionError(f"no {RACE_BIN} in {data_dir}")
-    return f
+    """The engine binary whose mode table the game actually reads."""
+    d = Path(data_dir)
+    for n in ENGINE_NAMES:
+        if (d / n).is_file():
+            return d / n
+    raise ResolutionError(f"no {' or '.join(ENGINE_NAMES)} in {d}")
 
 
 # --------------------------------------------------------------------------

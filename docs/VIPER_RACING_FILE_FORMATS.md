@@ -2204,10 +2204,21 @@ precisely. With `vp2 768 64 384 72` and a 1920-wide capture, the mirror measured
 measurements agreed: the axis of symmetry between the front wheels sat at 0.6253 of frame width, against
 960/1536 = 0.6250 predicted.
 
-**The fix is a Windows setting, not a patch.** On the launcher: Properties → Compatibility → *Change high DPI
-settings* → tick **Override high DPI scaling behavior**, *Scaling performed by:* **Application**
-(equivalently, the `~ HIGHDPIAWARE` layer under `HKCU\…\AppCompatFlags\Layers`). The process then sees the
-real desktop and can get the surface it asked for. ✅ **Verified on hardware:** with the override set, the
+**The fix is a Windows setting, not a patch.** On the executable the build actually runs: Properties →
+Compatibility → *Change high DPI settings* → tick **Override high DPI scaling behavior**, *Scaling performed
+by:* **Application**. The process then sees the real desktop and can get the surface it asked for.
+
+> ⚠️ **Setting the registry value is NOT equivalent to using the dialog**, despite writing the same bytes.
+> Writing `~ HIGHDPIAWARE` under `HKCU\…\AppCompatFlags\Layers` can leave the game still rendering
+> DPI-unaware — shifted right and down, tachometer gone — and then ticking the box in the dialog fixes it
+> immediately. Both routes were compared **after** the manual fix worked and the stored value was
+> byte-for-byte identical (`~ HIGHDPIAWARE`), so the difference is not what is written: the dialog also
+> refreshes the AppCompat shim cache, and a bare registry write does not. Reproduced more than once, on both
+> the combined value (`~ HIGHDPIAWARE DWM8And16BitMitigation`) and the bare one.
+>
+> Consequence for tooling: **a tool reading that value back can only report the setting as recorded, never
+> as effective.** `vrmod doctor` says exactly that and points at the dialog rather than claiming the fix is
+> done. ✅ **Verified on hardware:** with the override set, the
 same build renders centred at 1920 × 1080 with a full HUD — measured axis **959.5 against a centre of
 960.0** — where before it was cropped to the top-left 1536 × 864 of its own output.
 

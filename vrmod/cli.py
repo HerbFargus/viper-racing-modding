@@ -1541,6 +1541,25 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  payload       {b.size:,} bytes"
                   f"{'' if b.size == len(raw) else '  MISMATCH vs ' + str(len(raw))}")
     elif args.command == "patch":
+        # The set is written into race.bin. On a v1.0 install that file is never
+        # loaded, so the whole run would land in a dormant binary and report
+        # success -- the same trap doctor withholds this action for. --dpi-aware
+        # is a registry flag rather than part of the set, so it is still allowed
+        # on its own.
+        _live = doctor.live_binary(Path(args.data_dir))
+        if _live != patchset.RACE_BIN and not args.status and not args.revert:
+            # --dpi-aware is a registry flag, not part of the set, so honour it
+            # here and then stop rather than rewriting a file nothing loads.
+            if args.dpi_aware:
+                print(f"  {'dpi':<11} {patchset.set_dpi_aware(args.data_dir)}")
+            print(f"\n  The patch set is written into {patchset.RACE_BIN}, but this "
+                  f"install runs {_live} -- a file it never loads, so applying it "
+                  "here would\n  change nothing you can see. Nothing was written.")
+            print("\n  What IS aware of race.exe today:")
+            print(f"    vrmod patch-vram {args.data_dir}")
+            print(f"    vrmod resolution {args.data_dir} --set WIDTHxHEIGHT")
+            print(f"    vrmod writepaths {args.data_dir} --logs --userdir")
+            return 0
         if args.status:
             for k, v in patchset.status(args.data_dir).items():
                 print(f"  {k:<11} {v}")

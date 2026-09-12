@@ -493,11 +493,24 @@ def check(data_dir: str | Path) -> Report:
                         + ".",
                         action="dpi"))
         elif scaled:
-            add(Finding(OK, "The desktop is scaled, and the game is marked DPI-aware",
-                        "A DPI-unaware process would be handed a virtualised, smaller desktop "
-                        "and draw partly off-screen; the HIGHDPIAWARE compatibility flag "
-                        f"(set on {live} and any launcher beside it) prevents that. It is read "
-                        "at process start, so it applies from the next launch onward."))
+            add(Finding(INFO, "The desktop is scaled, and the DPI-aware flag is recorded",
+                        "A DPI-unaware process is handed a virtualised, smaller desktop and "
+                        f"draws partly off-screen; the HIGHDPIAWARE layer is set for {live} "
+                        "to prevent that, and is read at process start so it applies from the "
+                        "next launch onward.\n"
+                        "BUT THIS IS NOT PROOF IT IS IN EFFECT. What is checked here is the "
+                        "registry value, and a value written programmatically does not always "
+                        "reach the shim engine: the game can keep rendering shifted right and "
+                        "down with the layer recorded, and then setting the SAME value through "
+                        "the dialog fixes it at once. The stored strings were compared and are "
+                        "identical, so the dialog is doing something beyond writing -- "
+                        "refreshing the compatibility cache -- that cannot be reproduced from "
+                        "here.",
+                        "If the 3D view still sits right of centre and the tachometer is "
+                        f"missing, set it by hand: right-click {live} -> Properties -> "
+                        "Compatibility -> Change high DPI settings -> tick Override high DPI "
+                        "scaling behavior, Scaling performed by: Application. That route is "
+                        "the authority."))
     except Exception as e:
         add(Finding(INFO, "Could not read the patch-set state", f"{type(e).__name__}: {e}"))
 

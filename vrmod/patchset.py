@@ -303,10 +303,19 @@ def scaling_active() -> bool | None:
 
 
 def dpi_aware(data_dir: str | Path) -> bool:
-    """Does race.bin OR the launcher already carry the HIGHDPIAWARE layer?
+    """Is the HIGHDPIAWARE layer WRITTEN for any of this install's executables?
 
-    Either is enough: race.bin is the process that renders, but a shim on the
-    launcher propagates to it, and empirically that fixes rendering too.
+    ⚠️ This reports what is in the registry, NOT that the layer is in effect.
+    They are not the same thing, and the gap is reproducible: writing
+    `~ HIGHDPIAWARE` here can leave the game still rendering DPI-unaware, while
+    setting the identical value through Properties -> Compatibility -> Change
+    high DPI settings fixes it immediately. Confirmed by comparing the two --
+    the stored value was byte-for-byte the same either way, so the difference is
+    not what is written but that the dialog also refreshes the AppCompat shim
+    cache, which a bare registry write does not.
+
+    So treat a True here as "the setting is recorded", and the Compatibility
+    dialog as the authority on whether it applies.
     """
     try:
         import winreg
@@ -325,10 +334,17 @@ def dpi_aware(data_dir: str | Path) -> bool:
 def set_dpi_aware(data_dir: str | Path, enable: bool = True) -> str:
     """Add or remove the launcher's HIGHDPIAWARE layer for the current user.
 
-    This writes to HKEY_CURRENT_USER only, affects one executable, and is exactly
-    what the Compatibility tab writes when you tick "Override high DPI scaling
-    behavior -- Scaling performed by: Application". Callers should make this an
-    explicit choice rather than part of a default install.
+    This writes to HKEY_CURRENT_USER only and is exactly what the Compatibility
+    tab writes when you tick "Override high DPI scaling behavior -- Scaling
+    performed by: Application". Callers should make this an explicit choice
+    rather than part of a default install.
+
+    ⚠️ WRITING IT IS NOT THE SAME AS IT TAKING EFFECT. Observed repeatedly: the
+    value lands correctly and the game still renders DPI-unaware, then setting
+    the SAME value through the dialog fixes it at once. The stored strings were
+    compared and are identical, so the dialog is doing something besides writing
+    -- refreshing the shim cache -- that this cannot reproduce. Always tell the
+    user the dialog is the fallback; never report this as a completed fix.
     """
     import winreg
     targets = [e for e in _dpi_targets(data_dir) if e.is_file()]
