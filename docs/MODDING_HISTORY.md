@@ -201,7 +201,35 @@ stored as a plain string inside `race.bin` itself (near offset `0x0D37FD` — e.
 | 1.2.3 beta | `Patch_1.2.3(Beta).zip` | built by **Dave Broske (MGI)** for the VRgt team and released by *them*, not by MGI. Every community build is hex-edited from this binary |
 
 Monster Games' own server only ever hosted a handful of downloads: the Viper patches,
-two NASCAR Heat patches and a Heat changelog. **No official car or track ever existed.**
+two NASCAR Heat patches and a Heat changelog.
+
+##### MGI released exactly one car
+
+**`VIPERGT.CAR` — the Viper GTS-R — 25 February 1999**, one day before the 1.1 patch. The
+two went out together. Its readme leaves no doubt:
+
+```
+                         VIPERGT.CAR
+                 Viper GTS-R for Viper Racing
+                            MGI
+                      root@mgiracing.com
+                       25 February 1999
+
+    Thanks for buying Viper Racing.  We appreciate it.
+    ...
+    The Viper GTS-R can be selected at the Hacks screen, exactly like
+    the other "extra" cars in Viper Racing.
+```
+
+It is not on either retail disc — the discs carry five cars (`exotic`, `plane`, `sedan`,
+`sports`, `viper`) and this is a sixth. It survives at `vnovak.com/vr/mgivipergt.zip`.
+
+**No official *track* was ever released**, though. Val's site also hosts `mgi-bemidji`,
+`mgi-castle`, `mgi-dayton`, `mgi-dundas`, `mgi-ridge`, `mgi-rock`, `mgi-silver` and
+`mgi-sunset`, which look like eight more official releases and are not: `mgi-bemidji.zip`
+holds a `bemidji.trk` **byte-identical to the one on both retail discs**. Those are Val
+repackaging the *stock* tracks so a player could restore an original after TrackMan
+overwrote its slot. `mgiviper.zip` is the stock car for the same reason.
 
 ##### Is there a 1.2 beta at all?
 
