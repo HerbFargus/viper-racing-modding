@@ -37,7 +37,7 @@ import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import mapfile, patchset, resolution, switcher, vrampatch, writepaths
+from . import mapfile, modassert, patchset, resolution, switcher, vrampatch, writepaths
 
 # Severity, worst first. "bad" means the game probably will not run or work
 # right; "warn" is worth acting on; "info" is context, not a problem.
@@ -603,6 +603,36 @@ def check(data_dir: str | Path) -> Report:
                     "A local dsound.dll is in the Data folder. Harmless, but this community build "
                     "already fixes the DirectSound crackle in its own code, so the wrapper is not "
                     "required here."))
+
+    # ---- the RC's development-only assertions ---------------------------
+    try:
+        ma = modassert.status(data_dir)
+        if ma == modassert.UNPATCHED:
+            add(Finding(INFO, "This build carries a development-only crash check",
+                        "The Release Candidate keeps a module-ownership assertion the "
+                        "shipped game does not: every single-entry module is owned by "
+                        "the task that registered it, and calling into one you do not "
+                        "own is FATAL -- it panics, calls abend(), and writes "
+                        "except.log. The mouse module trips it on a shutdown race, "
+                        "giving\n"
+                        '    Panic : "<main>" called module mouse owned by "(null)"\n'
+                        "where \"(null)\" means the module had already been ended and a "
+                        "window message arrived afterwards. This is not a game bug: the "
+                        "whole subsystem was compiled out of v1.0's own race.bin, of "
+                        "v1.2.5 and of v1.2.6, so no released build makes the check at "
+                        "all.",
+                        "Silence it to match the shipped builds: vrmod modassert <Data> "
+                        "(reversible). One RET byte; the assertion stops firing for "
+                        "every module, which is exactly what the release does.",
+                        action="modassert"))
+        elif ma == modassert.PATCHED:
+            add(Finding(OK, "The development-only crash check is silenced",
+                        "The RC's module-ownership assertion returns immediately, as it "
+                        "effectively does in every build MGI released. The shutdown race "
+                        "that tripped it on the mouse module no longer panics."))
+    except Exception as e:
+        add(Finding(INFO, "Could not read the module-assertion state",
+                    f"{type(e).__name__}: {e}"))
 
     # ---- where the game writes ------------------------------------------
     # Not a fault, so INFO -- but the two consequences below bite in practice,
