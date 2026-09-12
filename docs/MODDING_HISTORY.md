@@ -132,14 +132,91 @@ version is shown in-game at the **Options screen, bottom-right corner**, and is
 stored as a plain string inside `race.bin` itself (near offset `0x0D37FD` — e.g.
 `1.2.4 BETA`, `v1.2.5 2016`).
 
+> That indicator arrived **with the second pressing**. The first pressing runs
+> `race.exe`, which contains no version string at all, and its Options screen shows
+> nothing in that corner — confirmed in game. See *The first pressing shipped a release
+> candidate* below.
+
 **Official (Sierra / Monster Games):**
 
 | Version | Patch file | Notes |
 |---|---|---|
-| 1.0 | (retail) | base game, 1998 |
-| 1.1 | `VIPER11` | lock-ups, Force Feedback, minor fixes |
-| 1.2.1 beta | `VIPER121B` | beta |
-| 1.2.3 beta | `VIPER123B` | last official patch; community builds fork from here |
+| 1.0 | (retail, first pressing) | engine is `race.exe`, built **Oct 21 1998 08:49:56**. A **release candidate** — see below |
+| 1.1 | `viper11.zip` **and** a retail repressing | both exist. The second pressing's engine is `race.bin`, built **Jan 25 1999 11:47:39**, readme dated 8 Feb 1999. Whether the downloadable patch performs the same `race.exe` → `race.bin` transition is **untested** |
+| 1.2 beta | `viperpatch12beta.zip` | **probably never a distinct release** — see below. The URL is indexed but was never observed serving a file |
+| 1.2.1 beta | `viperpatch121beta.zip` | Windows 2000 support, multiple controllers, an XP sound tweak. The **last patch MGI distributed themselves** |
+| 1.2.3 beta | `Patch_1.2.3(Beta).zip` | built by **Dave Broske (MGI)** for the VRgt team and released by *them*, not by MGI. Every community build is hex-edited from this binary |
+
+Monster Games' own server only ever hosted a handful of downloads: the Viper patches,
+two NASCAR Heat patches and a Heat changelog. **No official car or track ever existed.**
+
+##### Is there a 1.2 beta at all?
+
+Probably not, and it is worth writing down so nobody spends another decade looking.
+
+`viperpatch12beta.zip` appears in the Wayback index, which is why it gets cited as a lost
+release. But a URL enters that index when a crawler **follows a link** to it — being
+indexed is not evidence it ever served anything. Its capture history is one line:
+
+```
+viperpatch12beta.zip    2021-01-26   404          <- the only capture, ever
+viperpatch121beta.zip   2005 404 · 2006 200 · 2007 200 · 2021 404
+```
+
+The 1.2.1 was retrieved successfully twice, in 2006 and 2007, with the same content
+digest both times. The 1.2 was **never** seen served, in any capture, by anyone.
+
+Two further things point the same way. A June 2002 thread on NTCompatible has someone
+hunting specifically for "the Viper Racing 1.2 Beta patch" for days, on a compatibility
+note's recommendation — and what he eventually finds, quotes the readme of, and declares
+fixed is **`viper121beta.zip`**. Nobody in the thread produces a 1.2. And of the ten
+distinct `race.bin` builds catalogued for this project, **none carries a `v1.2` stamp** —
+they run 1.0, 1.1, 1.2.1, 1.2.3, 1.2.4, 1.2.5.
+
+The likeliest reading is that "1.2 beta" is simply how people referred to the 1.2.1 beta,
+or that a 1.2 existed so briefly it was replaced before anyone archived it. Either way,
+the patch everyone has been hunting for is the one already in hand.
+
+#### What 1.1 actually fixed — from the patch's own readme
+
+The official patch survives as `viper11.zip` → **`viper11.exe`, 988,905 bytes, dated
+26 February 1999**. It is a **16-bit NE executable** (a Wise "Sierra Patch Installation"),
+with two consequences worth knowing: archivers cannot open it, and **it will not run on
+64-bit Windows**, which dropped 16-bit support entirely. Its payload has to be recovered
+by other means.
+
+Inside is `race.res` **byte-identical to the second pressing's** — so the patch and the
+repressing carry the same updated resources — and a readme dated **19 January 1999**
+listing the fixes in MGI's own words:
+
+| area | what 1.1 changed |
+|---|---|
+| replays | mouse bounds stayed at 640×480 in higher modes, putting the replay controls out of reach. Now set per video mode |
+| force feedback | "very weak" on the Logitech FF wheel in particular — forces boosted |
+| mirror | had a fixed size, so it shrank to nothing at 1024×768. Now scaled to the video mode |
+| **`-nointro`** | **introduced by this patch.** "The introductory movie causes all sorts of problems. It may even have lingering effects on gameplay, causing hangs and lockups. Trying to escape from the intro movie often causes the game to crash." |
+| **memory leak** | "Replay: Causes Crash on Exit From Program … the game will crash on exit, **reporting a memory leak**. This memory leak has been fixed." |
+| replay audio | cars silent when the race ended while they were still "teleporting" |
+| garage | locked up or hung the system on some machines |
+| multiplayer | TAPI "too sensitive to non-compatible devices"; modem init "too forceful"; synchronisation hangs under packet loss; teleporting remote cars now transparent so they cannot be collided with |
+
+Two of those are worth pulling out. **`-nointro` originates here** — the runtime reference
+lists it among the engine's flags, and this is why it exists. And the *"crash on exit
+reporting a memory leak"* is the **same panic class** a modern builder hits when objects
+are created without reaching the engine's master object array (runtime reference §4):
+MGI shipped a fix for it in 1999.
+
+> What the patch does **not** contain is a game executable or a `race.bin`, and there is
+> no room for one — `race.exe` alone is 2,404,451 bytes. How the engine changes above are
+> actually delivered is **not established**.
+
+> **A note on "official".** The Patches Scrolls — which mirrored these for decades — lists
+> **1.1 as official** and both **1.2.1 beta and 1.2.3 beta as unofficial**. That is a
+> classification by *support status*, not by origin: 1.2.1 was hosted on mgiracing.com
+> itself and its readme is written in MGI's own voice ("we don't have service pack 2
+> installed anywhere in the office yet"). The table above classifies by **where the file
+> actually came from**, which is why 1.2.1 sits under official here and 1.2.3 — built by
+> an MGI programmer but released by the VRgt team — sits on its own.
 
 **Community `race.bin` (unofficial, built on 1.2.3):**
 
@@ -159,6 +236,60 @@ Notes for anyone cataloguing binaries:
   resolution, but it can't be confirmed from that mislabeled file.
 - **ResolutionChanger.exe** (shipped in `Data/`) sets screen resolution
   independently of the `race.bin` version.
+
+### The first pressing shipped a release candidate
+
+The retail v1.0 disc — Redump #61183, `Viper Racing (USA)` — boots to a title screen
+carrying this, in green above the artwork:
+
+```
+Oct 21 1998 08:49:56 NON-DEBUG MSVC-4.0
+feedback@mgiracing.com
+Release Candidate 1:  CONFIDENTIAL
+Copyright © 1998 MGI. All rights reserved.
+```
+
+`Release Candidate 1:  CONFIDENTIAL` and the feedback address appear **only** in v1.0's
+`race.exe`. Neither `race.bin` — v1.0's or v1.1's — contains them.
+
+**This is why the first pressing carries a symbol map.** `race.exe` has a ~1 MB overlay
+holding a full linker map: **10,414 symbols across 296 object files** (`physics:control.obj`,
+`ai:driver.obj`, `gx:gfx.obj`, `edit:modtool.obj`, `multi:server.obj`…). It also carries the
+*reader* for it — `No mapfile present`, `Couldn't open exe: %s`, `Can't map view of file` —
+so the binary **opens itself and symbolises its own crashes**:
+
+```
+Panic : Can't load options.def
+trace: byte 0x88 of "?OptionsBegin@@YAXXZ"
+trace: byte 0x72 of "?app_begin@@YAXXZ"
+trace: byte 0x1b of "?AppMain@@YAXXZ"
+trace: byte 0x120 of "_WinMain@16"
+```
+
+None of that was a gift to modders. It is an RC build with its diagnostics still switched
+on, pressed to manufacturing.
+
+**It also explains the second pressing.** Comparing the two discs file by file, 306 of the
+files are identical and only 9 differ — but the executable is replaced outright, and the
+engine moves out of it into `race.bin`:
+
+```
+v1.0  Data\race.exe    2,404,451 b   .text 890,368   + a 1 MB symbol-map overlay
+v1.1  Data\Viper Racing.exe 388,608 b   .text  16,384   (a launcher; no map, no banner)
+```
+
+So February 1999 was not a tidy-up. **Sierra and MGI pressed a release candidate, and the
+v1.1 disc replaced it with the actual release build** — banner gone, map gone, RC markings
+gone, the CD check and environment gates moved into a proper launcher.
+
+The irony is worth stating plainly: the artefact this community has reverse-engineered
+against for twenty-five years — the binary long circulated as `ai-tweaker.exe`, which is
+**byte-identical to v1.0's `Data\race.exe`** — reached the public through a manufacturing
+mistake.
+
+> **Practical consequence.** A *first* pressing gives you the symbol map, self-symbolising
+> crash traces, and the RC title screen. A *second* pressing gives you none of it. If you
+> are buying a disc to work from, the revision matters.
 
 ### Hex editor
 - **XVi32** — the community's recommended editor. Nearly every "edit" that wasn't
