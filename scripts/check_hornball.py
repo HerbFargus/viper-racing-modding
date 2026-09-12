@@ -70,9 +70,12 @@ def main() -> None:
         tmp = Path(tempfile.mkdtemp(prefix="check_hornball_"))
         try:
             shutil.copy2(src / name, tmp / name)
-            if name != hornball.ENGINE_NAMES[0]:
-                # make sure the picker sees only this binary
-                pass
+            # The source is a real install, which may well be tuned -- these are
+            # player-facing settings, not a pristine museum piece. Normalise the
+            # COPY to stock so the assertions below have a known baseline, and
+            # so reset() is compared against stock rather than against whatever
+            # the player happened to have set.
+            hornball.reset(tmp)
             blob = (tmp / name).read_bytes()
             co, sp = hornball._offsets(blob)
             cd = struct.unpack_from("<f", blob, co)[0]
