@@ -640,7 +640,7 @@ def check(data_dir: str | Path) -> Report:
                             f"On the Hacks options screen the Vehicle list's top edge is "
                             f"at y={g.y} on a 480-line frontend, leaving {room} pixels "
                             f"before entries leave the window. The community fixed this "
-                            f"in Sucahyo's 1.2.4 beta by moving it to y=124 -- "
+                            f"in the v1.2.4 BETA by moving it to y=124 -- "
                             f"{480 - 124} pixels of room, 76 more -- and growing the box "
                             f"from 200 to 255. They only ever did it in race.bin, so "
                             f"this build never got it.",
