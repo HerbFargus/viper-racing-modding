@@ -12,7 +12,7 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from . import aifield, archive, aspectfix, bpp as bppmod, car, carshot, catalog as catalog_mod, cf, cockpit_tab, doctor, envelope, hornball, mapfile, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon, drawdistance, surface, writepaths
+from . import aifield, archive, aspectfix, bpp as bppmod, car, carshot, catalog as catalog_mod, cf, cockpit_tab, doctor, envelope, hornball, mapfile, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon, drawdistance, surface, writepaths, modassert
 
 COMMIT_PATH = "/__vrmod_commit__"
 
@@ -792,6 +792,16 @@ def main(argv: list[str] | None = None) -> int:
                       help="with --userdir, do NOT copy the existing settings, lap "
                            "records and ghosts into the new folder")
     p_wp.add_argument("--revert", action="store_true", help="put the absolute paths back")
+
+    p_ma = sub.add_parser(
+        "modassert",
+        help="Silence the v1.0 RC's development-only module-ownership assertion, "
+             "which panics on a shutdown race the shipped game never checks for "
+             "(the \"called module mouse owned by (null)\" crash)",
+    )
+    p_ma.add_argument("data_dir", type=Path, help="the game's Data folder")
+    p_ma.add_argument("--revert", action="store_true",
+                      help="put the assertion back")
 
     p_crash = sub.add_parser(
         "crashlog",
@@ -1619,6 +1629,25 @@ def main(argv: list[str] | None = None) -> int:
             print("  NOTE: a relative path resolves against the working directory the "
                   "game is\n        STARTED from, not where the .exe lives. Launch it "
                   "from its own folder.")
+    elif args.command == "modassert":
+        state = modassert.status(args.data_dir)
+        if state == modassert.ABSENT:
+            print("  This build has no module-ownership assertion -- it was compiled "
+                  "out of\n  every shipped release. Nothing to do.")
+        elif args.revert:
+            if state != modassert.PATCHED:
+                print("  not patched -- nothing to undo")
+            else:
+                print(f"  assertion restored at {hex(modassert.revert(args.data_dir))}")
+        elif state == modassert.PATCHED:
+            print("  already silenced -- nothing to do")
+        else:
+            at = modassert.apply(args.data_dir)
+            print(f"  assertion silenced at {hex(at)} (one RET byte)")
+            print("  original backed up as race.exe.modassert-backup")
+            print("  This matches the build MGI shipped: the whole subsystem was "
+                  "compiled out\n  of the release, so the check simply does not exist "
+                  "there.")
     elif args.command == "crashlog":
         text = Path(args.log).read_text(errors="replace")
         # An except.log normally sits in the install (or its log\ folder after
