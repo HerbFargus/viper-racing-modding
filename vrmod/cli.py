@@ -748,6 +748,11 @@ def main(argv: list[str] | None = None) -> int:
                          help="leave the rasteriser's edge tables at 1024 scanlines. "
                               "The default doubles them so screens taller than ~1104 "
                               "rows keep the tachometer needle")
+    p_patch.add_argument("--no-carry-over", action="store_true",
+                         help="do NOT re-apply the patches this set does not own "
+                              "(write paths, module assertion, head-on toggle, horn "
+                              "ball). The rebuild reverts them either way; by default "
+                              "they are put back and listed")
     p_patch.add_argument("--no-map", action="store_true",
                          help="skip the appended symbol map used by the crash handler")
     p_patch.add_argument("--max-verts", type=int, default=None, metavar="N",
@@ -1573,7 +1578,8 @@ def main(argv: list[str] | None = None) -> int:
                                  with_map=not args.no_map, ratio=args.fov,
                                  big_tables=not args.small_tables,
                                  max_verts=args.max_verts,
-                                 force_baseline=args.force_baseline)
+                                 force_baseline=args.force_baseline,
+                                 carry_over=not args.no_carry_over)
             print(f"rebuilt from {rep.baseline}")
             for name, detail in rep.steps:
                 print(f"  {name:<22} {detail}")
