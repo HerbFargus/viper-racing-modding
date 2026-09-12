@@ -50,11 +50,36 @@ because both 100 and the community's 111 fit in a byte, and there is no room to 
 that instruction without moving everything after it -- so w is capped at 127.
 That has never been the limiting dimension; car names are short.
 
-HOW FAR CAN IT GO? Unknown, and deliberately not guessed at here. The community
-stopped at y+h = 379, which leaves roughly 100 pixels unused on a 640x480
-frontend, but whether the list draws more rows when the box grows depends on the
-unchanged `0x0b` field in the same descriptor, whose meaning is not established.
-`apply()` takes explicit geometry so that can be measured rather than assumed.
+HOW MANY ROWS THAT BUYS -- SOLVED, in game. `?0ListBox` computes it:
+
+    push 0xa / call UIStyleHeight / add eax, 2
+    mov  [this+0x23c], eax          ; ROW PITCH = font height + 2
+    mov  eax, <box height>
+    idiv dword [this+0x23c]
+    mov  [this+0x238], eax          ; VISIBLE ROWS = h / pitch
+
+Confirmed against a real screen: the community's h=255 renders exactly 17
+entries, so the pitch is 15 and UIStyleHeight returns 13. **Rows scale directly
+with h** -- an earlier guess here that the unchanged `0x0b` field might cap them
+was wrong, and is retracted.
+
+SO THE ROW COUNT IS NOT THE WALL -- SELECTABILITY IS. `?0ListBox` takes a scroll
+object and, when it gets one, publishes the entry count and visible count to it:
+
+    test ecx, ecx / je ...          ; no scroll object -> no notification
+    mov [ecx], <entry count>
+    mov [ecx+4], [this+0x238]
+
+The Vehicle descriptor passes 0, so this list has no scrollbar and `Draw@ListBox`
+starts at a scroll offset that is always zero. Entries past the visible count are
+not merely off-screen, they are UNREACHABLE -- and `sort_carlist` qsorts the
+names with `stricmp`, so with a large collection everything late in the alphabet
+is simply unselectable. Observed in game: with 40+ cars installed the selected
+`viper` could not be reached.
+
+Raising h is therefore a real but bounded fix -- it buys `h/15` rows and nothing
+more. A genuine fix for a large collection means giving this list a scroll
+object, which is a bigger change than four immediates and is not attempted here.
 """
 from __future__ import annotations
 
