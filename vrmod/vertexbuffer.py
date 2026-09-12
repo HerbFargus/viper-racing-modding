@@ -33,6 +33,21 @@ import struct
 from pathlib import Path
 
 RACE_BIN = "race.bin"
+
+# Engine binaries, live one first -- the v1.0 pressing runs race.exe and ships a
+# dormant race.bin beside it. Same rule as the rest of the patch set.
+ENGINE_NAMES = ("race.exe", RACE_BIN)
+
+
+def _engine(data_dir):
+    from pathlib import Path as _P
+    d = _P(data_dir)
+    for n in ENGINE_NAMES:
+        if (d / n).is_file():
+            return d / n
+    return d / RACE_BIN            # nonexistent: callers report "missing"
+
+
 STRIDE = 32                       # bytes per .mod vertex record
 FORMAT_CAP_VERTS = 32768          # int16 face indices address at most 32,767; 32,768 covers it
 _MIN_VERTS, _MAX_VERTS = 1000, 60000   # plausible stock buffer range, in vertices
@@ -131,11 +146,11 @@ def find_site(blob: bytes) -> dict:
 
 def buffer_verts(data_dir: str | Path) -> int:
     """Current per-object vertex capacity of the Data folder's race.bin."""
-    return find_site((Path(data_dir) / RACE_BIN).read_bytes())["verts"]
+    return find_site(_engine(data_dir).read_bytes())["verts"]
 
 
 def status(data_dir: str | Path) -> str:
-    f = Path(data_dir) / RACE_BIN
+    f = _engine(data_dir)
     if not f.is_file():
         return "missing"
     try:
@@ -158,7 +173,7 @@ def apply(data_dir: str | Path, verts: int = FORMAT_CAP_VERTS) -> dict:
         raise PatchError(
             f"{verts} exceeds the int16 face-index cap ({FORMAT_CAP_VERTS}); faces "
             f"cannot address that many vertices")
-    f = Path(data_dir) / RACE_BIN
+    f = _engine(data_dir)
     blob = bytearray(f.read_bytes())
     info = find_site(bytes(blob))
     old = info["verts"]

@@ -37,7 +37,7 @@ import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import patchset, resolution, switcher, vrampatch, writepaths
+from . import mapfile, patchset, resolution, switcher, vrampatch, writepaths
 
 # Severity, worst first. "bad" means the game probably will not run or work
 # right; "warn" is worth acting on; "info" is context, not a problem.
@@ -429,8 +429,19 @@ def check(data_dir: str | Path) -> Report:
     # ---- the vrmod patch set --------------------------------------------
     try:
         ps = patchset.status(data_dir)
+        # "bytes appended" is not the same as "we appended them": the v1.0
+        # race.exe is a Release Candidate that shipped with its own linker map in
+        # exactly that position, and counting it here reports a pristine install
+        # as patched.
+        ours = False
+        if "appended" in ps["mapfile"]:
+            try:
+                ours = mapfile.is_generated(
+                    (data_dir / live).read_bytes())
+            except Exception:
+                ours = False
         applied = [n for n in ("needle", "aspect")
-                   if ps[n] == "patched"] + (["mapfile"] if "appended" in ps["mapfile"] else [])
+                   if ps[n] == "patched"] + (["mapfile"] if ours else [])
         partial = [n for n in ("needle", "aspect") if ps[n] in ("partial", "old-patch")]
         snap = not ps["baseline"].startswith("none")
 
@@ -459,15 +470,12 @@ def check(data_dir: str | Path) -> Report:
                         "changes what is IN that table, so a modern resolution becomes available "
                         "to pick."
                         + ("" if live == RACE_BIN else
-                           f" NOT AVAILABLE ON THIS INSTALL: the whole set is written into "
-                           f"race.bin, but this build runs {live}. Applying it here would "
-                           f"patch a file nothing loads and change nothing you can see."),
-                        ("Apply it (reversible: vrmod patch <Data> --revert). Power users can "
-                         "choose a different resolution with vrmod patch <Data> --mode "
-                         "WIDTHxHEIGHT.") if live == RACE_BIN else
-                        (f"Skip it on this install. Only the startup fix is {live}-aware so "
-                         f"far; the rest of the set still targets race.bin only."),
-                        action="patch" if live == RACE_BIN else None))
+                           f" This build runs {live}, and the set follows the binary the "
+                           "game actually loads, so it applies here too."),
+                        "Apply it (reversible: vrmod patch <Data> --revert). Power users can "
+                        "choose a different resolution with vrmod patch <Data> --mode "
+                        "WIDTHxHEIGHT.",
+                        action="patch"))
 
         # the display-scaling trap -- invisible unless you go looking for it.
         # Positively confirm the good case too, so a "verify install" run shows

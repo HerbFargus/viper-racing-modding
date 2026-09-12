@@ -169,10 +169,8 @@ def build(blob: bytes) -> str:
 # --------------------------------------------------------------------------
 
 def _race_bin(data_dir: str | Path) -> Path:
-    f = Path(data_dir) / RACE_BIN
-    if not f.is_file():
-        raise MapError(f"no {RACE_BIN} in {data_dir}")
-    return f
+    """The engine binary this install runs -- see engine()."""
+    return engine(data_dir)
 
 
 def status(data_dir: str | Path) -> tuple[int, int, int]:
@@ -208,13 +206,24 @@ def install(data_dir: str | Path) -> tuple[int, int]:
 
 
 def remove(data_dir: str | Path) -> int:
-    """Truncate back to the end of the last section. Returns bytes removed."""
+    """Truncate OUR map back off. Returns bytes removed.
+
+    Refuses to touch a map the build shipped with. The v1.0 race.exe carries its
+    own linker map in exactly this position, and truncating there would throw
+    away 10,000-odd real symbol names -- the thing that makes that build's crash
+    logs readable -- to undo a patch we never applied.
+    """
     f = _race_bin(data_dir)
     blob = f.read_bytes()
     lay = _layout(blob)
     trailing = len(blob) - lay.image_end
-    if trailing:
-        f.write_bytes(blob[:lay.image_end])
+    if not trailing:
+        return 0
+    if not is_generated(blob):
+        raise MapError(
+            f"{f.name} carries {trailing:,} bytes of a map this tool did not "
+            "append -- it shipped that way. Refusing to truncate it.")
+    f.write_bytes(blob[:lay.image_end])
     return trailing
 
 
@@ -248,6 +257,25 @@ def read_map(blob: bytes) -> dict[int, str]:
         if m:
             out[int(m.group(3), 16)] = m.group(2)
     return out
+
+
+def is_generated(blob: bytes) -> bool:
+    """Did WE append this map, or did the build ship with one?
+
+    It matters because "has trailing data" is otherwise read as "we patched
+    this". The v1.0 race.exe is a Release Candidate that shipped with its own
+    linker map already appended, so a caller checking for trailing bytes
+    concludes the binary is dirty and refuses to snapshot a perfectly untouched
+    file.
+
+    The discriminator is the naming. build() can only infer function starts from
+    call targets, so almost every symbol it emits is `sub_<va>`; a real linker
+    map names them. One `sub_` line is therefore ours, and a shipped map has
+    none.
+    """
+    lay = _layout(blob)
+    tail = blob[lay.image_end:]
+    return b" sub_" in tail[:65536] if tail else False
 
 
 def pretty(name: str) -> str:
