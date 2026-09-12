@@ -975,7 +975,7 @@ async function renderGame(){
        <div class="panel-head"><h2>Horn-ball</h2>
          <span class="note">${hb.is_stock ? 'Stock throw'
            : `${sm.toFixed(2)}× · ${cd.toFixed(2)}s`}</span></div>
-       <p class="lede">The hidden <b>hacks</b> toy: honk and your car fires a ball out the front.
+       <p class="lede">The <b>hacks</b> toy: honk and your car fires a ball out the front.
          Turn <b>Horn ball</b> on in the game's hacks menu to use it; these sliders set how hard it
          throws and how often. Takes effect next launch.</p>
        ${row('Throw speed', 'hb-speed', 'hb-sv', sm, '×', b.speed_min, b.speed_max, 0.25,

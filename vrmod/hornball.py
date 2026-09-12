@@ -1,8 +1,11 @@
-"""Tune the horn-ball -- the hidden "hacks" toy that fires a ball out the front
+"""Tune the horn-ball -- the "hacks" toy that fires a ball out the front
 of your car when you honk.
 
-Viper Racing has a set of joke "hacks" (no walls, pave the world, horn-ball...)
-toggled from a hidden menu. The horn-ball's two feelings are set by two floats
+Viper Racing has a set of joke "hacks" toggled from the **HACKS tab in Options**,
+which sits in the normal tab row beside GRAPHICS, SOUND, CONTROLS and DRIVING AIDS.
+It is NOT hidden and needs no code: confirmed in game on both retail pressings, v1.0
+and v1.1. The tab offers Horn Ball, Pave The World and Wheelie (with a key binding),
+plus a vehicle picker listing the five stock cars. The horn-ball's two feelings are set by two floats
 the launch routine reads: how fast the ball is thrown, and how long you must
 wait between throws. This lets you dial both -- a gentle lob every couple of
 seconds (stock) up to a rapid-fire cannon.

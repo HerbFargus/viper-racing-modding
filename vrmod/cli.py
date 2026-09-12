@@ -784,7 +784,7 @@ def main(argv: list[str] | None = None) -> int:
 
     p_hb = sub.add_parser(
         "hornball",
-        help="Tune the hidden horn-ball hack: throw speed and re-fire cooldown "
+        help="Tune the horn-ball hack: throw speed and re-fire cooldown "
              "(reads current values; --speed/--cooldown to change, --reset for stock)",
     )
     p_hb.add_argument("data_dir", type=Path, help="the game's Data folder")
@@ -1576,7 +1576,7 @@ def main(argv: list[str] | None = None) -> int:
               + ("  [stock]" if t.is_stock else ""))
         if args.speed is None and args.cooldown is None and not args.reset:
             print("  --speed MULT / --cooldown SECONDS to change, --reset for stock. "
-                  "Enable the hack in-game from the hidden hacks menu.")
+                  "Enable the hack in-game from the HACKS tab in Options.")
     elif args.command == "headon":
         try:
             if args.disable and args.enable:
