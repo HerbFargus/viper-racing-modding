@@ -17,10 +17,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from vrmod import archive, bsp, envelope, grf, ili, mod, obt, sol  # noqa: E402
 
-DEFAULT_DATA = Path.home() / "Desktop" / "claude-code" / "game-files" / "Viper Racing" / "Data"
+DEFAULT_DATA = (Path.home() / "Desktop" / "claude-code" / "game-files"
+                / "installs" / "v1.1-pristine" / "Data")
 SKIP = ("TEST", "BACKUP", "LEFTOVER", "pristine")
 
 failures: list[str] = []
+skipped: list[str] = []
 checks = 0
 
 
@@ -30,6 +32,16 @@ def check(name: str, ok: bool, detail: str = "") -> None:
     print(("  ok    " if ok else "  FAIL  ") + name + (f"  ({detail})" if detail else ""))
     if not ok:
         failures.append(name)
+
+
+def skip(name: str, why: str) -> None:
+    """Not a pass and not a failure -- the input cannot answer the question.
+
+    A check that goes red because the reference data is absent trains people to
+    ignore red, which is worse than not running it.
+    """
+    skipped.append(name)
+    print(f"  skip  {name}  ({why})")
 
 
 def tracks(data: Path):
@@ -96,8 +108,22 @@ def check_sol(data: Path, compiled: Path | None) -> None:
 
     # An empty .sol is a shipped configuration, not a degenerate case -- several
     # community tracks carry one -- so synthesising it is worth getting right.
-    check("empty() is what the compiler writes for a wall-less scene",
-          len(empties) > 0, f"tracks shipping an empty .sol: {', '.join(empties) or 'none'}")
+    #
+    # NONE of the 8 stock tracks is wall-less, so on a pristine retail install there
+    # is nothing to compare against and this can only be skipped. It is a real check
+    # against a Data folder with community tracks in it.
+    if empties:
+        check("empty() is what the compiler writes for a wall-less scene", True,
+              f"tracks shipping an empty .sol: {', '.join(empties)}")
+    else:
+        skip("empty() matches a shipped wall-less .sol",
+             "no wall-less track here; all 8 stock tracks have walls")
+        # Still worth asserting what CAN be checked without reference data.
+        blank = sol.empty()
+        parsed = sol.parse(blank)
+        check("empty() is self-consistent: parses, reads as empty, rebuilds exactly",
+              parsed.is_empty and sol.build(parsed) == blank,
+              f"{len(blank)} bytes")
 
     if compiled and (compiled / "track.sol").exists():
         raw = (compiled / "track.sol").read_bytes()
@@ -245,7 +271,8 @@ if __name__ == "__main__":
     check_obt(data, compiled)
     check_ili(data)
     check_grf(compiled)
-    print(f"\n{checks - len(failures)}/{checks} passed")
+    tail = f" ({len(skipped)} skipped)" if skipped else ""
+    print(f"\n{checks - len(failures)}/{checks} passed{tail}")
     if failures:
         print("failed: " + ", ".join(failures))
         sys.exit(1)
