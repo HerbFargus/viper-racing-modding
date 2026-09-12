@@ -162,11 +162,20 @@ class AspectError(RuntimeError):
     """The viewport builder can't be found, or isn't in a state we recognise."""
 
 
+# Engine binaries, live one first. The v1.0 pressing runs race.exe; rewriting the
+# viewport builder in the race.bin beside it changes a file nothing loads. The
+# 66-byte region is found by PATTERN and matches all three builds, and the two
+# float constants are found by VALUE in .rdata, so only the filename differed.
+ENGINE_NAMES = ("race.exe", RACE_BIN)
+
+
 def _race_bin(data_dir: str | Path) -> Path:
-    f = Path(data_dir) / RACE_BIN
-    if not f.is_file():
-        raise AspectError(f"no {RACE_BIN} in {data_dir}")
-    return f
+    """The engine binary whose viewport builder the game actually runs."""
+    d = Path(data_dir)
+    for n in ENGINE_NAMES:
+        if (d / n).is_file():
+            return d / n
+    raise AspectError(f"no {' or '.join(ENGINE_NAMES)} in {d}")
 
 
 def _sections(blob: bytes):
@@ -243,8 +252,9 @@ def _replacement(r0_va: int, half_va: int) -> bytes:
 
 
 def status(data_dir: str | Path) -> str:
-    f = Path(data_dir) / RACE_BIN
-    if not f.is_file():
+    try:
+        f = _race_bin(data_dir)
+    except AspectError:
         return MISSING
     blob = f.read_bytes()
     if len(_SITE.findall(blob)) == 1:
