@@ -61,15 +61,30 @@ def main() -> int:
     src = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT
     pristine = src / "race.exe.vrmod-original"
     engine = src / "race.exe"
-    if not pristine.is_file() or not engine.is_file():
-        print(f"  needs a v1.0 Data folder with a race.exe and a snapshot: {src}")
+    if not engine.is_file():
+        print(f"  needs a v1.0 Data folder with a race.exe: {src}")
         return 1
     print(f"source: {src}\n")
 
-    clean = pristine.read_bytes()
-    patched = engine.read_bytes()
-    check("the fixture is usable: the snapshot and the live file differ",
-          clean != patched)
+    # BUILD the fixture, do not borrow it. This used to take the clean bytes
+    # from the snapshot and the patched bytes from the install's live race.exe,
+    # which only worked while that install happened to be patched -- three
+    # checks here failed the moment the test bed was reset to disc state. The
+    # clean bytes come from the snapshot when there is one (else the engine,
+    # which is then the untouched file), and the patched bytes are made here.
+    with tempfile.TemporaryDirectory() as t:
+        tmp = Path(t)
+        clean = (pristine if pristine.is_file() else engine).read_bytes()
+        mk = tmp / "_fixture"
+        mk.mkdir()
+        (mk / "race.exe").write_bytes(clean)
+        (mk / "race.exe.vrmod-original").write_bytes(clean)
+        patchset.apply(mk, mode=(1920, 1080))
+        patched = (mk / "race.exe").read_bytes()
+        shutil.rmtree(mk)
+        check("the fixture is usable: the patched build differs from the clean one",
+              clean != patched,
+              f"clean from {'the snapshot' if pristine.is_file() else 'race.exe'}")
 
     with tempfile.TemporaryDirectory() as t:
         tmp = Path(t)
