@@ -39,7 +39,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from vrmod import aifield, doctor, resolution, writepaths  # noqa: E402
+from vrmod import (aifield, doctor, resolution, switcher_ui,  # noqa: E402
+                   writepaths)
 
 PASS = FAIL = 0
 
@@ -177,6 +178,39 @@ def main() -> int:
         d = v10(tmp / "k", cfg=options(4, None), def_=None)
         check("a file with only the junk line reports no video mode",
               doctor.video_mode(d) is None)
+
+    print("\nthe Config folder itself\n")
+
+    # The paint the car viewer renders is a paintN.tex the game writes into
+    # Config/, so the same layout rule applies -- and _paint_dir was still
+    # looking only beside Data, which meant every v1.0 install silently got the
+    # stand-in colour instead of the player's actual paint.
+    with tempfile.TemporaryDirectory() as t:
+        tmp = Path(t)
+
+        d = v10(tmp / "p10", cfg=options(4, 4), def_=None)
+        (d / "Config" / "paint0.tex").write_bytes(b"\x00" * 32)
+        check("v1.0: the paint dir resolves inside the Data contents",
+              switcher_ui._paint_dir(d) == d / "Config",
+              str(switcher_ui._paint_dir(d)))
+
+        d = v11(tmp / "p11", cfg=options(4, 4), def_=None)
+        (d.parent / "Config" / "paint0.tex").write_bytes(b"\x00" * 32)
+        check("v1.1: the paint dir resolves beside Data",
+              switcher_ui._paint_dir(d) == d.parent / "Config",
+              str(switcher_ui._paint_dir(d)))
+
+        # An empty Config must not win over the populated one: `containing`
+        # is what separates "a Config exists" from "the paint is in it".
+        d = v10(tmp / "pboth", cfg=options(4, 4), def_=None)
+        (d.parent / "Config").mkdir(parents=True, exist_ok=True)
+        (d / "Config" / "paint0.tex").write_bytes(b"\x00" * 32)
+        check("an empty sibling Config does not shadow the populated one",
+              switcher_ui._paint_dir(d) == d / "Config")
+
+        d = v10(tmp / "pnone", cfg=options(4, 4), def_=None)
+        check("no paint anywhere reports None, so the viewer falls back",
+              switcher_ui._paint_dir(d) is None)
 
     print("\nthe CLI teaches the same numbering\n")
 

@@ -351,6 +351,20 @@ def config_dirs(data_dir: str | Path) -> list[Path]:
             d.parent / USER_DIR_NEW.decode().rstrip("\\")]
 
 
+def config_dir(data_dir: str | Path, *, containing: str | None = None) -> Path | None:
+    """The install's live Config folder, or None if it has none yet.
+
+    `containing` narrows it to a folder that actually holds that file, for
+    callers that want a specific artefact (paint0.tex, options.cfg) rather than
+    just any Config directory -- an empty Config beside the wrong pressing
+    should not win over a populated one.
+    """
+    for c in config_dirs(data_dir):
+        if c.is_dir() and (containing is None or (c / containing).is_file()):
+            return c
+    return None
+
+
 def options_file(data_dir: str | Path) -> Path | None:
     """The options file the game actually reads, or None if there is none.
 
