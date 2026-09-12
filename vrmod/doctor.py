@@ -48,10 +48,11 @@ DRIVERS_RES = "drivers.res"
 DGVOODOO_DLLS = ("ddraw.dll", "d3dimm.dll")
 OPTIONS = "options.def"
 
-# The four modes stock race.bin ships with, in its own order. `video mode` in
-# options.def indexes this list. Anything else means a resolution patcher has
-# rewritten the table -- see resolution.py.
-STOCK_MODES = [(1024, 768), (800, 600), (640, 480), (512, 384)]
+# The four modes a stock engine ships with, in its own table order. Anything
+# else means a resolution patcher has rewritten it -- see resolution.py.
+# Defined by patchset, which owns the resolution step; re-exported here so the
+# two cannot drift apart.
+STOCK_MODES = patchset.STOCK_MODES
 
 # Files this toolchain and its predecessors leave behind. Not junk exactly --
 # they are the undo history -- but worth surfacing, because they accumulate and
@@ -95,13 +96,11 @@ class Report:
 
 # Stock race.bin, by pressing. Neither carries a version marker, so "no marker"
 # alone cannot tell 1.0 from 1.1 -- it only rules out a community build.
-# Both hashes read off the retail discs themselves: 1.0 cross-checked against the
-# redump-61183 copy in reference-files/executables/engine-builds/, 1.1 off the
-# mounted Rev 1 disc (Data\race.bin, 1,300,480 bytes).
-STOCK_RACE_BIN = {
-    "2e3d9dcd7f89af508b1454a46109bbdb2e41ab8b772ab3ae46e294b12a6cdfdf": "1.0",
-    "369cb5efd2639d99ad872b9ba5066513ea05cbaf374c526cec0eae3b57205185": "1.1",
-}
+# The hashes live in patchset.STOCK_ENGINES, which also knows the untouched
+# race.exe and uses all three to pick a rebuild baseline; this is just the
+# race.bin view of that one table.
+STOCK_RACE_BIN = {h: edition for h, (name, edition)
+                  in patchset.STOCK_ENGINES.items() if name == RACE_BIN}
 
 
 def retail_edition(data_dir: Path) -> str | None:
@@ -454,12 +453,29 @@ def check(data_dir: str | Path) -> Report:
                         "state. The patch set is meant to be rebuilt as a unit, not layered.",
                         "Run: vrmod patch <Data> --mode 1920x1080"))
         elif applied:
-            add(Finding(OK, f"Patch set applied: {', '.join(applied)}",
-                        f"Rebuildable from {ps['baseline']}." if snap else
-                        "Applied, but there is no pristine snapshot, so this binary cannot "
-                        "be rebuilt or reverted by the tool.",
-                        None if snap else
-                        f"Put an untouched {live} in place and run: vrmod patch <Data>"))
+            if snap:
+                add(Finding(OK, f"Patch set applied: {', '.join(applied)}",
+                            f"Rebuildable from {ps['baseline']}."))
+            else:
+                # The tool makes a backup before every patch, so the copy taken
+                # before the first one is usually the original -- sitting in this
+                # same folder. Name it rather than sending someone to their disc.
+                try:
+                    found = patchset.find_pristine_backup(data_dir)
+                except Exception:
+                    found = None
+                detail = ("Applied, but there is no pristine snapshot, so this binary "
+                          "cannot be rebuilt or reverted by the tool.")
+                if found is None:
+                    fix = (f"Put an untouched {live} in place and run: "
+                           f"vrmod patch <Data>")
+                else:
+                    src, why = found
+                    detail += (f" {src.name} in this folder is a better starting "
+                               f"point -- {why}.")
+                    fix = (f"Restore it and rebuild: copy \"{src.name}\" \"{live}\", "
+                           f"then run vrmod patch <Data>")
+                add(Finding(OK, f"Patch set applied: {', '.join(applied)}", detail, fix))
         else:
             add(Finding(INFO, "Modern-display enhancements not applied",
                         f"A bundle of {live} fixes that make the game look right on a modern "

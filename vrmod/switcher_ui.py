@@ -1558,15 +1558,20 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
 
 def _paint_dir(d: Path) -> Path | None:
-    """A live install's Config/ folder, if there is one beside Data.
+    """A live install's Config/ folder, if there is one holding the paint.
 
     The main body paint isn't in the static archives -- it's a paintN.tex the
     game writes into Config/ -- so without this the shell falls back to a
-    stand-in colour. Auto-detected rather than a flag, since it's always in
-    the same place relative to the Data folder we're already pointed at.
+    stand-in colour.
+
+    It is NOT always in the same place relative to the Data folder, which is
+    what this used to assume. `Config\\` is relative to the working directory,
+    so on a v1.1 install it sits beside Data and on a v1.0 install it sits
+    INSIDE the Data contents, because there the Data contents are the game
+    root. Looking only beside Data meant every v1.0 install silently rendered
+    the stand-in colour instead of the player's actual paint.
     """
-    cfg = d.parent / "Config"
-    return cfg if (cfg / "paint0.tex").is_file() else None
+    return writepaths.config_dir(d, containing="paint0.tex")
 
 
 _MESH_CACHE: dict = {}
