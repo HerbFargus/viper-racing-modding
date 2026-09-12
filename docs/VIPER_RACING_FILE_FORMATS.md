@@ -743,14 +743,58 @@ This is genuinely one of the more modder-friendly formats in the game — the pa
   LOD7  Viper7 1000    x                  <- last level; beyond this the car is not drawn
   ```
 
-  The distances are the FAR bound of each level, in metres (the game's one world scale, §7). Selection is
+  The distances are the FAR bound of each level, in metres (the game's one world scale, §6). Selection is
   **by camera distance**, not by which screen you are on: the same distance test governs every 3D context
   that draws the car through the standard object path — so a car 5 m ahead in a chase cam is LOD0-1 and the
   same car 300 m down the straight is LOD7, regardless of view. A global **"LOD Factor"** scalar scales the
   whole curve (default 1.0); a hidden debug overlay exposes it (`?LOD Factor: %4.1f` / `[`=down `]`=up
   `'`=1.0, at `0x40D3D0`), so the effective switch distance is `table_distance × LOD_factor`. The flag and
-  options fields are read but their exact effect (mip/shadow toggle; `alpha spec` clearly gates
-  alpha-blend + specular on the near levels) is inferred, not byte-traced — 🟡. **Modding note:** the
+  options fields are read but their exact effect (mip/shadow toggle; `alpha spec` gates alpha-blend +
+  specular on the near levels) has not been byte-traced here. The `alpha spec` reading is **independently
+  corroborated** by the scene, though, which is why it sits at ✅ rather than 🟡 — see the note below.
+
+  **Making a car shiny at distance — Sucahyo's finding.** The community worked this out from the other
+  end. A note preserved with `e86mrsL.tab` records what Sucahyo posted on the VRgt forum:
+
+  > *"Edit your `carnameL.tab` and add alpha spec (transparent and specular/shiny) numbers on all view
+  > distance… The structure of `carnameL.tab` is rather similar with [NASCAR Heat's]: view distance
+  > (feet), tire model used (0 or X), what effect activated."*
+
+  His own `e86mrsL.tab` shows the technique, and reading it beside the stock table makes the effect plain:
+
+  ```
+  stock viperL.tab                    Sucahyo's e86mrsL.tab
+    10    0  alpha spec                 10    0  alpha spec
+    15    0  alpha spec                 50    0  alpha spec
+    20    0  alpha spec                250    0  alpha spec
+    60    0            <- dropped      1250    0  alpha spec
+    80    1                            5000    x
+   100    1
+   200    x
+  1000    x
+  ```
+
+  Stock cars drop `alpha spec` beyond the third level, so a Viper **goes matte past about 20 m**. Putting
+  it on every drawn level keeps the specular highlight all the way out. That is a second, independent
+  reading of the same field — he calls it *"specular/shiny"*, arrived at by experiment rather than by
+  disassembly — and it agrees with what the loader appears to do.
+
+  **Tried in game, and the result was inconclusive.** A control install and one with
+  `alpha spec` on all eight levels were built and compared (`vrmod` can rewrite the field:
+  the STAB header gives record stride `0x43` and field offsets `0x11`/`0x22`, so only 5
+  fields change and the archive repacks byte-identical apart from that member). On a
+  modern GPU and display no clear difference was visible at distance. That does **not**
+  refute Sucahyo — the effect is a 1998 specular path, and what was obvious on period
+  hardware may simply not survive modern drivers and rendering. Recorded so the next
+  person does not repeat the experiment expecting a dramatic result.
+
+  Two incidental points from his note. The record count is genuinely **per car**, not fixed at 8: his
+  table has five records for a five-mesh conversion. And he reads the distance column as **feet** — but
+  that is an assumption carried over from NASCAR Heat, which his note says the format resembles. This
+  document reads **metres**, and that is the better-supported figure: §6 establishes one shared world
+  scale in metres across meshes, track geometry and AI paths, confirmed by raycasting path points onto
+  the road surface. The bands also match in-game measurement (runtime reference §1). So: metres, and
+  his feet is inherited from the wrong game. **Modding note:** the
   stock chain is real reduced-detail meshes; the old community "LOD hack" of copying `Viper0` into all of
   `Viper1..7` satisfies the loader but gives **zero** performance benefit, since every level is then
   full-detail. Genuine decimation (see `vrmod moddecimate`) is what actually helps a heavy custom car in
