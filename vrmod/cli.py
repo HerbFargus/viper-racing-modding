@@ -12,7 +12,7 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from . import aifield, archive, aspectfix, bpp as bppmod, car, carshot, catalog as catalog_mod, cf, cockpit_tab, doctor, envelope, hornball, mapfile, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon, drawdistance, surface, writepaths, modassert
+from . import aifield, archive, aspectfix, bpp as bppmod, car, carshot, catalog as catalog_mod, cf, cockpit_tab, doctor, envelope, hornball, mapfile, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon, drawdistance, surface, writepaths, modassert, carlist
 
 COMMIT_PATH = "/__vrmod_commit__"
 
@@ -836,6 +836,22 @@ def main(argv: list[str] | None = None) -> int:
                        help="repoint one MENU INDEX (1-4) at a new resolution, e.g. "
                             "--set 4 1920x1080. Index 2 is the startup gate and is "
                             "refused. Backs the engine up first.")
+
+    p_cl = sub.add_parser(
+        "carlist",
+        help="Move/resize the Vehicle list on the Hacks options screen, so a big "
+             "car collection stops running off the bottom of the window",
+    )
+    p_cl.add_argument("data_dir", type=Path, help="the game's Data folder")
+    p_cl.add_argument("--community", action="store_true",
+                      help="apply the community geometry (x=390 y=124 "
+                           "w=111 h=255), the values every community race.bin ships")
+    p_cl.add_argument("--geometry", nargs=4, type=int, default=None,
+                      metavar=("X", "Y", "W", "H"),
+                      help="set it explicitly. W is capped at 127 (it is a "
+                           "one-byte immediate); X, Y and H are unconstrained")
+    p_cl.add_argument("--reset", action="store_true",
+                      help="put the retail geometry back (x=300 y=200 w=100 h=200)")
 
     p_hb = sub.add_parser(
         "hornball",
@@ -1740,6 +1756,33 @@ def main(argv: list[str] | None = None) -> int:
                   "the game has not saved settings here.")
         else:
             print(f"\n  {cfg.name} records video_mode {current}.")
+    elif args.command == "carlist":
+        if not carlist.available(args.data_dir):
+            print("This engine doesn't carry the Vehicle-list descriptor this can move.")
+            return 1
+        try:
+            if args.reset:
+                carlist.revert(args.data_dir)
+            elif args.geometry:
+                x, y, w, h = args.geometry
+                carlist.apply(args.data_dir, carlist.Geometry(x, y, w, h))
+            elif args.community:
+                carlist.apply(args.data_dir)
+        except carlist.CarListError as e:
+            raise SystemExit(f"error: {e}")
+        g = carlist.read(args.data_dir)
+        state = carlist.status(args.data_dir)
+        print(f"car list: {g}")
+        print(f"  {state}"
+              + ("  (retail: the list starts halfway down, so a big collection "
+                 "runs off the bottom)" if state == carlist.STOCK else "")
+              + ("  (the values every community race.bin ships, from the 2005 "
+                 "race.bin)" if state == carlist.COMMUNITY else ""))
+        if g.bottom > 480:
+            print(f"  NOTE: the list now ends at {g.bottom}, past the 480-line "
+                  f"frontend. Check it in game -- this is past anything the "
+                  f"community shipped.")
+
     elif args.command == "hornball":
         if not hornball.available(args.data_dir):
             print("This race.bin doesn't carry the horn-ball launch code this can tune.")

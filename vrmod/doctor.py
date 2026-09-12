@@ -37,7 +37,8 @@ import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import mapfile, modassert, patchset, resolution, switcher, vrampatch, writepaths
+from . import (carlist, mapfile, modassert, patchset, resolution, switcher,
+               vrampatch, writepaths)
 
 # Severity, worst first. "bad" means the game probably will not run or work
 # right; "warn" is worth acting on; "info" is context, not a problem.
@@ -622,6 +623,51 @@ def check(data_dir: str | Path) -> Report:
                     "A local dsound.dll is in the Data folder. Harmless, but this community build "
                     "already fixes the DirectSound crackle in its own code, so the wrapper is not "
                     "required here."))
+
+    # ---- the car list on the Hacks options screen ------------------------
+    # Reported in PIXELS of room below the list's top edge, not in entries: how
+    # many rows fit depends on the row height, which has not been measured. The
+    # complaint is about where the list STARTS -- everything below it is what a
+    # long list has to grow into before it leaves the window.
+    try:
+        cl = carlist.status(data_dir)
+        cars = len(list(data_dir.glob("*.car")))
+        g = carlist.read(data_dir)
+        room = 480 - g.y
+        if cl == carlist.STOCK:
+            if cars > 8:
+                add(Finding(WARN, f"The car list starts halfway down, with {cars} cars",
+                            f"On the Hacks options screen the Vehicle list's top edge is "
+                            f"at y={g.y} on a 480-line frontend, leaving {room} pixels "
+                            f"before entries leave the window. The community fixed this "
+                            f"in Sucahyo's 1.2.4 beta by moving it to y=124 -- "
+                            f"{480 - 124} pixels of room, 76 more -- and growing the box "
+                            f"from 200 to 255. They only ever did it in race.bin, so "
+                            f"this build never got it.",
+                            "Move it up: vrmod carlist <Data> --community (reversible)",
+                            action="carlist"))
+            else:
+                add(Finding(OK, "The car list is at its retail position",
+                            f"{cars} cars installed. The list starts at y={g.y}, leaving "
+                            f"{room} pixels of room -- fine for a small collection. "
+                            f"vrmod carlist <Data> --community moves it up to y=124 for "
+                            f"76 pixels more, which is what every community race.bin "
+                            f"ships."))
+        elif cl == carlist.COMMUNITY:
+            add(Finding(OK, "The car list has the community geometry",
+                        f"Top edge at y=124 and the box grown to 255, matching every "
+                        f"community race.bin from the 2005 v1.2.4 BETA onward -- "
+                        f"{room} pixels of room. {cars} cars installed."))
+        elif cl == carlist.CUSTOM:
+            add(Finding(OK, "The car list has been moved",
+                        f"{g}, leaving {room} pixels below the top edge. {cars} cars "
+                        f"installed."
+                        + (f" The box itself ends at {g.bottom}, past the 480-line "
+                           f"frontend, which is further than anything the community "
+                           f"shipped -- worth checking in game." if g.bottom > 480
+                           else "")))
+    except Exception:
+        pass
 
     # ---- the RC's development-only assertions ---------------------------
     try:
