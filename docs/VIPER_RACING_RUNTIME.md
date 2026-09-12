@@ -3,7 +3,7 @@
 **Purpose:** what the game *does when it runs*, as opposed to what its files contain: **which detail
 level (LOD) you actually see in each camera view** and **how the AI reacts to other cars**, both
 measured in-game; the **command-line parameters** the executable accepts, read out of the binary; and
-**how world objects are created and freed**, which is what the exit panic reports on. Companions:
+**how world objects are created and freed**, which is what the exit panic reports on; and **what the launcher does before the engine starts**, which is a separate program with its own flags. Companions:
 [VIPER_RACING_FILE_FORMATS.md](VIPER_RACING_FILE_FORMATS.md) (byte layouts) and
 [VIPER_RACING_ASSET_TREE.md](VIPER_RACING_ASSET_TREE.md) (what's inside a `.car`/`.trk`).
 
@@ -64,7 +64,12 @@ Retail effectively has the eleven F-key views above.
 
 ---
 
-## 2. Command-line parameters ✅ CONFIRMED (string table)
+## 2. Command-line parameters — the ENGINE's ✅ CONFIRMED (string table)
+
+> These are read out of `race.bin`. The **launcher** parses a different set entirely
+> (`-autoplay`, `-no3dfx`, `-nocanary`, `-safe`) — see §5. Neither list overlaps the other,
+> so "which flags does Viper Racing take" has two answers depending on which binary
+> you ask.
 
 `race.exe`/`race.bin` parses its command line at startup. These flag names sit in one table in `.data`
 at **`0x0D1804`**, immediately followed by the parser's own error and progress strings
@@ -101,6 +106,12 @@ overlays people have seen (the LOD readout, TV-camera and physics pages) are fro
 debug build**. Their *renderer* code is still present in retail, but the calls into it are compiled
 out — they are dormant, not flag-gated, so no command line will bring them back. Adding them requires
 patching the binary, not passing an argument.
+
+A warning for anyone re-checking this by string search: `-DEBUG` **does** appear in
+`race.exe` and in both retail `race.bin` files — as the tail of `NON-DEBUG` in the
+build banner (`Jan 25 1999 11:47:39 NON-DEBUG MSVC-4.0 Release`). That is a false
+positive, not a flag. The launcher's `debug.bin` (§5) is a module filename, also not
+a flag.
 
 ---
 
@@ -303,3 +314,151 @@ the same 3 after register_phob          3,672 bytes  =  3 × 1,224   (pool half 
 The practical rule for anything that creates objects at load: appending to the
 array *during* the load loop corrupts it, because `[0x50B6B0]` is the loop's own
 live index. The insertion has to happen after the loop has finished.
+
+---
+
+## 5. The launcher is a separate layer ✅ CONFIRMED (string table)
+
+`Viper Racing.exe` is **not the game**. It is 388,608 bytes of which only **16 KB is
+code**; the rest is resources. It imports `KERNEL32`, `USER32`, `ADVAPI32`, `WSOCK32`
+and `VERSION` — and notably *not* `DDRAW`, `DSOUND` or `DINPUT`. The engine is
+`race.bin`, and the launcher's job is to find it, decide the machine can run it, and
+start it.
+
+That means **there are two flag sets and two layers**, and §2 above covers only the
+engine's. Everything here is read out of the launcher's `.data` section at `0x4740`
+onward, in file order, so the grouping below is the program's own.
+
+### The four launcher flags 🟡
+
+```
+-autoplay   -no3dfx   -nocanary   -safe
+```
+
+None of these appear in `race.bin`, and none of §2's engine flags (`-debug`,
+`-dedicated`, `-grid`, `-nointro`, `-tri`) appear here. `-no3dfx` and `-safe` sit
+directly beside the 3D-capability errors below, which is what they most plainly relate
+to. **Behaviour is untested** — these are confirmed as strings the launcher carries, not
+as verified switches.
+
+### Where it looks for the game ✅
+
+```
+Software\Sierra On-Line\Viper Racing      ← registry key
+  DataDirectory                            ← values
+  CDDirectory
+MGI\Viper98\
+Data\        \Data        %sdata\%s        common.res
+"Can't find data directory--Game may not be installed"
+```
+
+`common.res` is the file it checks to decide a directory really is the data directory.
+
+### It chooses between two engine modules ✅
+
+```
+debug.bin
+race.bin
+```
+
+Stored adjacent, in that order. So the retail launcher will load an engine module named
+**`debug.bin`**, which makes it a hook for running a second build without overwriting
+`race.bin`. Whether that is unconditional, gated by `-safe`, or tried-then-fallback is
+**not established**.
+
+> This is *not* a debug switch. The "there is no `-debug` flag" finding in §2 stands —
+> and be warned that a string search for `-DEBUG` hits the tail of `NON-DEBUG` in the
+> build banners, which is a false positive, not a discovery.
+
+### Single instance, and a "Canary" ⚪
+
+```
+MGI Viper Racing 1998            MGI Viper Racing 1998 Canary
+Viper Racing Window
+```
+
+Two instance names differing only by the suffix, alongside the `-nocanary` flag. Purpose
+unknown; the pairing suggests an alternate build or mode the launcher can be told to
+skip.
+
+### Everything it refuses to run on ✅
+
+```
+%s cannot run under Windows NT
+%s cannot run without a mouse.
+%s requires %d megabytes of memory (you have %d).
+%s may not run optimally with %d megabytes of memory.
+%s requires %d megabytes of virtual memory (you have %d).  Please free up disk space...
+You only have %d megabytes of free disk space.
+This game requires DirectX 5 or 6          This product requires DirectX 5.0 or better
+%s\ddraw.dll
+Your video card does not support 3D graphics
+Your video card does not support 3D texture mapping
+Your video card returned an error.  Are your video drivers up to date?
+%s is not installed properly.  Run setup from the CD
+You must have the %s CD inserted to play.
+```
+
+**The CD check lives here, in the launcher** — which is exactly why the widely
+circulated no-CD build differs from MGI's official 1.2.1 executable by **three bytes at
+`0x000C70`** (`83 EC 24` → `C3 90 90`, a function turned into an immediate `RET`). The
+community never needed to touch `race.bin` for it.
+
+It also explicitly refuses **Windows NT**, which is what the official 1.2.1 beta patch
+was released to address.
+
+### The crash path, including a mail sender ✅
+
+```
+%s has aborted (%d).  Let's check out the log.
+notepad c:\log.log
+Can't start game. (%s)
+Our Apologies        Continue?
+```
+
+There is a log, at **`c:\log.log`**, and on an abort the launcher offers to open it in
+Notepad. That connects to the `kernel:log.obj` symbols — `LogBegin`, `log_file_begin`,
+`LogError`, `LogPanic` — visible in the linker map (see the format reference).
+
+And the launcher carries a small **SMTP client** for mailing a report:
+
+```
+Can't start winsock      Can't create socket.      Can't bind socket (%d).
+Can't get address for %s          Can't connect to %s (%d)
+Can't parse host address from %s  Can't parse rcpt from %s
+HELO lame.programmer.com
+MAIL FROM: %s     RCPT TO: %s     Subject: %s
+Twinkies for sale.
+tried to send way too much!       Sending mail failed.
+```
+
+`HELO lame.programmer.com` and the placeholder subject `Twinkies for sale.` are
+developer scaffolding that shipped at retail. This explains the otherwise puzzling
+`WSOCK32` import in a program that does not itself do networking.
+
+### v1.0 has no launcher at all ✅
+
+The first pressing ships `Data\race.exe` (2,404,451 bytes) and nothing else runnable.
+That binary **does** import `DDRAW`, `DSOUND`, `DINPUT`, `WINMM` and `TAPI32`, carries
+890 KB of code, and contains **no `.bin` string anywhere**. Between the pressings the
+engine moved out of the executable and into `race.bin`, leaving the 16 KB stub described
+above — which is also where the 890 KB "missing" from the v1.1 executable went.
+
+The build banners agree, and date both builds to the second:
+
+```
+v1.0  Data\race.exe   "Oct 21 1998 08:49:56 NON-DEBUG MSVC-4.0"
+v1.0  Data\race.bin   no banner
+v1.1  Data\race.bin   "Jan 25 1999 11:47:39 NON-DEBUG MSVC-4.0 Release"
+v1.1  launcher        no banner
+```
+
+The compiled program stamps itself, and in v1.0 that is the `.exe`. Both were built with
+**MSVC 4.0**, a 1995 compiler. `Oct 21 1998` matches the v1.0 disc readme date exactly.
+
+> **Open question, and it decides which retail build is the right test baseline.** Does
+> a v1.0 install use `race.bin` at all? Against: its only launcher never mentions a
+> `.bin`. For: `race.exe` carries **no version string** while `race.bin` carries
+> `"v1.0"`, and the Options screen displays a version — so if a v1.0 install shows
+> `v1.0` bottom-right, `race.bin` must be live. Neither `race.bin` is a DLL and neither
+> exports anything, so whatever loads it is not `LoadLibrary`.
