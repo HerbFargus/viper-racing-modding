@@ -59,13 +59,19 @@ an explicit flag before calling it.
 """
 from __future__ import annotations
 
+import hashlib
 import shutil
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import aspectfix, mapfile, needlefix, resolution, tablefix, vertexbuffer, vrampatch
 
 RACE_BIN = "race.bin"
+
+# The four modes a stock engine ships with, in its own table order.
+# Anything else means a resolution patcher has rewritten it.
+STOCK_MODES = [(1024, 768), (800, 600), (640, 480), (512, 384)]
 
 # Engine binaries, live one first. The v1.0 pressing runs race.exe and ships a
 # race.bin beside it that nothing loads, so the whole set has to follow the live
@@ -147,6 +153,109 @@ def baseline(data_dir: str | Path) -> str:
             else f"none yet, and the current {eng} is NOT clean: {why}")
 
 
+# Engine binaries known to be untouched, by sha256. Both race.bin hashes were
+# read off the retail discs (1.0 cross-checked against the redump-61183 copy,
+# 1.1 off the mounted Rev 1 disc); the race.exe hash comes from that same
+# verified 1.0 tree, whose race.bin matches the 1.0 entry below exactly.
+#
+# doctor derives its edition lookup from this, so there is one table rather than
+# two that can drift. (doctor imports patchset, so the dependency runs this way.)
+STOCK_ENGINES: dict[str, tuple[str, str]] = {
+    "2e3d9dcd7f89af508b1454a46109bbdb2e41ab8b772ab3ae46e294b12a6cdfdf":
+        (RACE_BIN, "1.0"),
+    "369cb5efd2639d99ad872b9ba5066513ea05cbaf374c526cec0eae3b57205185":
+        (RACE_BIN, "1.1"),
+    "739619fd213c1e8c234b4712b2bae2a8b362d19f94f6be08c477a42e39d6dd81":
+        ("race.exe", "1.0"),
+}
+
+
+def _patch_score(d: Path) -> int:
+    """How many of this toolkit's patches a folder's engine carries.
+
+    Only used to rank candidates when no hash matches. looks_pristine() is
+    deliberately lenient -- it ignores the VRAM fix, because the community
+    v1.2.5 build ships with it and is a perfectly good baseline -- so it cannot
+    tell an untouched file from one that is merely missing the needle and aspect
+    fixes. Without this, a `.needle-backup` taken after four other patches
+    scores the same as the original.
+    """
+    from . import headon, modassert, writepaths        # local: avoid import cycles
+    score = 0
+    try:
+        if vrampatch.status(d) == vrampatch.PATCHED:
+            score += 1
+        if tablefix.status(d) != tablefix.UNPATCHED:
+            score += 1
+        if modassert.status(d) == modassert.PATCHED:
+            score += 1
+        if headon.status(d) == headon.DISABLED_STATE:
+            score += 1
+        for st in writepaths.status(d).values():
+            score += sum(1 for v in st.values() if v == "patched")
+        if resolution.read(d) != STOCK_MODES:
+            score += 1
+    except Exception:
+        pass
+    return score
+
+
+def find_pristine_backup(data_dir: str | Path) -> tuple[Path, str] | None:
+    """An untouched copy of the engine among the backups we already made.
+
+    Returns (path, why) or None. Every patch in this toolkit drops a
+    `<engine>.<name>-backup` beside the file it edits, so on an install that was
+    patched a tool at a time -- which has no `.vrmod-original` -- the copy taken
+    before the FIRST patch is the original, sitting right there. Telling someone
+    to go find their disc while holding one of their own copies is a poor trade.
+
+    Ranked, best first:
+
+      1. an exact sha256 match against STOCK_ENGINES -- definitive;
+      2. otherwise the candidate carrying the FEWEST of our patches, which is
+         the best that can be said without a known hash. looks_pristine() alone
+         is not enough here: it ignores the VRAM fix by design, so a backup
+         taken after four other patches passes it just as the original does.
+
+    Each candidate is tested by copying it into a temp directory under the
+    engine's own name -- the real install is never touched.
+    """
+    d = Path(data_dir)
+    eng = _race_bin(d)
+    size = eng.stat().st_size
+    cands = [p for p in d.glob(eng.name + ".*")
+             if p.is_file() and p != eng
+             and (p.name.endswith("-backup") or p.name.endswith(SNAPSHOT_SUFFIX))
+             and p.stat().st_size == size]
+
+    best: tuple[int, float, Path, str] | None = None
+    for c in sorted(cands, key=lambda p: p.stat().st_mtime):
+        try:
+            blob = c.read_bytes()
+        except OSError:
+            continue                              # unreadable candidate: skip it
+        known = STOCK_ENGINES.get(hashlib.sha256(blob).hexdigest())
+        if known is not None and known[0] == eng.name:
+            return c, f"byte-identical to the retail {known[1]} {eng.name}"
+        tmp = Path(tempfile.mkdtemp(prefix="vrmod_pristine_"))
+        try:
+            shutil.copy2(c, tmp / eng.name)
+            ok, _ = looks_pristine(tmp)
+            if ok:
+                score = _patch_score(tmp)
+                if best is None or score < best[0]:
+                    best = (score, c.stat().st_mtime, c,
+                            "carries none of the fixes this tool re-applies"
+                            if score == 0 else
+                            f"the least-patched copy here, though it already "
+                            f"carries {score} of this tool's changes")
+        except Exception:
+            continue
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+    return (best[2], best[3]) if best else None
+
+
 def _snapshot(data_dir: Path, force: bool) -> Path:
     snap = _snapshot_path(data_dir)
     if snap.exists():
@@ -154,10 +263,23 @@ def _snapshot(data_dir: Path, force: bool) -> Path:
     eng = _race_bin(data_dir)
     ok, why = looks_pristine(data_dir)
     if not ok and not force:
+        found = find_pristine_backup(data_dir)
+        if found is not None:
+            src, reason = found
+            raise PatchSetError(
+                f"refusing to snapshot a patched {eng.name} as the baseline: {why}.\n"
+                f"{src.name} is a better baseline -- {reason}. Restore it and run "
+                f"this again:\n"
+                f'    copy "{src.name}" "{eng.name}"\n'
+                f"(Or pass force=True to freeze the current, patched file as the "
+                f"baseline forever, which is almost never what you want: every later "
+                f"rebuild and every revert would keep those patches.)")
         raise PatchSetError(
             f"refusing to snapshot a patched {eng.name} as the baseline: {why}.\n"
-            f"Restore an original {eng.name} first, or pass force=True if you are "
-            f"certain this file is the one you want to rebuild from every time.")
+            f"No untouched copy was found among this folder's backups either, so "
+            f"restore an original {eng.name} from your disc first -- or pass "
+            f"force=True if you are certain this file is the one you want to "
+            f"rebuild from every time.")
     shutil.copy2(eng, snap)
     return snap
 
