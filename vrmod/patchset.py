@@ -252,6 +252,7 @@ def revert(data_dir: str | Path) -> str:
 
 LAYERS_KEY = r"Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
 LAUNCHER = "Viper Racing.exe"
+RACE_EXE = "race.exe"   # v1.0's engine -- see _dpi_targets()
 
 
 def _dpi_targets(data_dir: str | Path) -> list[Path]:
@@ -272,9 +273,20 @@ def _dpi_targets(data_dir: str | Path) -> list[Path]:
     So the flag is set on both, and considered present if either has it. An
     earlier version targeted only the launcher, and named it "the process that
     owns the window", which is wrong -- race.bin is.
+
+    On a v1.0 install neither of those is the game: `race.exe` is the engine, and
+    Data's contents ARE the install directory, so there is no launcher in the
+    parent. Flagging only race.bin there sets the layer on a file the build never
+    loads and the scaling is not fixed, with nothing to say the flag went
+    nowhere. race.exe is therefore included, and listed first.
+
+    The launcher is looked for in BOTH places: an installed 1.1 tree keeps it in
+    the parent beside Data\\, but on the retail disc it ships INSIDE Data\\ and
+    only moves up when SETUP runs. Checking one location means missing it
+    whenever the folder being examined is the disc itself.
     """
     d = Path(data_dir)
-    return [d / RACE_BIN, d.parent / LAUNCHER]
+    return [d / RACE_EXE, d / RACE_BIN, d.parent / LAUNCHER, d / LAUNCHER]
 
 
 def scaling_active() -> bool | None:
@@ -321,7 +333,8 @@ def set_dpi_aware(data_dir: str | Path, enable: bool = True) -> str:
     import winreg
     targets = [e for e in _dpi_targets(data_dir) if e.is_file()]
     if not targets:
-        raise PatchSetError(f"no {RACE_BIN} or {LAUNCHER} to flag in {data_dir}")
+        raise PatchSetError(
+            f"no {RACE_EXE}, {RACE_BIN} or {LAUNCHER} to flag in {data_dir}")
     key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, LAYERS_KEY)
     results = []
     try:

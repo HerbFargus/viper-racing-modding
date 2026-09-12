@@ -30,7 +30,26 @@ will run, but high-detail mods that rely on those limits still will not load.
 Anyone wanting the full thing should install the community race.bin.
 
 The site is located by PATTERN, never by offset -- it sits at 0x4e366 in stock
-1.1 and the surrounding code moves between builds.
+1.1, 0x4e026 in stock 1.0's race.bin and 0x54556 in its race.exe, and the
+surrounding code moves between builds.
+
+TWO LAYOUTS, TWO BINARIES. The retail pressings do not run the same file:
+
+    v1.1   <install>\\Viper Racing.exe   the launcher: 388 KB, but only ~16 KB of
+                                       it is code -- the rest is resources, and
+                                       it imports no graphics DLLs at all. It runs
+           <install>\\Data\\race.bin      <- the engine
+
+    v1.0   <install>\\race.exe            <- the engine, and Data\\'s contents ARE
+                                           the install directory, as distributed
+
+and a v1.0 install ships BOTH: `race.exe` (890 KB of .text, importing DDRAW /
+DSOUND / DINPUT) and a `race.bin` that is never loaded. Patching only race.bin
+there changes nothing at all -- the game still refuses to start, and nothing
+reports that the patch went to a dormant file. That silent no-op is the whole
+reason this module looks at both. `race.exe` is the live binary whenever it is
+present; each file carries its own copy of the check, so both get patched and
+the install is correct whichever one the build actually loads.
 """
 from __future__ import annotations
 
@@ -38,7 +57,11 @@ import re
 import shutil
 from pathlib import Path
 
-RACE_BIN = "race.bin"
+# Engine binaries, LIVE ONE FIRST -- see "TWO LAYOUTS" above. Order is load-bearing:
+# status() reports on the live binary, and apply() returns its offset.
+TARGETS = ("race.exe", "race.bin")
+
+RACE_BIN = "race.bin"   # retained: callers and older patch records name it
 
 # The instruction being removed, and what replaces it.
 VRAM_ADD = bytes.fromhex("8144240400600900")   # add dword [esp+4], 0x96000
@@ -67,11 +90,13 @@ def _site(blob: bytes) -> int:
     return hits[0] - len(VRAM_ADD)
 
 
-def status(data_dir: str | Path) -> str:
-    """UNPATCHED, PATCHED, UNKNOWN or MISSING for a Data folder's race.bin."""
-    f = Path(data_dir) / RACE_BIN
-    if not f.is_file():
-        return MISSING
+def _present(data_dir: str | Path) -> list[Path]:
+    """Every engine binary in the folder, the live one first."""
+    d = Path(data_dir)
+    return [d / n for n in TARGETS if (d / n).is_file()]
+
+
+def _status_of(f: Path) -> str:
     try:
         blob = f.read_bytes()
         at = _site(blob)
@@ -81,25 +106,39 @@ def status(data_dir: str | Path) -> str:
     return UNPATCHED if chunk == VRAM_ADD else PATCHED if chunk == NOPS else UNKNOWN
 
 
-def apply(data_dir: str | Path) -> int:
-    """Apply the fix. Returns the offset patched.
+def report(data_dir: str | Path) -> dict[str, str]:
+    """Per-binary status, e.g. {"race.exe": "unpatched", "race.bin": "patched"}.
 
-    Refuses unless the site currently holds exactly the expected instruction --
-    so it cannot be applied twice, and cannot damage a build it does not
-    recognise. race.bin is copied to race.bin.vram-backup first.
+    status() collapses this to the live binary; use this when the difference
+    matters -- diagnosing a v1.0 install where only the dormant race.bin got
+    patched, for instance.
     """
-    f = Path(data_dir) / RACE_BIN
-    if not f.is_file():
-        raise PatchError(f"no {RACE_BIN} in {data_dir}")
+    return {f.name: _status_of(f) for f in _present(data_dir)}
+
+
+def status(data_dir: str | Path) -> str:
+    """UNPATCHED, PATCHED, UNKNOWN or MISSING for the binary the game actually runs.
+
+    On a v1.0 install that is race.exe, not race.bin -- reporting on race.bin
+    there would say "patched" about a file the game never loads.
+    """
+    files = _present(data_dir)
+    if not files:
+        return MISSING
+    return _status_of(files[0])
+
+
+def _patch_file(f: Path) -> int | None:
+    """NOP the site in one binary. Returns the offset, or None if already patched."""
     blob = bytearray(f.read_bytes())
     at = _site(bytes(blob))
     chunk = bytes(blob[at:at + len(VRAM_ADD)])
     if chunk == NOPS:
-        raise PatchError("already patched -- nothing to do")
+        return None
     if chunk != VRAM_ADD:
         raise PatchError(
-            f"unexpected bytes at the patch site ({chunk.hex(' ')}); refusing to write")
-
+            f"unexpected bytes at the patch site in {f.name} ({chunk.hex(' ')}); "
+            "refusing to write")
     blob[at:at + len(VRAM_ADD)] = NOPS
     backup = f.with_suffix(f.suffix + ".vram-backup")
     if not backup.exists():
@@ -108,13 +147,58 @@ def apply(data_dir: str | Path) -> int:
     return at
 
 
+def apply(data_dir: str | Path) -> int:
+    """Apply the fix to EVERY engine binary present. Returns the live one's offset.
+
+    Refuses unless the site holds exactly the expected instruction -- so it cannot
+    be applied twice, and cannot damage a build it does not recognise. Each file is
+    copied to <name>.vram-backup first.
+
+    Both binaries are patched on a v1.0 install because the dormant one costs
+    nothing to fix and leaves the tree correct if the other is ever made live. A
+    sibling that is already patched, or that this patch does not recognise, is
+    skipped rather than aborting the run -- only a failure on the LIVE binary is
+    fatal, since that is the one that decides whether the game starts.
+    """
+    files = _present(data_dir)
+    if not files:
+        raise PatchError(f"no {' or '.join(TARGETS)} in {data_dir}")
+    if _status_of(files[0]) == PATCHED:
+        raise PatchError("already patched -- nothing to do")
+
+    live_at = None
+    for f in files:
+        try:
+            at = _patch_file(f)
+        except PatchError:
+            if f is files[0]:
+                raise
+            continue
+        if f is files[0]:
+            live_at = at
+    return live_at
+
+
 def revert(data_dir: str | Path) -> int:
-    """Put the original instruction back. Returns the offset restored."""
-    f = Path(data_dir) / RACE_BIN
-    blob = bytearray(f.read_bytes())
-    at = _site(bytes(blob))
-    if bytes(blob[at:at + len(VRAM_ADD)]) != NOPS:
-        raise PatchError("the patch site does not hold this patch")
-    blob[at:at + len(VRAM_ADD)] = VRAM_ADD
-    f.write_bytes(bytes(blob))
-    return at
+    """Put the original instruction back in every binary. Returns the live offset."""
+    files = _present(data_dir)
+    if not files:
+        raise PatchError(f"no {' or '.join(TARGETS)} in {data_dir}")
+    live_at = None
+    for f in files:
+        blob = bytearray(f.read_bytes())
+        try:
+            at = _site(bytes(blob))
+        except PatchError:
+            if f is files[0]:
+                raise
+            continue
+        if bytes(blob[at:at + len(VRAM_ADD)]) != NOPS:
+            if f is files[0]:
+                raise PatchError("the patch site does not hold this patch")
+            continue
+        blob[at:at + len(VRAM_ADD)] = VRAM_ADD
+        f.write_bytes(bytes(blob))
+        if f is files[0]:
+            live_at = at
+    return live_at

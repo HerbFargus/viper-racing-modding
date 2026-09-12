@@ -18,13 +18,22 @@ What IS missing is knowing whether a given install is actually in good shape,
 because the fixes are scattered across forum posts and dead links. So: detect,
 explain, and only ever apply changes that are plain-text and reversible.
 
-Note `race.bin` is the real executable -- "Viper Racing.exe" in the parent
-folder is only a launcher, which is why every compatibility fix targets a file
-inside Data/.
+Note the real executable depends on the pressing, and getting it wrong means
+telling someone to patch a file their build never loads:
+
+  1.1  `race.bin` is the engine; "Viper Racing.exe" in the parent folder is
+       only a launcher, so every compatibility fix targets a file inside Data/.
+  1.0  `race.exe` is the engine, and Data's contents ARE the install directory,
+       as distributed. A `race.bin` sits beside it and is never run.
+
+retail_edition() and live_binary() below make that call; findings word
+themselves from live_binary() rather than naming race.bin outright.
 """
 from __future__ import annotations
 
+import hashlib
 import re
+import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -84,9 +93,66 @@ class Report:
         return OK
 
 
+# Stock race.bin, by pressing. Neither carries a version marker, so "no marker"
+# alone cannot tell 1.0 from 1.1 -- it only rules out a community build.
+# Both hashes read off the retail discs themselves: 1.0 cross-checked against the
+# redump-61183 copy in reference-files/executables/engine-builds/, 1.1 off the
+# mounted Rev 1 disc (Data\race.bin, 1,300,480 bytes).
+STOCK_RACE_BIN = {
+    "2e3d9dcd7f89af508b1454a46109bbdb2e41ab8b772ab3ae46e294b12a6cdfdf": "1.0",
+    "369cb5efd2639d99ad872b9ba5066513ea05cbaf374c526cec0eae3b57205185": "1.1",
+}
+
+
+def retail_edition(data_dir: Path) -> str | None:
+    """"1.0", "1.1", or None if this isn't a stock pressing.
+
+    The two pressings run DIFFERENT binaries and are laid out differently:
+
+        1.0  race.exe IS the engine, sitting among the resources -- Data's
+             contents are the install directory, as distributed.
+        1.1  race.bin is the engine, started by ..\\Viper Racing.exe.
+
+    Identified by race.bin's hash, falling back to the layout. Getting this wrong
+    means telling someone to patch, or right-click, a file their build never
+    loads.
+    """
+    f = Path(data_dir) / RACE_BIN
+    if f.is_file():
+        known = STOCK_RACE_BIN.get(hashlib.sha256(f.read_bytes()).hexdigest())
+        if known:
+            return known
+    # No stock race.bin: a v1.0 tree is still recognisable by its live binary.
+    return "1.0" if (Path(data_dir) / "race.exe").is_file() else None
+
+
+def pe_machine(path: Path) -> int | None:
+    """The PE machine type of a file: 0x14c = 32-bit x86, 0x8664 = 64-bit.
+
+    None if it isn't a PE at all. Used to catch a wrapper DLL of the wrong
+    architecture, which Windows refuses to load without saying so.
+    """
+    try:
+        d = Path(path).read_bytes()
+        if d[:2] != b"MZ":
+            return None
+        pe = struct.unpack_from("<I", d, 0x3c)[0]
+        if d[pe:pe + 4] != b"PE\0\0":
+            return None
+        return struct.unpack_from("<H", d, pe + 4)[0]
+    except Exception:
+        return None
+
+
+def live_binary(data_dir: Path) -> str:
+    """The file this install actually runs -- what patch advice must name."""
+    return "race.exe" if (Path(data_dir) / "race.exe").is_file() else RACE_BIN
+
+
 def race_bin_version(data_dir: Path) -> str | None:
     """The version string the game shows in Options, read straight out of the
-    binary. Stock 1.1 has no such marker; the community builds embed one."""
+    binary. Neither stock pressing has such a marker; the community builds embed
+    one -- see retail_edition() for telling the stock pressings apart."""
     f = Path(data_dir) / RACE_BIN
     if not f.is_file():
         return None
@@ -262,15 +328,37 @@ def check(data_dir: str | Path) -> Report:
 
     # ---- the compatibility fix ------------------------------------------
     version = race_bin_version(data_dir)
-    if not (data_dir / RACE_BIN).is_file():
+    edition = retail_edition(data_dir)
+    live = live_binary(data_dir)
+    if not (data_dir / RACE_BIN).is_file() and live == RACE_BIN:
         add(Finding(BAD, "race.bin is missing",
                     "race.bin IS the game -- the .exe beside it is only a launcher. "
                     "Without this file nothing will start.",
                     "Reinstall, or restore race.bin from a backup."))
     elif version is None:
         state = vrampatch.status(data_dir)
-        if state == vrampatch.UNPATCHED:
-            add(Finding(WARN, "This is the original race.bin, and it will not start on a modern GPU",
+        # The half-patched trap: a tool that only knows about race.bin, pointed at a
+        # v1.0 install, patches the dormant file and reports success while the engine
+        # the game actually loads stays untouched. Nothing about the result looks
+        # wrong -- the game simply still refuses to start. Call it out by name.
+        per_file = vrampatch.report(data_dir)
+        stale = (state == vrampatch.UNPATCHED
+                 and any(s == vrampatch.PATCHED for f, s in per_file.items()
+                         if f != live))
+        if stale:
+            other = ", ".join(f for f, s in per_file.items()
+                              if f != live and s == vrampatch.PATCHED)
+            add(Finding(BAD, f"The startup fix was applied to {other}, not to {live}",
+                        f"This install runs {live}, but the fix is sitting in {other} -- "
+                        "a file nothing here loads. That is what an older patcher does "
+                        "on a v1.0 install: it knows only about race.bin, so it patches "
+                        "that, reports success, and leaves the real engine alone. The "
+                        "game will still fail to start on a modern GPU.",
+                        f"Apply the startup fix again with a current build -- it targets "
+                        f"{live} and leaves the already-patched file alone.",
+                        action="vram"))
+        if state == vrampatch.UNPATCHED and not stale:
+            add(Finding(WARN, f"This is the original {live}, and it will not start on a modern GPU",
                         "Before checking the graphics card's memory the game adds 0x96000 to the "
                         "figure the driver reports. On a card with about 4GB or more that addition "
                         "wraps around, the check fails, and the game says the video card returned "
@@ -280,13 +368,13 @@ def check(data_dir: str | Path) -> Report:
                         "which also raises the polygon and vertex limits.",
                         action="vram"))
         elif state == vrampatch.PATCHED:
-            add(Finding(OK, "race.bin has the modern-GPU startup fix",
+            add(Finding(OK, f"{live} has the modern-GPU startup fix",
                         "The video-memory addition has been removed, so the card's real memory is "
                         "compared directly and the game starts. Note this is the startup fix only: "
                         "the community race.bin also raises the polygon and vertex limits, so "
                         "high-detail mods may still not load on this build."))
         else:
-            add(Finding(WARN, "Unrecognised race.bin",
+            add(Finding(WARN, f"Unrecognised {live}",
                         "No version marker, and the video-memory check is not where this tool "
                         "expects it, so its state cannot be determined.",
                         "If the game will not start, install the community race.bin (v1.2.5) "
@@ -318,11 +406,25 @@ def check(data_dir: str | Path) -> Report:
                     fix="Keep the Viper Racing CD in the drive to play, or use an official "
                         "release that doesn't require the disc."))
     else:
-        add(Finding(INFO, "Retail disc check: components not found beside this folder",
-                    "The retail launcher/disc helper weren't found next to this Data folder, so "
-                    "this may be a repackaged or partial copy. Viper Racing's retail release "
-                    "checks for the CD at launch; the reliable way to know whether this install "
-                    "needs the disc is to start it with no disc in the drive."))
+        if edition == "1.0":
+            # Not a defect here. The CD check lives in the v1.1 LAUNCHER, and v1.0
+            # has no launcher -- so a complete, correct v1.0 install has none of
+            # these files. Saying "repackaged or partial copy" about it is wrong,
+            # and mounting the disc will not make them appear.
+            add(Finding(INFO, "Retail disc check: not applicable to this pressing",
+                        "The CD check belongs to v1.1's `Viper Racing.exe` launcher, which "
+                        "creates the canary the engine then requires. v1.0 has no launcher "
+                        "-- you start the engine yourself -- so neither the launcher nor "
+                        "findviper.exe exists here, and their absence is correct rather "
+                        "than a sign of a partial copy. Mounting the disc does not change "
+                        "this reading, because nothing in this folder looks for it."))
+        else:
+            add(Finding(INFO, "Retail disc check: components not found beside this folder",
+                        "The retail launcher/disc helper weren't found next to this Data "
+                        "folder, so this may be a repackaged or partial copy. Viper Racing's "
+                        "retail release checks for the CD at launch; the reliable way to know "
+                        "whether this install needs the disc is to start it with no disc in "
+                        "the drive."))
 
     # ---- the vrmod patch set --------------------------------------------
     try:
@@ -355,10 +457,17 @@ def check(data_dir: str | Path) -> Report:
                         "'Resolution' item below: the game ships four FIXED resolutions topping "
                         "out at 1024x768, and its in-game menu only picks one of those four. This "
                         "changes what is IN that table, so a modern resolution becomes available "
-                        "to pick.",
-                        "Apply it (reversible: vrmod patch <Data> --revert). Power users can "
-                        "choose a different resolution with vrmod patch <Data> --mode WIDTHxHEIGHT.",
-                        action="patch"))
+                        "to pick."
+                        + ("" if live == RACE_BIN else
+                           f" NOT AVAILABLE ON THIS INSTALL: the whole set is written into "
+                           f"race.bin, but this build runs {live}. Applying it here would "
+                           f"patch a file nothing loads and change nothing you can see."),
+                        ("Apply it (reversible: vrmod patch <Data> --revert). Power users can "
+                         "choose a different resolution with vrmod patch <Data> --mode "
+                         "WIDTHxHEIGHT.") if live == RACE_BIN else
+                        (f"Skip it on this install. Only the startup fix is {live}-aware so "
+                         f"far; the rest of the set still targets race.bin only."),
+                        action="patch" if live == RACE_BIN else None))
 
         # the display-scaling trap -- invisible unless you go looking for it.
         # Positively confirm the good case too, so a "verify install" run shows
@@ -371,16 +480,24 @@ def check(data_dir: str | Path) -> Report:
                         "the real one, so the game draws for the mode it asked for but only "
                         "part of that lands on screen: the view sits right of centre and "
                         "bottom-anchored HUD elements vanish. Both look like game bugs and "
-                        "are not.",
+                        "are not. The flag is read once at process start, so setting it "
+                        "takes effect on the NEXT launch -- not the session you are in now, "
+                        "and not the one you set it from. If nothing looks different, that "
+                        "is why; close the game fully and start it again.",
                         "Run: vrmod patch <Data> --dpi-aware, or set it by hand -- right-click "
-                        "race.bin OR Viper Racing.exe -> Properties -> Compatibility -> Override "
-                        "high DPI scaling behavior -> Application (either one works). Takes effect "
-                        "on the next launch, not the current one.", action="dpi"))
+                        + ("race.exe" if live == "race.exe" else
+                           "race.bin OR Viper Racing.exe")
+                        + " -> Properties -> Compatibility -> Override high DPI scaling "
+                        "behavior -> Application"
+                        + ("" if live == "race.exe" else " (either one works)")
+                        + ".",
+                        action="dpi"))
         elif scaled:
             add(Finding(OK, "The desktop is scaled, and the game is marked DPI-aware",
-                        "A DPI-unaware process would be handed a virtualised, smaller desktop and "
-                        "draw partly off-screen; the HIGHDPIAWARE compatibility flag (set on "
-                        "race.bin or its launcher) prevents that."))
+                        "A DPI-unaware process would be handed a virtualised, smaller desktop "
+                        "and draw partly off-screen; the HIGHDPIAWARE compatibility flag "
+                        f"(set on {live} and any launcher beside it) prevents that. It is read "
+                        "at process start, so it applies from the next launch onward."))
     except Exception as e:
         add(Finding(INFO, "Could not read the patch-set state", f"{type(e).__name__}: {e}"))
 
@@ -398,28 +515,60 @@ def check(data_dir: str | Path) -> Report:
                     "ancient DirectDraw path entirely.",
                     "Optional: put dgVoodoo2's DDraw.dll and D3DImm.dll in the Data folder."))
 
-    # ---- audio: the retail 1.1 DirectSound crackle ----------------------
-    # Retail 1.1 streams its .sfx effects through DirectSound, which Windows has
-    # only emulated since Vista; on modern Windows it crackles constantly, at
-    # every resolution (so it is NOT the pitch-tracks-framerate effect). v1.2.5
-    # fixed this in its own mixer code. The general, non-invasive fix is a
-    # drop-in dsound.dll wrapper: DSOUND.dll is a static import, and Windows
-    # resolves static imports app-directory-first, so a local dsound.dll shadows
-    # the system one. dsoal ships dsound.dll + dsoal-aldrv.dll (use the 32-bit
-    # build -- the game is a 32-bit process). Confirmed to fix retail 1.1.
+    # ---- audio: the retail DirectSound crackle --------------------------
+    # Retail streams its .sfx effects through DirectSound, which Windows has only
+    # emulated since Vista; on modern Windows it crackles constantly, at every
+    # resolution (so it is NOT the pitch-tracks-framerate effect). v1.2.5 fixed
+    # this in its own mixer code. The general, non-invasive fix is a drop-in
+    # dsound.dll wrapper: DSOUND.dll is a static import, and Windows resolves
+    # static imports app-directory-first, so a local dsound.dll shadows the
+    # system one. dsoal ships dsound.dll + dsoal-aldrv.dll (use the 32-bit build
+    # -- the game is a 32-bit process).
+    #
+    # THE CRACKLE and THE dsoal FIX are both confirmed in game on BOTH pressings.
+    # race.exe imports DirectSoundCreate statically, exactly as race.bin does (in
+    # both, WINMM is only timeGetTime/timeKillEvent -- timing, not audio), so the
+    # same app-directory-first shadowing applies. On 1.0 the wrapper goes beside
+    # race.exe, which IS this folder, since Data's contents are the game directory
+    # on that pressing.
+    #
+    # The one way this fails is ARCHITECTURE, and it is the common one: a 32-bit
+    # process cannot load a 64-bit DLL, so a 64-bit dsoal is ignored, the system
+    # dsound.dll handles audio, and nothing about the folder shows the fix missed.
+    # Hence wrong_arch below -- checked, not assumed.
     wrapper = (data_dir / "dsound.dll").is_file()
     is_dsoal = (data_dir / "dsoal-aldrv.dll").is_file()
-    if version is None:                                # retail 1.1 -- the affected build
-        if wrapper:
+    # A wrapper of the wrong architecture is worse than none: Windows silently
+    # refuses to load a 64-bit DLL into this 32-bit process, falls back to the
+    # system dsound.dll, and the crackle is unchanged -- while the folder looks
+    # like the fix is installed. Observed in practice, so check, don't assume.
+    wrong_arch = [n for n in ("dsound.dll", "dsoal-aldrv.dll")
+                  if (data_dir / n).is_file()
+                  and pe_machine(data_dir / n) not in (None, 0x14c)]
+    if version is None:                                # a stock pressing, 1.0 or 1.1
+        if wrapper and wrong_arch:
+            add(Finding(BAD, "The DirectSound wrapper is 64-bit and cannot load",
+                        f"{', '.join(wrong_arch)} in this folder "
+                        f"{'is' if len(wrong_arch) == 1 else 'are'} built for 64-bit "
+                        "Windows, but Viper Racing is a 32-bit program. A 32-bit process "
+                        "cannot load a 64-bit DLL, so Windows ignores these and uses the "
+                        "system DirectSound instead -- the crackle stays exactly as it "
+                        "was, even though the files look like the fix is in place.",
+                        "Replace them with the 32-bit (Win32 / x86) dsoal build -- both "
+                        "dsound.dll and dsoal-aldrv.dll.",
+                        link="https://github.com/ThreeDeeJay/dsoal/releases"))
+        elif wrapper:
             which = "dsoal" if is_dsoal else "a DirectSound wrapper (local dsound.dll)"
-            add(Finding(OK, "Audio: DirectSound wrapper present",
-                        f"Found {which} in the Data folder. Retail 1.1's DirectSound sound "
-                        "effects crackle on modern Windows (Vista+), where legacy DirectSound is "
-                        "emulated; a local dsound.dll shadows the system one and reimplements it "
-                        "cleanly, which fixes the crackle."))
+            add(Finding(OK, "Audio: DirectSound wrapper present, and 32-bit",
+                        f"Found {which} beside the engine, built for 32-bit x86 -- which is the "
+                        "part that matters, since a 64-bit copy would be ignored by this 32-bit "
+                        f"game without any visible sign. Retail {edition or '1.1'}'s DirectSound "
+                        "sound effects crackle on modern Windows (Vista+), where legacy "
+                        "DirectSound is emulated; a local dsound.dll shadows the system one and "
+                        "reimplements it cleanly. Confirmed in game on both retail pressings."))
         else:
-            add(Finding(WARN, "Audio will crackle: retail 1.1 on modern Windows",
-                        "Retail 1.1 streams its sound effects through DirectSound, which has been "
+            add(Finding(WARN, f"Audio will crackle: retail {edition or '1.1'} on modern Windows",
+                        f"Retail {edition or '1.1'} streams its sound effects through DirectSound, which has been "
                         "emulated since Windows Vista and crackles constantly here -- at every "
                         "resolution, so it is not a performance problem. The community v1.2.5 "
                         "build fixed this in its own audio code.",
