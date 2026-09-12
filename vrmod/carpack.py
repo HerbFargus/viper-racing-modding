@@ -49,6 +49,11 @@ _SEVENZIP_CANDIDATES = (
 )
 
 TEXT_SUFFIXES = (".txt", ".nfo", ".diz", ".me")
+# Add-on tracks ship as .tra (the track archive); .trk is the slot file a
+# few packs carry instead. Recording only .trk made every real track pack
+# look as though it shipped nothing -- 269 of them.
+CAR_SUFFIXES = (".car",)
+TRACK_SUFFIXES = (".tra", ".trk")
 IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".gif", ".bmp")
 
 # Cap what is pulled out of any one pack: a readme is a few KB, and a pack that
@@ -290,8 +295,8 @@ def describe(path: str | Path, *, collection: str = "",
         info.error = str(e)
         return info
 
-    info.cars = sorted(m.name for m in info.members if m.suffix == ".car")
-    info.tracks = sorted(m.name for m in info.members if m.suffix == ".trk")
+    info.cars = sorted(m.name for m in info.members if m.suffix in CAR_SUFFIXES)
+    info.tracks = sorted(m.name for m in info.members if m.suffix in TRACK_SUFFIXES)
     info.images = sorted(m.name for m in info.members if m.suffix in IMAGE_SUFFIXES)
 
     texts = [m for m in info.members if m.suffix in TEXT_SUFFIXES]
