@@ -142,13 +142,21 @@ stored as a plain string inside `race.bin` itself (near offset `0x0D37FD` — e.
 | Version | Patch file | Notes |
 |---|---|---|
 | 1.0 | (retail, first pressing) | engine is `race.exe`, built **Oct 21 1998 08:49:56**. A **release candidate** — see below |
-| 1.1 | (retail, second pressing) | engine moved into `race.bin`, built **Jan 25 1999 11:47:39**; disc readme dated 8 Feb 1999 |
+| 1.1 | `viper11.zip` **and** a retail repressing | both exist. The second pressing's engine is `race.bin`, built **Jan 25 1999 11:47:39**, readme dated 8 Feb 1999. Whether the downloadable patch performs the same `race.exe` → `race.bin` transition is **untested** |
 | 1.2 beta | `viperpatch12beta.zip` | hosted on mgiracing.com. **Lost** — every Wayback capture 404s |
 | 1.2.1 beta | `viperpatch121beta.zip` | Windows 2000 support, multiple controllers, an XP sound tweak. The **last patch MGI distributed themselves** |
 | 1.2.3 beta | `Patch_1.2.3(Beta).zip` | built by **Dave Broske (MGI)** for the VRgt team and released by *them*, not by MGI. Every community build is hex-edited from this binary |
 
 Monster Games' own server only ever hosted **five** downloads: those two Viper patches,
 two NASCAR Heat patches and a Heat changelog. **No official car or track ever existed.**
+
+> **A note on "official".** The Patches Scrolls — which mirrored these for decades — lists
+> **1.1 as official** and both **1.2.1 beta and 1.2.3 beta as unofficial**. That is a
+> classification by *support status*, not by origin: 1.2.1 was hosted on mgiracing.com
+> itself and its readme is written in MGI's own voice ("we don't have service pack 2
+> installed anywhere in the office yet"). The table above classifies by **where the file
+> actually came from**, which is why 1.2.1 sits under official here and 1.2.3 — built by
+> an MGI programmer but released by the VRgt team — sits on its own.
 
 **Community `race.bin` (unofficial, built on 1.2.3):**
 
