@@ -141,6 +141,43 @@ by Frank P. Wolf, distributed from his own site (`members.aol.com/racingwolf999/
   verbatim in [VIPER_RACING_FILE_FORMATS.md](VIPER_RACING_FILE_FORMATS.md#how-a-track-is-actually-built).
 - **trkaitweaker** ✓ — AI tuning. **jpg2sky / sky-tga2tex** — the four skybox tiles.
 
+### Where the cars came from
+
+Almost no Viper Racing car was modelled for Viper Racing. The scene ran on
+**conversion** — lifting a mesh out of another PC racing game, re-texturing it, and
+rebuilding the physics and sounds around it. Val's site was organised around exactly
+that, with a `FILES` section per source game.
+
+Counted across **1,710 car readmes** in this archive — the readmes are unusually
+diligent about crediting a source, so the numbers are close to real practice:
+
+| source game | cars crediting it | notes |
+|---|---:|---|
+| **Re-Volt** (1999) | 167 | the biggest single source, and the least obvious one — a radio-control racer whose cars are small, clean meshes that convert well |
+| **Need For Speed** | 166 | across the series: High Stakes, Porsche Unleashed, Hot Pursuit, Most Wanted, Underground |
+| **Sports Car GT** (1999) | 156 | Frank Wolf's GT and Ferrari sets came through here, via the `vrl2wrl` converter |
+| *built from scratch* | 153 | usually in Zmodeler, and usually said so explicitly |
+| **1nsane** (2000) | 72 | |
+| **Monster Truck Madness 2** (1998) | 63 | the source of the monster-truck and Bigfoot cars |
+| **4x4 Evolution / Evo 2** | 35 | including Val's Christmas `Santa25` car |
+| **Midtown Madness** | 10 | no section on Val's site — found only by reading readmes |
+| **Grand Theft Auto** | 9 | mostly GTA IV models via gtainside |
+| **Test Drive 6** (1999) | 5 | Val hosted the **full game**, not a files section — which is why it scores single digits while its neighbours score dozens |
+| **Colin McRae Rally** | 1 | |
+
+Two things worth drawing out.
+
+**Re-Volt topping the list is the surprise**, and it makes sense once you see why: it is a
+radio-control racer, so its cars are small, low-poly, cleanly UV-mapped meshes — far
+easier to bring into a 1998 engine with tight vertex limits than a modern high-detail
+model. The conversions credit the original Re-Volt car authors by name (SKARMINATER,
+Beroc, scloink, BurnRubr and others), not just the game.
+
+**The chain was long.** A typical car passed from its origin game, through Zmodeler 1.07
+for the mesh, `vrl2wrl` or a hand conversion for the format, `tga2tex` for the textures,
+and `cf2txt` for the physics — every step a separate command-line tool. That pipeline is
+what Part A below catalogues, and what `vrmod` folds into one library.
+
 ### Engine patches & `race.bin` versions
 
 Every modern install runs a community-patched `race.bin` (the game engine). The
