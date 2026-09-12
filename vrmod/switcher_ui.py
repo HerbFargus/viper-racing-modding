@@ -46,7 +46,7 @@ import threading
 import webbrowser
 from pathlib import Path
 
-from . import aifield, archive, carshot, cf, doctor, envelope, grf, hornball, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch, headon, drawdistance, writepaths
+from . import aifield, archive, carshot, cf, doctor, envelope, grf, hornball, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch, headon, drawdistance, writepaths, modassert, carlist
 
 _PAGE = r"""<!doctype html>
 <meta charset="utf-8"><title>Viper Racing -- Mod Manager</title>
@@ -1468,43 +1468,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             if self.path == "/api/fix":
                 # Only named, understood repairs -- never an arbitrary write.
                 action = req.get("action")
-                if action == "vram":
-                    at = vrampatch.apply(d)
-                    return self._json({"ok": True,
-                                       "message": f"Startup fix applied at {hex(at)} "
-                                                  "(original saved as race.bin.vram-backup)."})
-                if action == "dpi":
-                    msg = patchset.set_dpi_aware(d)
-                    return self._json({"ok": True,
-                                       "message": f"DPI-aware set ({msg}). Takes effect "
-                                                  "on the next launch."})
-                if action == "patch":
-                    rep = patchset.apply(d, mode=(1920, 1080))
-                    steps = ", ".join(n for n, _ in rep.steps)
-                    return self._json({"ok": True,
-                                       "message": f"Applied the patch set ({steps}). "
-                                                  "Rebuildable from the snapshot; revert with "
-                                                  "vrmod patch --revert."})
-                if action in ("wp_logs", "wp_userdir"):
-                    kind = (writepaths.LOGS_KIND if action == "wp_logs"
-                            else writepaths.USER_DIR_KIND)
-                    rep = writepaths.apply(d, kind)
-                    n = sum(len(v) for v in rep["changed"].values())
-                    extra = (f", copied {len(rep['migrated'])} existing file(s) across"
-                             if rep["migrated"] else "")
-                    return self._json({"ok": True,
-                                       "message": f"{n} path(s) made relative; "
-                                                  f"{Path(rep['folder']).name}\\ created"
-                                                  f"{extra}. Launch the game from its "
-                                                  "own folder -- relative paths resolve "
-                                                  "against the working directory."})
-                if action == "drivers":
-                    _, backup = doctor.empty_drivers_res(d)
-                    where = f" (original saved as {backup.name})" if backup else ""
-                    return self._json({"ok": True,
-                                       "message": "drivers.res emptied" + where + ". The AI now "
-                                                  "follows each track's own racing line."})
-                return self._json({"ok": False, "error": f"unknown fix: {action}"}, 400)
+                fix = FIX_ACTIONS.get(action)
+                if fix is None:
+                    return self._json({"ok": False, "error": f"unknown fix: {action}"}, 400)
+                return self._json({"ok": True, "message": fix(d)})
             if self.path == "/api/hornball":
                 if not hornball.available(d):
                     return self._json({"ok": False, "error": "this race.bin has no tunable "
@@ -1806,3 +1773,74 @@ def serve(data_dir: Path | str, port: int = 8770, open_browser: bool = True) -> 
         srv.serve_forever()
     except KeyboardInterrupt:
         print("\nstopped")
+
+
+# ---------------------------------------------------------------------------
+# The one-click fixes doctor offers, keyed by the `action` id it puts on a
+# Finding. This used to be a chain of `if action == ...` inside the request
+# handler, and it silently fell behind: doctor grew `modassert` and `carlist`
+# actions and the handler never learned them, so pressing those buttons
+# answered "unknown fix: modassert". A registry makes the set inspectable, so
+# scripts/check_fix_actions.py can assert that every action doctor emits has a
+# handler here -- the failure mode is a dead button, which nothing else catches.
+#
+# Each takes the Data folder and returns the message to show.
+
+def _fix_vram(d: Path) -> str:
+    at = vrampatch.apply(d)
+    return (f"Startup fix applied at {hex(at)} "
+            f"(original saved as {doctor.live_binary(d)}.vram-backup).")
+
+
+def _fix_dpi(d: Path) -> str:
+    return (f"DPI-aware set ({patchset.set_dpi_aware(d)}). Takes effect on the "
+            "next launch.")
+
+
+def _fix_patch(d: Path) -> str:
+    rep = patchset.apply(d, mode=(1920, 1080))
+    steps = ", ".join(n for n, _ in rep.steps)
+    return (f"Applied the patch set ({steps}). Rebuildable from the snapshot; "
+            "revert with vrmod patch --revert.")
+
+
+def _fix_writepaths(d: Path, kind: str) -> str:
+    rep = writepaths.apply(d, kind)
+    n = sum(len(v) for v in rep["changed"].values())
+    extra = (f", copied {len(rep['migrated'])} existing file(s) across"
+             if rep["migrated"] else "")
+    return (f"{n} path(s) made relative; {Path(rep['folder']).name}\\ created"
+            f"{extra}. Launch the game from its own folder -- relative paths "
+            "resolve against the working directory.")
+
+
+def _fix_drivers(d: Path) -> str:
+    _, backup = doctor.empty_drivers_res(d)
+    where = f" (original saved as {backup.name})" if backup else ""
+    return ("drivers.res emptied" + where + ". The AI now follows each track's "
+            "own racing line.")
+
+
+def _fix_modassert(d: Path) -> str:
+    at = modassert.apply(d)
+    return (f"Module-ownership assertion silenced at {hex(at)} -- one RET byte, "
+            f"matching what every shipped build does. Reversible: "
+            f"vrmod modassert <Data> --revert.")
+
+
+def _fix_carlist(d: Path) -> str:
+    g = carlist.apply(d)
+    return (f"Car list moved to {g}. That is the geometry every community "
+            "race.bin carries; reversible with vrmod carlist <Data> --reset.")
+
+
+FIX_ACTIONS = {
+    "vram": _fix_vram,
+    "dpi": _fix_dpi,
+    "patch": _fix_patch,
+    "wp_logs": lambda d: _fix_writepaths(d, writepaths.LOGS_KIND),
+    "wp_userdir": lambda d: _fix_writepaths(d, writepaths.USER_DIR_KIND),
+    "drivers": _fix_drivers,
+    "modassert": _fix_modassert,
+    "carlist": _fix_carlist,
+}
