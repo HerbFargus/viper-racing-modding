@@ -408,6 +408,24 @@
         </tbody>
       </table></div>
       <p>Monster Games' own server only ever hosted <strong>five</strong> downloads: those two Viper patches, two NASCAR&nbsp;Heat patches and a Heat changelog. <strong>No official car or track ever existed.</strong></p>
+      <h4>What 1.1 actually fixed &mdash; from the patch's own readme</h4>
+      <p>The official patch survives as <code>viper11.zip</code> &rarr; <strong><code>viper11.exe</code>, 988,905 bytes, dated 26 February 1999</strong>. It is a <strong>16-bit NE executable</strong> (a Wise &ldquo;Sierra Patch Installation&rdquo;), with two consequences worth knowing: archivers cannot open it, and <strong>it will not run on 64-bit Windows</strong>. Its payload has to be recovered by other means.</p>
+      <p>Inside is <code>race.res</code> <strong>byte-identical to the second pressing's</strong>, and a readme dated <strong>19 January 1999</strong> listing the fixes in MGI's own words:</p>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Area</th><th>What 1.1 changed</th></tr></thead>
+        <tbody>
+          <tr><td>replays</td><td>mouse bounds stayed at 640&times;480 in higher modes, putting the replay controls out of reach. Now set per video mode</td></tr>
+          <tr><td>force feedback</td><td>&ldquo;very weak&rdquo; on the Logitech FF wheel in particular &mdash; forces boosted</td></tr>
+          <tr><td>mirror</td><td>had a fixed size, so it shrank to nothing at 1024&times;768. Now scaled to the video mode</td></tr>
+          <tr><td><strong><code>-nointro</code></strong></td><td><strong>introduced by this patch.</strong> &ldquo;The introductory movie causes all sorts of problems&hellip; Trying to escape from the intro movie often causes the game to crash.&rdquo;</td></tr>
+          <tr><td><strong>memory leak</strong></td><td>&ldquo;Replay: Causes Crash on Exit From Program &hellip; the game will crash on exit, <strong>reporting a memory leak</strong>. This memory leak has been fixed.&rdquo;</td></tr>
+          <tr><td>replay audio</td><td>cars silent when the race ended while they were still &ldquo;teleporting&rdquo;</td></tr>
+          <tr><td>garage</td><td>locked up or hung the system on some machines</td></tr>
+          <tr><td>multiplayer</td><td>TAPI &ldquo;too sensitive to non-compatible devices&rdquo;; modem init &ldquo;too forceful&rdquo;; synchronisation hangs under packet loss; teleporting remote cars now transparent so they cannot be collided with</td></tr>
+        </tbody>
+      </table></div>
+      <p>Two are worth pulling out. <strong><code>-nointro</code> originates here</strong> &mdash; the runtime reference lists it among the engine's flags, and this is why it exists. And the <em>&ldquo;crash on exit reporting a memory leak&rdquo;</em> is the <strong>same panic class</strong> a modern builder hits when objects are created without reaching the engine's master object array: MGI shipped a fix for it in 1999.</p>
+      <blockquote>What the patch does <strong>not</strong> contain is a game executable or a <code>race.bin</code>, and there is no room for one &mdash; <code>race.exe</code> alone is 2,404,451 bytes. How the engine changes above are actually delivered is <strong>not established</strong>.</blockquote>
       <blockquote><strong>A note on &ldquo;official&rdquo;.</strong> The Patches Scrolls &mdash; which mirrored these for decades &mdash; lists <strong>1.1 as official</strong> and both <strong>1.2.1 beta and 1.2.3 beta as unofficial</strong>. That is a classification by <em>support status</em>, not by origin: 1.2.1 was hosted on mgiracing.com itself and its readme is written in MGI's own voice. The table above classifies by <strong>where the file actually came from</strong>.</blockquote>
       <p><strong>Community <code>race.bin</code> (unofficial, built on 1.2.3):</strong></p>
       <div class="tablewrap"><table>

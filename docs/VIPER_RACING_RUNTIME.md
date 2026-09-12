@@ -78,12 +78,18 @@ identified as the argument parser's.
 
 | Flag | Address | What it does |
 |------|---------|--------------|
-| `-nointro` | `0x0D1804` | Skip the intro video (`intro.avi`). The parser's own `"skipped intro"` string sits just below. ✅ |
+| `-nointro` | `0x0D1804` | Skip the intro video (`intro.avi`). The parser's own `"skipped intro"` string sits just below. **Introduced by the official 1.1 patch** — see the history doc. ✅ |
 | `-server:<addr>` | `0x0D180C` | Multiplayer: connect to / act as a server at the given address. Note the trailing colon — the value is appended. ✅ format / 🟡 semantics |
 | `-location<addr>` | `0x0D1814` | Multiplayer location parameter. ✅ present / 🟡 semantics |
 | `-tri` | `0x0D1820` | Developer/diagnostic switch. ✅ present / ⚪ effect |
 | `-grid` | `0x0D1824` | Developer/diagnostic switch. ✅ present / ⚪ effect |
 | `-dedicated` | `0x0D3D68` | Run as a dedicated (headless) multiplayer server. Lives apart from the table above, checked separately. ✅ |
+
+> **Where `-nointro` came from.** The 1.1 patch readme (19 January 1999) introduces it
+> explicitly, and says why: *"The introductory movie causes all sorts of problems. It may
+> even have lingering effects on gameplay, causing hangs and lockups. Trying to escape from
+> the intro movie often causes the game to crash."* So it is a workaround for a bug MGI
+> could not fix, not a developer convenience. See MODDING_HISTORY.md.
 
 ### Single-character "programmer flags" 🟡
 
