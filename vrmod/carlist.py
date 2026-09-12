@@ -78,8 +78,24 @@ is simply unselectable. Observed in game: with 40+ cars installed the selected
 `viper` could not be reached.
 
 Raising h is therefore a real but bounded fix -- it buys `h/15` rows and nothing
-more. A genuine fix for a large collection means giving this list a scroll
-object, which is a bigger change than four immediates and is not attempted here.
+more, and the community's 255 already fills the dialog panel it sits in, so even
+that is spent.
+
+AND THAT IS WHERE THIS DELIBERATELY STOPS. A genuine fix for a large collection
+means giving the list a scroll object: `_UIAddItems` dispatches type 0x12 to a
+ScrollBar plus two ScrollButtons and type 0x14 to this bare ListBox, so a
+scrolling list is TWO descriptor entries sharing a scroll object. But
+`Added@HackOptionsControl` builds its descriptor table inline on the stack
+(`sub esp, 0x1c0`, fixed entries, type-0 terminated), so adding one means
+growing that frame, writing 14 more dwords, allocating the scroll object and
+wiring both entries to it -- injected x86, not an immediate.
+
+It is not attempted, and not planned. The screen only ever needs to show a
+working SET of cars; managing a library of hundreds is what this toolkit's own
+switcher and gallery are for, and solving it there costs nothing and risks
+nothing. Raising h past what the panel holds would also just overdraw the
+dialog frame. If someone does want it later, everything needed to start is
+above.
 """
 from __future__ import annotations
 
