@@ -1,8 +1,9 @@
 # Viper Racing (1998) — Runtime Behaviour
 
-**Purpose:** what the game *does when it runs*, as opposed to what its files contain. Two things live
-here: **which detail level (LOD) you actually see in each camera view**, measured in-game, and the
-**command-line parameters** the executable accepts, read out of the binary. Companions:
+**Purpose:** what the game *does when it runs*, as opposed to what its files contain: **which detail
+level (LOD) you actually see in each camera view** and **how the AI reacts to other cars**, both
+measured in-game; the **command-line parameters** the executable accepts, read out of the binary; and
+**how world objects are created and freed**, which is what the exit panic reports on. Companions:
 [VIPER_RACING_FILE_FORMATS.md](VIPER_RACING_FILE_FORMATS.md) (byte layouts) and
 [VIPER_RACING_ASSET_TREE.md](VIPER_RACING_ASSET_TREE.md) (what's inside a `.car`/`.trk`).
 
@@ -224,3 +225,81 @@ Related, from the same map: `CenterLine::wrong_way()` in `ai:ideal.obj` and
 the centre line, which is `track.ild`, and is what raises the "press space to
 reset" prompt. `AITrackIsReversed()` in `ai:driver.obj` shows reverse-direction
 racing is a first-class mode, which is what `rdefault.ili` exists for.
+
+### What the swerve is *not* ✅ RULED OUT
+
+Worth recording because it cost four in-game cycles to establish, and the wrong
+answer is the intuitive one.
+
+The AI's **reactive** avoidance logs every decision it makes. `set_reason`
+(`0x429500`) writes a label from the table at `0x4D74E8`, and the 24 call sites
+cover the whole repertoire:
+
+```
+laptime slowdown · water_cut · offground_cut · panic_brake · meccaZERO · fouroff
+begin · CONTACT-FLIP · CONTACT · hiatus · VerySlow · aftershock · enter_hot · MPH
+bump · freeze · lonslam · squeezebrake · edgebrake · "lat would" · latslam r
+latslam l · cold_apex
+```
+
+Every lateral one — `latslam r/l`, `squeezebrake`, `edgebrake`, `"lat would"` —
+lives inside `0x42BA50`–`0x42BC8E`. **No-op'ing that entire function changed
+nothing in game**: the cars still swerved away from an oncoming player.
+
+So the oncoming swerve is **not** the reactive avoidance system. It is the AI's
+**proactive line re-routing** — choosing a lateral position on the track to route
+around an obstacle car — driven by `prox_info`, logging no reason at all, and
+embedded in the main drive function tree rather than sitting behind a label.
+
+Three tangents ruled out in the same dig, each of which looks promising from a
+string search and is not the thing: the threat chain at `0x40E81E` is the
+**ghost/replay** recorder (it sits next to `"ghostlap: ..."`), the cluster at
+`0x439xxx` is **physics** (9.81, vector normalise), and `0x404E3D` is the
+**player's** wrong-way banner.
+
+> **If you pick this up again:** static disassembly is the slow way here, because
+> offset search is defeated by struct aliasing — `0xEEC`–`0xEF8` are threat fields
+> in the AI struct and a scratch position vector in the physics code. A live
+> debugger with a breakpoint on steering writes, while driving oncoming, finds it
+> far faster.
+
+---
+
+## 4. Object lifetime — and what "Memory still allocated" means ✅ MEASURED
+
+World objects ("phobs" — balls, barriers, scenery) are created **at level load**,
+not lazily. A loader reads each record from the track file, a factory
+binary-searches its 4-character type tag, and the object is constructed.
+
+**Registration is two separate things, and only one of them is the one that
+matters.**
+
+| | what it does |
+|---|---|
+| `register_phob` (`0x4271C0`) | memory-pool accounting *only* — `[phob+0x34] = cursor`, then advances the cursor by the object's size |
+| the **master object array** | pointer at `[0x50B1C0]`, count at `[0x50B6B0]` — what the engine actually iterates to **update, render and free** |
+
+The load loop writes `objarray[count++]` **itself**, as it goes. The base
+constructor does not, and neither does `register_phob`. So an object can be fully
+constructed, correctly pooled, and still never be updated and never be freed.
+
+**That is exactly what the exit panic reports.** `Memory still allocated: N bytes`
+divides cleanly by the object size, and the quotient is how many objects never
+reached the array:
+
+```
+3 extra balls, no registration at all   7,344 bytes  =  3 × 2,448
+the same 3 after register_phob          3,672 bytes  =  3 × 1,224   (pool half freed,
+                                                                     collider half not)
+```
+
+**Two diagnostics fall out of this**, and both are worth having:
+
+- **If you see the panic, divide.** The byte count tells you how many objects
+  leaked and, with the object's size, which kind.
+- **An object that draws but never moves is the same fault from the other side** —
+  present in the world, absent from the array the update loop walks.
+
+The practical rule for anything that creates objects at load: appending to the
+array *during* the load loop corrupts it, because `[0x50B6B0]` is the loop's own
+live index. The insertion has to happen after the loop has finished.
