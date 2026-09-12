@@ -617,13 +617,16 @@ def check(data_dir: str | Path) -> Report:
                         "giving\n"
                         '    Panic : "<main>" called module mouse owned by "(null)"\n'
                         "where \"(null)\" means the module had already been ended and a "
-                        "window message arrived afterwards. This is not a game bug: the "
-                        "whole subsystem was compiled out of v1.0's own race.bin, of "
-                        "v1.2.5 and of v1.2.6, so no released build makes the check at "
-                        "all.",
+                        "window message arrived afterwards. The shipped builds compile "
+                        "this guard away: the function their MouseQueueEvent calls is a "
+                        "bare RET in v1.0's own race.bin, in v1.2.5 and in v1.2.6, so "
+                        "they perform no single-entry check at all. (They DO keep a "
+                        "separate fatal panic on the safe-module path, which this does "
+                        "not touch.)",
                         "Silence it to match the shipped builds: vrmod modassert <Data> "
-                        "(reversible). One RET byte; the assertion stops firing for "
-                        "every module, which is exactly what the release does.",
+                        "(reversible). One RET byte in the guard both callers share, "
+                        "which is the same semantics the releases get by shipping those "
+                        "callers empty.",
                         action="modassert"))
         elif ma == modassert.PATCHED:
             add(Finding(OK, "The development-only crash check is silenced",

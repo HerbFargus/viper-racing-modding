@@ -26,13 +26,30 @@ at +0x0e and returns at +0x13 -- exactly the frame the crash log names. A
 shutdown/transition race between the window still taking input and the module
 having been torn down.
 
-THIS IS NOT A GAME BUG, AND THAT IS THE JUSTIFICATION FOR THE PATCH. The whole
-subsystem was compiled OUT of the release build: the panic format string is
-present in the RC's race.exe and absent from v1.0's own race.bin, from v1.2.5
-and from v1.2.6. The shipped game does not make this check at all, so the same
-race presumably happens there and simply goes unremarked. Disabling the
-assertion makes race.exe behave as MGI shipped, rather than inventing new
-behaviour.
+THIS IS NOT A GAME BUG, AND THAT IS THE JUSTIFICATION -- BUT STATE IT PRECISELY.
+The module-safety subsystem is NOT absent from the released builds. They keep
+its strings and they keep a FATAL panic for the safe-module path: `_MultiEnter`
+pushes `Task "%s" called module "%s" after module ended.` straight into
+LogPanic, in the RC and in every release alike. That check is real, it is fatal,
+and this patch does not touch it.
+
+What the releases do is compile the SINGLE-ENTRY guard away. Follow what
+MouseQueueEvent actually calls:
+
+    v1.0 race.exe (RC)   0x415000  _SingleEnter -> unsafe_check -> the check runs
+    v1.0 race.bin        0x415090  c3           -- a bare RET, does nothing
+    v1.2.5 community     0x414ee0  c3           -- a bare RET, does nothing
+
+`_SingleEnter` and `_SingleLeave` are empty functions in the shipped builds. So
+the released game does not merely fail to panic here, it performs no
+single-entry check at all -- and this patch reproduces that rather than
+approximating it. `unsafe_check` has exactly TWO callers, `_SingleEnter` and
+`_SingleLeave`, which are precisely the pair the releases compiled to RETs, so
+returning from it gives the same semantics by a different byte.
+
+(The earlier version of this note claimed the whole subsystem was compiled out,
+which is wrong: only the single-entry half is, and `_MultiEnter`'s panic stays
+live everywhere.)
 
 WHAT IT DOES. Writes a single `RET` at unsafe_check's entry, so the check
 returns immediately and nothing panics. cdecl with a void return and the caller
