@@ -61,6 +61,20 @@ from . import safewrite
 
 RACE_BIN = "race.bin"
 
+# Engine binaries, live one first -- the v1.0 pressing runs race.exe and ships a
+# dormant race.bin beside it. headon works on file offsets found by signature,
+# so only the choice of FILE was ever wrong here.
+ENGINE_NAMES = ("race.exe", RACE_BIN)
+
+
+def _engine(data_dir):
+    from pathlib import Path as _P
+    d = _P(data_dir)
+    for n in ENGINE_NAMES:
+        if (d / n).is_file():
+            return d / n
+    return d / RACE_BIN          # nonexistent: callers report missing/raise
+
 # The prologue, used to find the function. No relocations in it, so it is
 # identical across every build examined.
 SIGNATURE = bytes.fromhex(
@@ -96,7 +110,7 @@ def _site(blob: bytes) -> int:
 
 def site(data_dir: str | Path) -> int:
     """Where the patch goes, for reporting. Raises if it cannot be found."""
-    f = Path(data_dir) / RACE_BIN
+    f = _engine(data_dir)
     if not f.is_file():
         raise PatchError(f"no {RACE_BIN} in {data_dir}")
     return _site(f.read_bytes())
@@ -104,7 +118,7 @@ def site(data_dir: str | Path) -> int:
 
 def status(data_dir: str | Path) -> str:
     """Whether the panic is enabled, disabled, or something unrecognised."""
-    f = Path(data_dir) / RACE_BIN
+    f = _engine(data_dir)
     if not f.is_file():
         return MISSING
     blob = f.read_bytes()
@@ -127,7 +141,7 @@ def apply(data_dir: str | Path) -> int:
     holds exactly the expected byte -- so it cannot be applied twice or damage a
     build it does not recognise.
     """
-    f = Path(data_dir) / RACE_BIN
+    f = _engine(data_dir)
     if not f.is_file():
         raise PatchError(f"no {RACE_BIN} in {data_dir}")
     blob = bytearray(f.read_bytes())
@@ -151,7 +165,7 @@ def apply(data_dir: str | Path) -> int:
 
 def revert(data_dir: str | Path) -> int:
     """Put the panic back. Returns the offset restored."""
-    f = Path(data_dir) / RACE_BIN
+    f = _engine(data_dir)
     if not f.is_file():
         raise PatchError(f"no {RACE_BIN} in {data_dir}")
     blob = bytearray(f.read_bytes())
