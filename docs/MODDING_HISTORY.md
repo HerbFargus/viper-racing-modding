@@ -38,13 +38,24 @@ knowledge into one programmatic library.
   the modern-GPU startup error (the game's video-memory check overflows on cards
   with several GB), building on a solution found by **beatcracker**. This lets
   the game start on any 32/64-bit Windows including 10/11.
-- **Zero** — supplied the finding behind the **2017 `v1.2.6`** `race.bin`. Val's
-  note shipped with that build credits him by name: *"According to Zero's
-  information I modified my 2016 race.bin so as to not always show the extra rear
-  wing in the viper.car and ai viper cars."* The last change made to the engine
-  by anyone, and it started with his diagnosis.
-- **M. Walden** — toolmaker: the **Surface Modifier** and **UV Map Editor** for
-  `.mod` files, and the programmer behind the **Tire Editor**.
+- **Eric "Zero"** — supplied the finding behind the **2017 `v1.2.6`** `race.bin`.
+  Val's note shipped with that build credits him: *"According to Zero's information
+  I modified my 2016 race.bin so as to not always show the extra rear wing in the
+  viper.car and ai viper cars."* That is the last change anyone made to the engine,
+  and it started with his diagnosis. He is also a car modder in his own right — the
+  **2018 `Viper.car` and `ViperGT.car` retextures** (3D modifications, brakes and a
+  rear spoiler built from scratch over the EA model) and a **2019 `ViperGT v2.0`**
+  adding a full interior. His readmes are unusually careful about attribution, and
+  are the source for several of the names on this page.
+- **Dave Broske** and **Dave Pollatsek** (Monster Games) — the two MGI programmers
+  who kept supporting the mod scene years after release. Community readmes thank
+  them for a decade as *"both Dave's from MGI"* and *"Dave P. and especially
+  Dave B."*, rarely spelling either out; Zero's 2018 readmes name both. Broske built
+  the **1.2.3 beta** `race.bin` for the VRgt team — the binary every later community
+  build is hex-edited from.
+- **Matthias Walden** — toolmaker: the **Surface Modifier** and **UV Map Editor**
+  for `.mod` files, the **ResEdit** tool, and the programmer behind the
+  **Tire Editor**.
 - **Matthias Nyberg** ("Matt") — the tyre/handling expertise behind the **Tire
   Editor**, and the source of the finished tyre sets it could apply.
 - **Maurizio** — author of **VRDSC**, which advertised a dedicated server to the
