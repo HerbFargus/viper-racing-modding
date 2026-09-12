@@ -29,6 +29,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from . import writepaths
+
 MAX_AI = 15                 # 15 AI + player = 16 total; 16 AI hits the driver-16 panic
 DEFAULT_AI = 7
 KEYS_AI = ("ai_car_count", "ai_cars")
@@ -45,16 +47,14 @@ class AiFieldError(RuntimeError):
 def options_path(data_dir: str | Path) -> Path | None:
     """The live options file, preferring what the game actually reads at runtime.
 
-    Same search order doctor uses: Config/options.cfg (live) first, then a couple
-    of fallbacks, then options.def (the shipped default) last.
+    Delegates to writepaths.options_file, which owns the search because it owns
+    the `Config\\` redirect. This used to look only under data_dir.parent, which
+    is the v1.1 layout: on a v1.0 install -- where the Data folder IS the game
+    root -- it missed Config/options.cfg entirely and fell through to
+    options.def, so this function returned the SHIPPED DEFAULT and every caller
+    silently read or wrote the wrong file.
     """
-    d = Path(data_dir)
-    root = d.parent
-    for c in (root / "Config" / OPTIONS_CFG, d / OPTIONS_CFG,
-              root / "Config" / OPTIONS_DEF, d / OPTIONS_DEF):
-        if c.is_file():
-            return c
-    return None
+    return writepaths.options_file(data_dir)
 
 
 def _read(text: str, key: str) -> int | None:

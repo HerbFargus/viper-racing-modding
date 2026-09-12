@@ -229,53 +229,56 @@ def disc_check(data_dir: Path) -> list[Path]:
     return list(found.values())
 
 
+def options_file(data_dir: Path) -> Path | None:
+    """The options file the game actually reads. See writepaths.options_file."""
+    return writepaths.options_file(data_dir)
+
+
 def video_mode(data_dir: Path) -> int | None:
-    """The video mode index currently in force, or None.
+    """The video MENU INDEX (1-4) the game will use, or None.
 
-    Config/options.cfg is what the game WRITES and reads at runtime;
-    Data/options.def is only the shipped default. Checking the live file first
-    matters as soon as anyone changes resolution in the menus -- otherwise this
-    reports the factory setting forever.
+    There is exactly one key, `video_mode`, and both consumers read it -- this
+    was previously documented as two keys with two numbering schemes, which the
+    RC's own symbols disprove:
+
+        OptionsBegin  +0x17d   registers "video_mode" with its default
+        ViewPreBegin  +0x6     OptionsGet("video_mode") -> VidIsModeSupported()
+                               -> falls back to 2 -> gxChangeMode()
+
+    The value goes straight into gxChangeMode with no arithmetic, and the
+    fallback is 2 -- the 640x480 startup gate -- so it is a MENU INDEX 1-4, not
+    a label-table slot.
+
+    An options file also contains a line reading `video mode N`, which looks
+    like a second key and is not one. load_options splits each line at the FIRST
+    space (strchr(line, ' ')), so that line parses as the option `video` with
+    the string value "mode N". Nothing reads an option called `video` -- the
+    name does not appear anywhere in the binary -- and find_item asserts
+    outright that a name must not contain one:
+
+        find_item: %s:%s has a space in it
+
+    It is a malformed line in MGI's own shipped options.def that round-trips as
+    junk. Matching it is the trap, not reading it: the old regex here was
+    `video[ _]mode`, which matches the junk line first because it comes first.
     """
-    root = Path(data_dir).parent
-    for candidate in (root / "Config" / "options.cfg",
-                      Path(data_dir) / "options.cfg",
-                      root / "Config" / OPTIONS,
-                      Path(data_dir) / OPTIONS):
-        if candidate.is_file():
-            m = re.search(rb"video[ _]mode\s+(\d+)", candidate.read_bytes())
-            if m:
-                return int(m.group(1))
-    return None
+    f = options_file(data_dir)
+    if f is None:
+        return None
+    m = re.search(rb"(?m)^video_mode\s+(-?\d+)", f.read_bytes())
+    return int(m.group(1)) if m else None
 
 
-def race_video_slot(data_dir: Path) -> int | None:
-    """The label-table SLOT used for RACING, which is not the one used for menus.
+def video_slot(data_dir: Path) -> int | None:
+    """video_mode() converted to a label-table slot, or None if out of range.
 
-    The game keeps two independent video modes (see the reference, §5.2.2), and
-    options.cfg records them in two different numbering schemes -- a trap worth
-    knowing about:
-
-        video mode  1      <- the frontend, as a label-table SLOT (0-3)
-        video_mode  4      <- the race view, as a MENU INDEX (1-4)
-
-    They are related by `slot = 4 - index`, so `video_mode 4` is slot 0, the first
-    entry in the table. Reading the underscore key as a slot points at the wrong
-    resolution, and reading it with the space-key regex (`video[ _]mode`) matches
-    whichever line comes first. This returns the race mode already converted to a
-    slot, so it can be indexed into `resolution.read()` like the frontend one.
+    The labels are stored in descending order, so `slot = MODES - index`, and
+    slots are what resolution.read() is indexed by.
     """
-    root = Path(data_dir).parent
-    for candidate in (root / "Config" / "options.cfg",
-                      Path(data_dir) / "options.cfg",
-                      root / "Config" / OPTIONS,
-                      Path(data_dir) / OPTIONS):
-        if candidate.is_file():
-            m = re.search(rb"video_mode\s+(\d+)", candidate.read_bytes())
-            if m:
-                index = int(m.group(1))
-                return resolution.MODES - index if 1 <= index <= resolution.MODES else None
-    return None
+    index = video_mode(data_dir)
+    if index is None or not 1 <= index <= resolution.MODES:
+        return None
+    return resolution.MODES - index
 
 
 def vertex_budget(data_dir: str | Path) -> tuple[int | None, str]:
@@ -447,7 +450,7 @@ def check(data_dir: str | Path) -> Report:
 
         if partial:
             add(Finding(WARN, f"Patch set is half-applied: {', '.join(partial)}",
-                        "One of the race.bin patches is in an intermediate or superseded "
+                        "One of the engine patches is in an intermediate or superseded "
                         "state. The patch set is meant to be rebuilt as a unit, not layered.",
                         "Run: vrmod patch <Data> --mode 1920x1080"))
         elif applied:
@@ -456,10 +459,10 @@ def check(data_dir: str | Path) -> Report:
                         "Applied, but there is no pristine snapshot, so this binary cannot "
                         "be rebuilt or reverted by the tool.",
                         None if snap else
-                        "Put an untouched race.bin in place and run: vrmod patch <Data>"))
+                        f"Put an untouched {live} in place and run: vrmod patch <Data>"))
         else:
             add(Finding(INFO, "Modern-display enhancements not applied",
-                        "A bundle of race.bin fixes that make the game look right on a modern "
+                        f"A bundle of {live} fixes that make the game look right on a modern "
                         "monitor, applied together as one reversible step: the startup fix (so "
                         "it runs on 4GB+ GPUs), a widescreen field of view, and the "
                         "tall-resolution fixes that keep the HUD and tachometer intact -- plus "
@@ -706,35 +709,38 @@ def check(data_dir: str | Path) -> Report:
         modes = resolution.read(data_dir)
     except Exception:
         modes = None
-    mode = video_mode(data_dir)
+    cfg = options_file(data_dir)
+    index = video_mode(data_dir)
+    slot = video_slot(data_dir)
     if modes and modes != STOCK_MODES:
         listed = ", ".join(f"{w}x{h}" for w, h in modes)
         stock = ", ".join(f"{w}x{h}" for w, h in STOCK_MODES)
-        add(Finding(INFO, "race.bin's resolution table has been edited",
+        add(Finding(INFO, f"{live}'s resolution table has been edited",
                     f"The four modes are now {listed}, where stock is {stock}. Expected if "
                     "you have used a resolution changer."))
-    if mode is None:
+    if cfg is None:
+        add(Finding(INFO, "No options file yet",
+                    "Neither options.cfg nor options.def is here, so there is no recorded "
+                    "video mode to read."))
+    elif index is None:
         add(Finding(INFO, "No video mode recorded yet",
-                    "options.def has no video mode line, which usually just means the game "
+                    f"{cfg.name} has no video_mode line, which usually just means the game "
                     "has not been run and saved settings yet."))
-    elif modes and 0 <= mode < len(modes):
-        w, h = modes[mode]
-        race_slot = race_video_slot(data_dir)
-        detail = (f"race.bin defines {', '.join(f'{a}x{b}' for a, b in modes)}.")
-        if race_slot is not None and race_slot != mode and 0 <= race_slot < len(modes):
-            rw, rh = modes[race_slot]
-            add(Finding(OK, f"Resolution: {rw} x {rh} racing, {w} x {h} in the menus",
-                        detail + " The game keeps TWO independent video modes, and "
-                        "options.cfg records them in DIFFERENT numbering: `video mode` is "
-                        f"the frontend as a slot 0-3 (here {mode}), `video_mode` is the race "
-                        f"view as a menu index 1-4 (here {len(modes) - race_slot}, i.e. slot "
-                        f"{race_slot}). The menu resolution is not what you race at."))
-        else:
-            add(Finding(OK, f"Resolution: {w} x {h}",
-                        f"Video mode {mode} of the four. " + detail))
+    elif slot is None:
+        add(Finding(INFO, f"Resolution: video mode {index}, which is out of range",
+                    f"{cfg.name} records video_mode {index}, but the game only defines "
+                    f"menu indices 1-{resolution.MODES}. The game falls back to 2 "
+                    "(640x480) when it cannot use what it finds."))
+    elif modes and 0 <= slot < len(modes):
+        w, h = modes[slot]
+        add(Finding(OK, f"Resolution: {w} x {h}",
+                    f"Menu index {index} of {resolution.MODES}, which is table slot {slot} "
+                    f"-- the labels run in descending order, so slot = {resolution.MODES} - "
+                    f"index. {live} defines "
+                    f"{', '.join(f'{a}x{b}' for a, b in modes)}. Read from {cfg.name}."))
     else:
-        add(Finding(INFO, f"Resolution: video mode {mode}",
-                    "Could not read race.bin's resolution table to say what that means."))
+        add(Finding(INFO, f"Resolution: video mode {index}",
+                    f"Could not read {live}'s resolution table to say what that means."))
 
     # ---- what is installed ----------------------------------------------
     try:

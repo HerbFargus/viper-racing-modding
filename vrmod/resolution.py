@@ -209,11 +209,18 @@ def read(data_dir: str | Path) -> list[tuple[int, int]]:
     return [by_slot[s] for s in range(MODES)]
 
 
-# The RACE view's mode selector in options.cfg, stored as a MENU INDEX (1-4) --
-# distinct from the frontend's `video mode` (a SLOT, 0-3). `slot = MODES - index`,
-# so index 4 is slot 0, the first table entry (where set_mode puts the modern
-# mode). Setting only the table makes a resolution AVAILABLE; this selects it, so
-# the game boots straight into it instead of the player picking it in the menu.
+# The mode selector in options.cfg, stored as a MENU INDEX (1-4).
+# `slot = MODES - index`, so index 4 is slot 0, the first table entry (where
+# set_mode puts the modern mode). Setting only the table makes a resolution
+# AVAILABLE; this selects it, so the game boots straight into it instead of the
+# player picking it in the menu.
+#
+# This is the ONLY video key. An options file also carries a line reading
+# `video mode N`, which was previously documented here as a separate frontend
+# key holding a slot 0-3. It is not a key at all: load_options splits each line
+# at the FIRST space, so that line parses as an option named `video` with the
+# string value "mode N", and no code anywhere reads an option called `video`.
+# See doctor.video_mode for the full trace.
 RACE_MODE_KEY = "video_mode"
 
 
@@ -221,9 +228,9 @@ def select_race_mode(data_dir: str | Path, index: int) -> Path | None:
     """Point the RACE view at menu `index` (1-4) in the live options.cfg.
 
     Returns the file written, or None if no options file exists yet (game never
-    run) or there's nowhere to add the key. Only touches the underscore
-    `video_mode` key -- the space `video mode` frontend/menu key is left alone,
-    so menus keep their own resolution (the split the doctor documents).
+    run) or there's nowhere to add the key. The `(?m)^video_mode` anchor matters:
+    the junk `video mode N` line sits earlier in the file and an unanchored
+    `video[ _]mode` would rewrite that instead, leaving the real key untouched.
     """
     if not 1 <= index <= MODES:
         raise ResolutionError(f"menu index must be 1-{MODES}, got {index}")

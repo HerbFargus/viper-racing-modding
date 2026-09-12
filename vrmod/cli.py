@@ -822,7 +822,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_res.add_argument("data_dir", type=Path, help="the game's Data folder")
     p_res.add_argument("--set", nargs=2, metavar=("INDEX", "WIDTHxHEIGHT"), default=None,
-                       help="replace one mode, e.g. --set 0 1920x1080 (backs race.bin up first)")
+                       help="repoint one MENU INDEX (1-4) at a new resolution, e.g. "
+                            "--set 4 1920x1080. Index 2 is the startup gate and is "
+                            "refused. Backs the engine up first.")
 
     p_hb = sub.add_parser(
         "hornball",
@@ -1675,19 +1677,46 @@ def main(argv: list[str] | None = None) -> int:
                       "real map,\n        so a `sub_...` is a function this tool found "
                       "rather than one the build named.")
     elif args.command == "resolution":
+        engine = doctor.live_binary(args.data_dir)
         if args.set:
-            idx = int(args.set[0])
-            w, h = (int(v) for v in args.set[1].lower().split("x"))
-            was = resolution.set_mode(args.data_dir, idx, w, h)
-            print(f"mode {idx}: {was[0]} x {was[1]} -> {w} x {h}")
-            print(f"  race.bin backed up as race.bin.res-backup")
-            print("  NOTE: that the game reads dimensions from these labels is inferred, "
-                  "not proven -- start the game and check before relying on it.")
-        for i, (w, h) in enumerate(resolution.read(args.data_dir)):
-            print(f"  mode {i}: {w} x {h}")
-        m = doctor.video_mode(args.data_dir)
-        if m is not None:
-            print(f"  (the game is currently set to mode {m})")
+            try:
+                idx = int(args.set[0])
+                w, h = (int(v) for v in args.set[1].lower().split("x"))
+            except ValueError:
+                raise SystemExit(
+                    f"error: expected --set INDEX WIDTHxHEIGHT, e.g. --set 4 1920x1080; "
+                    f"got {' '.join(args.set)!r}")
+            try:
+                was = resolution.set_mode(args.data_dir, idx, w, h)
+            except resolution.ResolutionError as e:
+                raise SystemExit(f"error: {e}")
+            print(f"menu index {idx}: {was[0]} x {was[1]} -> {w} x {h}")
+            print(f"  {engine} backed up as {engine}.res-backup")
+            print("  Patching makes the game WILLING to use the mode; it only appears in "
+                  "the menu if your driver actually enumerates that exact size.")
+        # One numbering, stated. --set takes the MENU INDEX, but the table is
+        # stored by slot in descending order, so listing bare positions here
+        # taught people to pass the wrong number to --set.
+        current = doctor.video_mode(args.data_dir)
+        print(f"\n{engine} defines four modes, selected by MENU INDEX -- "
+              "which is what --set takes:\n")
+        for m in sorted(resolution.modes(args.data_dir), key=lambda m: m.index):
+            notes = []
+            if m.index == resolution.BOOT_GATE_INDEX:
+                notes.append("the startup gate -- repointing this can stop the game booting")
+            if m.index == current:
+                notes.append("currently selected")
+            if not m.consistent:
+                notes.append(f"label says {m.label[0]} x {m.label[1]}, code says otherwise")
+            note = f"   <- {'; '.join(notes)}" if notes else ""
+            print(f"  index {m.index}  (slot {m.slot})  "
+                  f"{m.width:>4} x {m.height:<4}{note}".rstrip())
+        cfg = doctor.options_file(args.data_dir)
+        if current is None:
+            print("\n  No video_mode recorded yet -- "
+                  "the game has not saved settings here.")
+        else:
+            print(f"\n  {cfg.name} records video_mode {current}.")
     elif args.command == "hornball":
         if not hornball.available(args.data_dir):
             print("This race.bin doesn't carry the horn-ball launch code this can tune.")
