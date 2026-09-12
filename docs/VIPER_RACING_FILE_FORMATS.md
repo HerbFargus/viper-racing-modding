@@ -779,6 +779,15 @@ This is genuinely one of the more modder-friendly formats in the game — the pa
   reading of the same field — he calls it *"specular/shiny"*, arrived at by experiment rather than by
   disassembly — and it agrees with what the loader appears to do.
 
+  **Tried in game, and the result was inconclusive.** A control install and one with
+  `alpha spec` on all eight levels were built and compared (`vrmod` can rewrite the field:
+  the STAB header gives record stride `0x43` and field offsets `0x11`/`0x22`, so only 5
+  fields change and the archive repacks byte-identical apart from that member). On a
+  modern GPU and display no clear difference was visible at distance. That does **not**
+  refute Sucahyo — the effect is a 1998 specular path, and what was obvious on period
+  hardware may simply not survive modern drivers and rendering. Recorded so the next
+  person does not repeat the experiment expecting a dramatic result.
+
   Two incidental points from his note. The record count is genuinely **per car**, not fixed at 8: his
   table has five records for a five-mesh conversion. And he reads the distance column as **feet** — but
   that is an assumption carried over from NASCAR Heat, which his note says the format resembles. This
