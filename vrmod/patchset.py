@@ -34,15 +34,16 @@ whatever is currently on disk -- is how the working binary in this project ended
 up unreproducible across fifteen backups.
 
 WHAT THAT COSTS, AND THE CARRY-OVER. Restoring the snapshot reverts every patch
-in the file, including the four this module does not own: the write-path
-redirect, the module assertion, the head-on panic toggle and the horn-ball
-tuning. That used to happen in silence, so "apply this resolution" in the
+in the file, including the ones this module does not own: the write-path
+redirect, the module assertion, the head-on panic toggle, the horn-ball tuning
+and the car-list geometry. That used to happen in silence, so "apply this
+resolution" in the
 desktop app also moved the player's logs back under C:\\, un-silenced the
 assertion, re-enabled the head-on panic and reset the horn -- with nothing said.
 This project's own test bed lost all four that way, twice, during unrelated work.
 
-Layering instead would give up the property above, so `apply()` captures those
-four BEFORE it restores the snapshot, re-applies them after, and names each one
+Layering instead would give up the property above, so `apply()` captures them
+BEFORE it restores the snapshot, re-applies them after, and names each one
 in the Report. The carry-over is explicit rather than inherited, so the result
 is still a function of (arguments + what the Report says was carried); a rebuild
 with carry-over is byte-identical to applying the same patches by hand.
@@ -53,7 +54,7 @@ used to write a single menu index and leave the snapshot's stock values in the
 other three -- so a player who had repointed a second slot lost it on the next
 rebuild, just as silently. `modes={index: (w, h)}` now sets as many entries as
 you like in one reproducible call, and any non-stock entry the call does not
-mention is carried like the four above. Index 1 is where this matters: its
+mention is carried like the patches above. Index 1 is where this matters: its
 stock 512x384 is not enumerated by modern drivers, so that menu entry never
 appears and the slot is free on every modern machine.
 
@@ -261,6 +262,7 @@ class CarryOver:
     modassert: bool = False
     headon_disabled: bool = False
     hornball: tuple[float, float] | None = None
+    carlist: object | None = None          # carlist.Geometry, when not stock
     # Menu index -> mode, for entries that are not stock. Resolution IS one of
     # this module's own steps, but it only ever set ONE index, so any other slot
     # the player had repointed went back to stock on the next rebuild -- and
@@ -270,7 +272,8 @@ class CarryOver:
 
     def __bool__(self) -> bool:
         return bool(self.writepath_kinds or self.modassert
-                    or self.headon_disabled or self.hornball or self.resolution)
+                    or self.headon_disabled or self.hornball or self.resolution
+                    or self.carlist)
 
     def describe(self) -> list[str]:
         out = [f"write paths ({k})" for k in self.writepath_kinds]
@@ -282,12 +285,14 @@ class CarryOver:
             out.append("head-on panic disabled")
         if self.hornball:
             out.append(f"horn ball {self.hornball[0]:.2f}x / {self.hornball[1]:.2f}s")
+        if self.carlist:
+            out.append(f"car list at {self.carlist}")
         return out
 
 
 def _capture(d: Path) -> CarryOver:
     """What is applied to this engine that the patch set does not own."""
-    from . import headon, hornball, modassert, writepaths
+    from . import carlist, headon, hornball, modassert, writepaths
     c = CarryOver()
     try:
         live = _race_bin(d).name
@@ -317,12 +322,17 @@ def _capture(d: Path) -> CarryOver:
                         if wh != stock[i]}
     except Exception:
         pass
+    try:
+        if carlist.status(d) != carlist.STOCK and carlist.available(d):
+            c.carlist = carlist.read(d)
+    except Exception:
+        pass
     return c
 
 
 def _reapply(d: Path, c: CarryOver, rep: "Report") -> None:
     """Put the captured patches back, reporting each one."""
-    from . import headon, hornball, modassert, writepaths
+    from . import carlist, headon, hornball, modassert, writepaths
     for kind in c.writepath_kinds:
         try:
             writepaths.apply(d, kind, migrate=False)
@@ -348,6 +358,12 @@ def _reapply(d: Path, c: CarryOver, rep: "Report") -> None:
             rep.add("carried", f"horn ball re-tuned to {speed:.2f}x / {cool:.2f}s")
         except Exception as e:
             rep.notes.append(f"could not re-tune the horn ball: {e}")
+    if c.carlist:
+        try:
+            carlist.apply(d, c.carlist)
+            rep.add("carried", f"car list back to {c.carlist}")
+        except Exception as e:
+            rep.notes.append(f"could not restore the car list geometry: {e}")
 
 
 def _patch_score(d: Path) -> int:
@@ -360,7 +376,7 @@ def _patch_score(d: Path) -> int:
     fixes. Without this, a `.needle-backup` taken after four other patches
     scores the same as the original.
     """
-    from . import headon, modassert, writepaths        # local: avoid import cycles
+    from . import carlist, headon, modassert, writepaths   # local: avoid cycles
     score = 0
     try:
         if vrampatch.status(d) == vrampatch.PATCHED:
@@ -374,6 +390,8 @@ def _patch_score(d: Path) -> int:
         for st in writepaths.status(d).values():
             score += sum(1 for v in st.values() if v == "patched")
         if resolution.read(d) != STOCK_MODES:
+            score += 1
+        if carlist.status(d) not in (carlist.STOCK, carlist.ABSENT):
             score += 1
     except Exception:
         pass

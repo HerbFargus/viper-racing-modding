@@ -431,6 +431,41 @@ decided the launch horn was too loud and too long and said nothing about it.
 | `v1.2.5 2016` | Val Novak, 20 Mar 2016 | Sucahyo's 1.2.4-beta **plus** Charlie Ward's modern-GPU / video-memory fix (from a DirectDraw solution by **beatcracker**), **plus** a scratchy-sound fix — the standard modern binary; runs on Windows 10/11 |
 | `v1.2.6 2017` | Val Novak, 15 Nov 2017, on a finding by **Zero** | same as 1.2.5 but the extra rear wing is **no longer always shown** on the viper/AI cars. **Measured: exactly 46 bytes differ** from 1.2.5 (`0x48b68`–`0xe2535`), same length and still 512-byte aligned — a hex edit, not a recompile |
 
+##### One more thing they fixed, and it helps date the 1.2.4 lineage
+
+The community builds also **moved the car list on the Hacks options screen.** In
+retail the Vehicle list's top edge sits at y=200 — halfway down a 480-line
+frontend — so once an install carries a real collection the entries run off the
+bottom of the window where nothing can reach them.
+
+`Added@HackOptionsControl` builds that screen as a table of `UIDialogItem`
+descriptors, and the list's geometry is four literal immediates at one call site.
+Diffing every build held here:
+
+| build | x | y | w | h | the list spans |
+|---|---|---|---|---|---|
+| retail v1.0 `race.bin` | 300 | 200 | 100 | 200 | 200 → 400 |
+| **v1.2.4 BETA (VRgt Demo, installer 6 Jan 2005)** | 390 | **124** | 111 | **255** | **124 → 379** |
+| `v1.2.5 2016` | 390 | 124 | 111 | 255 | — |
+| `v1.2.6 2017` | 390 | 124 | 111 | 255 | — |
+
+76 pixels higher and 55 taller. The 0x50 bytes of descriptor either side are
+**byte-identical** between retail and 1.2.4, so the entire fix is those four
+numbers — nothing structural.
+
+Two things follow. First, this is **another change that only ever reached
+`race.bin`**, so the v1.0 pressing — which runs `race.exe` — never got it, the
+same gap as the horn ball and the RC's module assertion. `vrmod carlist` applies
+it to either engine.
+
+Second, it is a dated data point for the 1.2.4 muddle. The table above lists
+Sucahyo's 1.2.4 BETA as October 2007, but the build carrying this fix is the
+v1.2.4 BETA extracted from the **2005** VRgt Demo installer — a different file
+from Sucahyo's, as that build's provenance note already records. So the car-list
+fix was circulating **at least two years before** the 1.2.4 everyone knows. Which
+build first made the change is **not established**: no 1.2.1, 1.2.3 or Sucahyo
+2007 binary is held here to narrow it further.
+
 Notes for anyone cataloguing binaries:
 - The pcgamingwiki "Viper Racing Unofficial Patch 1.2.4" (uploaded by *Blackbird*)
   is a **re-upload of Sucahyo's 2007 1.2.4-beta**, not a separate build.
