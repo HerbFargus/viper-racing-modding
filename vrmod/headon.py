@@ -57,6 +57,8 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from . import safewrite
+
 RACE_BIN = "race.bin"
 
 # The prologue, used to find the function. No relocations in it, so it is
@@ -143,7 +145,7 @@ def apply(data_dir: str | Path) -> int:
     backup = f.with_suffix(f.suffix + ".headon-backup")
     if not backup.exists():
         shutil.copy2(f, backup)
-    f.write_bytes(bytes(blob))
+    safewrite.write_atomic(f, bytes(blob))
     return at
 
 
@@ -158,5 +160,5 @@ def revert(data_dir: str | Path) -> int:
     if at < 1 or blob[at - 1:at] != DISABLED:
         raise PatchError("this race.bin does not look patched -- nothing to revert")
     blob[at - 1:at] = ORIGINAL
-    f.write_bytes(bytes(blob))
+    safewrite.write_atomic(f, bytes(blob))
     return at - 1

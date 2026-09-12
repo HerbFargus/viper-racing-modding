@@ -59,11 +59,11 @@ change, not a 29-byte string swap.
 """
 from __future__ import annotations
 
-import os
 import re
 import shutil
-import time
 from pathlib import Path
+
+from . import safewrite
 
 # Engine binaries, live one first -- same ordering rule as vrampatch: a v1.0
 # install ships both, and only race.exe is ever loaded.
@@ -111,40 +111,6 @@ _MAX_SLACK = 8
 
 class PatchError(RuntimeError):
     """The patch site is missing, ambiguous, or in a state we do not recognise."""
-
-
-def _write_atomic(f: Path, data: bytes, attempts: int = 5) -> None:
-    """Replace a binary's contents without ever leaving it half-written.
-
-    Two hazards, both seen in practice on Windows:
-
-    * `open(f, "wb")` TRUNCATES on open. A failure after that point leaves a
-      truncated engine behind. Writing a sibling temp file and then renaming it
-      over the target means the game binary is either wholly old or wholly new.
-    * A freshly written .exe gets grabbed by antivirus for a moment, so the very
-      next write to it fails with PermissionError. That is transient, so retry
-      briefly rather than aborting a multi-file patch half way through.
-    """
-    tmp = f.with_suffix(f.suffix + ".writepaths-tmp")
-    last: Exception | None = None
-    for i in range(attempts):
-        try:
-            tmp.write_bytes(data)
-            os.replace(tmp, f)       # atomic within a volume
-            return
-        except PermissionError as e:
-            last = e
-            time.sleep(0.3 * (i + 1))
-        finally:
-            if tmp.exists():
-                try:
-                    tmp.unlink()
-                except OSError:
-                    pass
-    raise PatchError(
-        f"could not write {f.name}: {last}. Something is holding the file open -- "
-        "close the game and the mod manager, and check whether antivirus is "
-        "scanning it.")
 
 
 def _sites(blob: bytes, literal: bytes) -> list[int]:
@@ -267,7 +233,7 @@ def _apply_to(f: Path, kind: str) -> list[tuple[str, str]]:
     backup = f.with_suffix(f.suffix + ".writepaths-backup")
     if not backup.exists():
         shutil.copy2(f, backup)
-    _write_atomic(f, bytes(blob))
+    safewrite.write_atomic(f, bytes(blob))
     return [(o.decode(), n.decode()) for _, _, o, n in plan]
 
 
@@ -347,6 +313,6 @@ def revert(data_dir: str | Path, kind: str = LOGS_KIND) -> dict[str, list[str]]:
                         "been written by something other than this patch.")
                 blob[off:off + budget] = old + b"\x00" * (budget - len(old))
                 restored.append(old.decode())
-        _write_atomic(f, bytes(blob))
+        safewrite.write_atomic(f, bytes(blob))
         out[f.name] = restored
     return out

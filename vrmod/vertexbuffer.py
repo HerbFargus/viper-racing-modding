@@ -32,6 +32,8 @@ from __future__ import annotations
 import struct
 from pathlib import Path
 
+from . import safewrite
+
 RACE_BIN = "race.bin"
 
 # Engine binaries, live one first -- the v1.0 pressing runs race.exe and ships a
@@ -178,5 +180,5 @@ def apply(data_dir: str | Path, verts: int = FORMAT_CAP_VERTS) -> dict:
     info = find_site(bytes(blob))
     old = info["verts"]
     struct.pack_into("<I", blob, info["off"] + 1, verts * STRIDE)
-    f.write_bytes(bytes(blob))
+    safewrite.write_atomic(f, bytes(blob))
     return {"at": info["off"], "old_verts": old, "new_verts": verts, "glob": info["glob"]}
