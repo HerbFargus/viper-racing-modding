@@ -348,7 +348,8 @@
         <li><strong>Frank P.&nbsp;Wolf</strong> &mdash; a major car converter (~155 cars) and toolmaker, author of <strong>CarMan</strong> and <strong>WheelMan</strong>. His packages also shipped with an anti-tamper &ldquo;lock&rdquo; (decoy directory entries).</li>
         <li><strong>Sucahyo</strong> &mdash; produced the <strong>2007 &ldquo;1.2.4 beta&rdquo; <span class="mono">race.bin</span></strong> that raised the polygon and per-object vertex limits &mdash; the lineage behind the community engine patch.</li>
         <li><strong>Charlie Ward</strong> (Brunswick, Maine) &mdash; modified <span class="mono">race.bin</span> in <strong>2016</strong> to fix the modern-GPU startup error, building on a solution found by <strong>beatcracker</strong>. Lets the game start on any 32/64-bit Windows including 10/11.</li>
-        <li><strong>Zero</strong> &mdash; supplied the finding behind the <strong>2017 <span class="mono">v1.2.6</span></strong> <span class="mono">race.bin</span>. Val's note shipped with that build credits him by name: <em>&ldquo;According to Zero's information I modified my 2016 race.bin so as to not always show the extra rear wing in the viper.car and ai viper cars.&rdquo;</em> The last change anyone made to the engine, and it started with his diagnosis.</li>
+        <li><strong>Eric &ldquo;Zero&rdquo;</strong> &mdash; supplied the finding behind the <strong>2017 <span class="mono">v1.2.6</span></strong> <span class="mono">race.bin</span>. Val's note credits him: <em>&ldquo;According to Zero's information I modified my 2016 race.bin so as to not always show the extra rear wing in the viper.car and ai viper cars.&rdquo;</em> That is the last change anyone made to the engine, and it started with his diagnosis. He is also a car modder in his own right &mdash; the <strong>2018 <span class="mono">Viper.car</span> and <span class="mono">ViperGT.car</span> retextures</strong> and a <strong>2019 <span class="mono">ViperGT v2.0</span></strong> with a full interior. His readmes are unusually careful about attribution, and are the source for several of the names on this page.</li>
+        <li><strong>Dave Broske</strong> and <strong>Dave Pollatsek</strong> (Monster Games) &mdash; the two MGI programmers who kept supporting the mod scene years after release. Community readmes thank them for a decade as <em>&ldquo;both Dave's from MGI&rdquo;</em> and <em>&ldquo;Dave P. and especially Dave B.&rdquo;</em>, rarely spelling either out; Zero's 2018 readmes name both. Broske built the <strong>1.2.3 beta</strong> <span class="mono">race.bin</span> for the VRgt team &mdash; the binary every later community build is hex-edited from.</li>
         <li><strong>Max</strong> &mdash; a car modder (&ldquo;Add-on cars by Max&rdquo;).</li>
         <li>&hellip;and the wider community of racers, converters and testers over the years.</li>
       </ul>
@@ -393,6 +394,28 @@
       <tr><td><b>trkaitweaker</b> <span class="mono" style="color:var(--conf-confirmed)">&#10003;</span></td><td>AI tuning.</td></tr>
       <tr><td><b>jpg2sky / sky-tga2tex</b></td><td>Build the four skybox tiles.</td></tr>
   </tbody></table></div>
+      <h3>Where the cars came from</h3>
+      <p>Almost no Viper Racing car was modelled for Viper Racing. The scene ran on <strong>conversion</strong> &mdash; lifting a mesh out of another PC racing game, re-texturing it, and rebuilding the physics and sounds around it. Val's site was organised around exactly that, with a <span class="mono">FILES</span> section per source game.</p>
+      <p>Counted across <strong>1,710 car readmes</strong> in this archive &mdash; those readmes are unusually diligent about crediting a source, so the numbers are close to real practice:</p>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Source game</th><th>Cars crediting it</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Re-Volt</strong> (1999)</td><td>167</td><td>the biggest single source, and the least obvious one</td></tr>
+          <tr><td><strong>Need For Speed</strong></td><td>166</td><td>High Stakes, Porsche Unleashed, Hot Pursuit, Most Wanted, Underground</td></tr>
+          <tr><td><strong>Sports Car GT</strong> (1999)</td><td>156</td><td>Frank Wolf's GT and Ferrari sets, via <span class="mono">vrl2wrl</span></td></tr>
+          <tr><td><em>built from scratch</em></td><td>153</td><td>usually in Zmodeler, and usually said so explicitly</td></tr>
+          <tr><td><strong>1nsane</strong> (2000)</td><td>72</td><td></td></tr>
+          <tr><td><strong>Monster Truck Madness 2</strong> (1998)</td><td>63</td><td>the monster-truck and Bigfoot cars</td></tr>
+          <tr><td><strong>4x4 Evolution / Evo 2</strong></td><td>35</td><td>including Val's Christmas <span class="mono">Santa25</span></td></tr>
+          <tr><td><strong>Midtown Madness</strong></td><td>10</td><td>no section on Val's site &mdash; found only by reading readmes</td></tr>
+          <tr><td><strong>Grand Theft Auto</strong></td><td>9</td><td>mostly GTA IV models via gtainside</td></tr>
+          <tr><td><strong>Test Drive 6</strong> (1999)</td><td>5</td><td>Val hosted the <strong>full game</strong>, not a files section &mdash; which is why it scores single digits</td></tr>
+          <tr><td><strong>Colin McRae Rally</strong></td><td>1</td><td></td></tr>
+        </tbody>
+      </table></div>
+      <p><strong>Re-Volt topping the list is the surprise</strong>, and it makes sense once you see why: it is a radio-control racer, so its cars are small, low-poly, cleanly UV-mapped meshes &mdash; far easier to bring into a 1998 engine with tight vertex limits than a modern high-detail model. The conversions credit the original Re-Volt car authors by name, not just the game.</p>
+      <blockquote><strong>The chain was long.</strong> A typical car passed from its origin game, through Zmodeler 1.07 for the mesh, <span class="mono">vrl2wrl</span> or a hand conversion for the format, <span class="mono">tga2tex</span> for the textures, and <span class="mono">cf2txt</span> for the physics &mdash; every step a separate command-line tool.</blockquote>
+
       <h3>Engine patches &amp; <span class="mono">race.bin</span> versions</h3>
 
       <p>Every modern install runs a community-patched <code>race.bin</code> (the game engine). The version shows in-game at the <strong>Options screen, bottom-right</strong>, and is stored as a plain string inside <code>race.bin</code> itself (near offset <code>0x0D37FD</code>).</p>
