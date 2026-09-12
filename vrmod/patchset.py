@@ -33,6 +33,21 @@ means a bad run is undone by the next good one. The alternative -- patching
 whatever is currently on disk -- is how the working binary in this project ended
 up unreproducible across fifteen backups.
 
+WHAT THAT COSTS, AND THE CARRY-OVER. Restoring the snapshot reverts every patch
+in the file, including the four this module does not own: the write-path
+redirect, the module assertion, the head-on panic toggle and the horn-ball
+tuning. That used to happen in silence, so "apply this resolution" in the
+desktop app also moved the player's logs back under C:\\, un-silenced the
+assertion, re-enabled the head-on panic and reset the horn -- with nothing said.
+This project's own test bed lost all four that way, twice, during unrelated work.
+
+Layering instead would give up the property above, so `apply()` captures those
+four BEFORE it restores the snapshot, re-applies them after, and names each one
+in the Report. The carry-over is explicit rather than inherited, so the result
+is still a function of (arguments + what the Report says was carried); a rebuild
+with carry-over is byte-identical to applying the same patches by hand.
+`carry_over=False` gives the bare rebuild and reports what it dropped.
+
 WHICH BINARY. The set follows the engine the install actually RUNS: `race.exe` on
 the v1.0 pressing, `race.bin` on v1.1 and the community builds. A v1.0 folder
 holds both, and only race.exe is ever loaded, so targeting the name rather than
@@ -168,6 +183,102 @@ STOCK_ENGINES: dict[str, tuple[str, str]] = {
     "739619fd213c1e8c234b4712b2bae2a8b362d19f94f6be08c477a42e39d6dd81":
         ("race.exe", "1.0"),
 }
+
+
+@dataclass
+class CarryOver:
+    """Patches this module does not own, captured before a rebuild.
+
+    apply() restores the pristine snapshot before replaying its own steps --
+    that is what makes it idempotent and its output a function of its arguments.
+    The cost is that everything ELSE anyone applied to the engine goes with it:
+    the write-path redirect, the module assertion, the head-on panic toggle and
+    the horn-ball tuning all live in the same binary and are all reverted, in
+    silence. Someone who presses "apply this resolution" gets their logs back in
+    C:\\ and their mouse panic back, and nothing says so.
+
+    So they are captured first and re-applied after, and every one is reported.
+    Determinism is kept because the carry-over is explicit and visible in the
+    Report rather than inherited by accident -- and `carry_over=False` gives the
+    genuinely bare rebuild, which then says what it dropped.
+    """
+    writepath_kinds: list[str] = field(default_factory=list)
+    modassert: bool = False
+    headon_disabled: bool = False
+    hornball: tuple[float, float] | None = None
+
+    def __bool__(self) -> bool:
+        return bool(self.writepath_kinds or self.modassert
+                    or self.headon_disabled or self.hornball)
+
+    def describe(self) -> list[str]:
+        out = [f"write paths ({k})" for k in self.writepath_kinds]
+        if self.modassert:
+            out.append("module assertion silenced")
+        if self.headon_disabled:
+            out.append("head-on panic disabled")
+        if self.hornball:
+            out.append(f"horn ball {self.hornball[0]:.2f}x / {self.hornball[1]:.2f}s")
+        return out
+
+
+def _capture(d: Path) -> CarryOver:
+    """What is applied to this engine that the patch set does not own."""
+    from . import headon, hornball, modassert, writepaths
+    c = CarryOver()
+    try:
+        live = _race_bin(d).name
+        for kind, state in writepaths.status(d).get(live, {}).items():
+            if state == "patched":
+                c.writepath_kinds.append(kind)
+    except Exception:
+        pass
+    try:
+        c.modassert = modassert.status(d) == modassert.PATCHED
+    except Exception:
+        pass
+    try:
+        c.headon_disabled = headon.status(d) == headon.DISABLED_STATE
+    except Exception:
+        pass
+    try:
+        if hornball.available(d):
+            t = hornball.read(d)
+            if not t.is_stock:
+                c.hornball = (t.speed_mult, t.cooldown)
+    except Exception:
+        pass
+    return c
+
+
+def _reapply(d: Path, c: CarryOver, rep: "Report") -> None:
+    """Put the captured patches back, reporting each one."""
+    from . import headon, hornball, modassert, writepaths
+    for kind in c.writepath_kinds:
+        try:
+            writepaths.apply(d, kind, migrate=False)
+            rep.add("carried", f"write paths ({kind}) re-applied")
+        except Exception as e:
+            rep.notes.append(f"could not re-apply the {kind} write paths: {e}")
+    if c.modassert:
+        try:
+            modassert.apply(d)
+            rep.add("carried", "module assertion silenced again")
+        except Exception as e:
+            rep.notes.append(f"could not re-silence the module assertion: {e}")
+    if c.headon_disabled:
+        try:
+            headon.apply(d)
+            rep.add("carried", "head-on panic disabled again")
+        except Exception as e:
+            rep.notes.append(f"could not re-disable the head-on panic: {e}")
+    if c.hornball:
+        speed, cool = c.hornball
+        try:
+            hornball.apply(d, speed_mult=speed, cooldown=cool)
+            rep.add("carried", f"horn ball re-tuned to {speed:.2f}x / {cool:.2f}s")
+        except Exception as e:
+            rep.notes.append(f"could not re-tune the horn ball: {e}")
 
 
 def _patch_score(d: Path) -> int:
@@ -313,14 +424,25 @@ def apply(data_dir: str | Path,
           big_tables: bool = True,
           ratio: float = aspectfix.RATIO_ORIGINAL,
           max_verts: int | None = None,
-          force_baseline: bool = False) -> Report:
-    """Rebuild race.bin from the pristine snapshot with the full patch set."""
+          force_baseline: bool = False,
+          carry_over: bool = True) -> Report:
+    """Rebuild race.bin from the pristine snapshot with the full patch set.
+
+    carry_over: re-apply the patches this module does not own (write paths,
+    module assertion, head-on toggle, horn-ball tuning) after the rebuild, since
+    restoring the snapshot reverts them too. On by default, because losing them
+    silently is the worse surprise; every one is listed in the Report. Pass
+    False for a genuinely bare rebuild -- it then reports what it dropped.
+    """
     d = Path(data_dir)
     f = _race_bin(d)
     rep = Report()
 
     snap = _snapshot(d, force_baseline)
     rep.baseline = f"{snap.name} ({snap.stat().st_size:,} bytes)"
+    # Capture BEFORE the snapshot goes back: restoring it reverts every patch in
+    # the file, including the ones that are none of this module's business.
+    carried = _capture(d)
     shutil.copy2(snap, f)                          # start clean, every time
 
     # 1 -- startup
@@ -397,6 +519,16 @@ def apply(data_dir: str | Path,
         else:
             syms, added = mapfile.install(d)
             rep.add("mapfile", f"{syms:,} symbols, {added:,} bytes appended")
+
+    # 7 -- everything this module does not own, put back after the rebuild.
+    #      Last, so it lands on a finished binary; all four are in-place edits
+    #      that move nothing, so the symbol map written in step 6 stays valid.
+    if carried and carry_over:
+        _reapply(d, carried, rep)
+    elif carried:
+        rep.notes.append(
+            "Rebuilt without carry-over, so these were reverted along with the "
+            "snapshot and are NOT back: " + "; ".join(carried.describe()) + ".")
 
     if not dpi_aware(d):
         rep.notes.append(
