@@ -348,6 +348,7 @@
         <li><strong>Frank P.&nbsp;Wolf</strong> &mdash; a major car converter (~155 cars) and toolmaker, author of <strong>CarMan</strong> and <strong>WheelMan</strong>. His packages also shipped with an anti-tamper &ldquo;lock&rdquo; (decoy directory entries).</li>
         <li><strong>Sucahyo</strong> &mdash; produced the <strong>2007 &ldquo;1.2.4 beta&rdquo; <span class="mono">race.bin</span></strong> that raised the polygon and per-object vertex limits &mdash; the lineage behind the community engine patch.</li>
         <li><strong>Charlie Ward</strong> (Brunswick, Maine) &mdash; modified <span class="mono">race.bin</span> in <strong>2016</strong> to fix the modern-GPU startup error, building on a solution found by <strong>beatcracker</strong>. Lets the game start on any 32/64-bit Windows including 10/11.</li>
+        <li><strong>Zero</strong> &mdash; supplied the finding behind the <strong>2017 <span class="mono">v1.2.6</span></strong> <span class="mono">race.bin</span>. Val's note shipped with that build credits him by name: <em>&ldquo;According to Zero's information I modified my 2016 race.bin so as to not always show the extra rear wing in the viper.car and ai viper cars.&rdquo;</em> The last change anyone made to the engine, and it started with his diagnosis.</li>
         <li><strong>Max</strong> &mdash; a car modder (&ldquo;Add-on cars by Max&rdquo;).</li>
         <li>&hellip;and the wider community of racers, converters and testers over the years.</li>
       </ul>
@@ -440,7 +441,7 @@ viperpatch121beta.zip   2005 404 · 2006 200 · 2007 200 · 2021 404</code></pre
         <tbody>
           <tr><td><code>1.2.4 BETA</code></td><td>Sucahyo, 4 Oct 2007</td><td>95,000-polygon track support; 20,000 vertices/object (&asymp;100k-poly cars possible, though per-scene vertex limits remain &mdash; ~14 AI cars at 20k each can still crash); rear <strong>spoiler</strong> (<code>&lt;car&gt;S.mod</code>) visible without an <code>option.cfg</code> edit; <strong>mirror</strong> visible in F1&ndash;F8 views</td></tr>
           <tr><td><code>v1.2.5 2016</code></td><td>Val Novak, 20 Mar 2016</td><td>Sucahyo's 1.2.4-beta <strong>plus</strong> Charlie Ward's modern-GPU / video-memory fix (from a DirectDraw solution by <strong>beatcracker</strong>), <strong>plus</strong> a scratchy-sound fix &mdash; the standard modern binary; runs on Windows 10/11</td></tr>
-          <tr><td><code>v1.2.6 2017</code></td><td>Val Novak, 15 Nov 2017</td><td>same as 1.2.5 but the extra rear wing is <strong>no longer always shown</strong> on the viper/AI cars (a 46-byte change to one visibility check)</td></tr>
+          <tr><td><code>v1.2.6 2017</code></td><td>Val Novak, 15 Nov 2017, on a finding by <strong>Zero</strong></td><td>same as 1.2.5 but the extra rear wing is <strong>no longer always shown</strong> on the viper/AI cars. <strong>Measured: exactly 46 bytes differ</strong> from 1.2.5 (<code>0x48b68</code>&ndash;<code>0xe2535</code>), same length and still 512-byte aligned &mdash; a hex edit, not a recompile</td></tr>
         </tbody>
       </table></div>
       <ul>
@@ -485,7 +486,7 @@ v1.1  Data\Viper Racing.exe      388,608 b   .text  16,384   (a launcher; no map
         <li><strong><span class="mono">&lt;car&gt;1.tab</span> &mdash; the &ldquo;garage&rdquo; spec sheet.</strong> Val's 2015 hex-editing tutorial shows opening it in XVi32 and reading off <code>Name</code>, <code>0-60</code>, <code>top speed</code>, <code>engine</code>, <code>power max</code>, <code>torque max</code>, <code>redline</code> as plain text &mdash; the exact structure <span class="mono">vrmod</span> now parses to derive a car's name and stats automatically.</li>
         <li><strong><span class="mono">.mod</span> &mdash; meshes.</strong> Editing was limited to finding and renaming the texture-name string inside the file; real geometry was always done in Zmodeler and re-exported.</li>
         <li><strong><span class="mono">english.lng</span>.</strong> AI driver names and track slot names were changed with a fixed-width, never-longer-than-the-original hex edit &mdash; the same constraint the modern switcher works within.</li>
-        <li><strong>The engine.</strong> Rather than decompiled, <span class="mono">race.bin</span> was binary-patched: Sucahyo lifted the limits (2007), Charlie Ward &amp; beatcracker fixed the GPU check (2016). Most modern installs still rely on these two.</li>
+        <li><strong>The engine.</strong> Rather than decompiled, <span class="mono">race.bin</span> was binary-patched: Sucahyo lifted the limits (2007), Charlie Ward &amp; beatcracker fixed the GPU check (2016), and Val Novak made the last edit in 2017 on a finding by Zero. Most modern installs still rely on the first two.</li>
       </ul>
       <blockquote>The community had mapped the <em>what</em> of these formats byte by byte. What it never had was the <em>how at scale</em> &mdash; a way to read and write them programmatically rather than one file at a time in a hex editor.</blockquote>
     </section>

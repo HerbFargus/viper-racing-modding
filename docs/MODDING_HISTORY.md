@@ -38,6 +38,11 @@ knowledge into one programmatic library.
   the modern-GPU startup error (the game's video-memory check overflows on cards
   with several GB), building on a solution found by **beatcracker**. This lets
   the game start on any 32/64-bit Windows including 10/11.
+- **Zero** — supplied the finding behind the **2017 `v1.2.6`** `race.bin`. Val's
+  note shipped with that build credits him by name: *"According to Zero's
+  information I modified my 2016 race.bin so as to not always show the extra rear
+  wing in the viper.car and ai viper cars."* The last change made to the engine
+  by anyone, and it started with his diagnosis.
 - **M. Walden** — toolmaker: the **Surface Modifier** and **UV Map Editor** for
   `.mod` files, and the programmer behind the **Tire Editor**.
 - **Matthias Nyberg** ("Matt") — the tyre/handling expertise behind the **Tire
@@ -224,7 +229,7 @@ MGI shipped a fix for it in 1999.
 |---|---|---|
 | `1.2.4 BETA` | Sucahyo, 4 Oct 2007 | 95,000-polygon track support; 20,000 vertices/object (≈100k-poly cars possible, though total per-scene vertex limits remain — ~14 AI cars at 20k each can still crash); the rear **spoiler** (`<car>S.mod`) visible without an `option.cfg` edit; the **mirror** visible in F1–F8 views |
 | `v1.2.5 2016` | Val Novak, 20 Mar 2016 | Sucahyo's 1.2.4-beta **plus** Charlie Ward's modern-GPU / video-memory fix (from a DirectDraw solution by **beatcracker**), **plus** a scratchy-sound fix — the standard modern binary; runs on Windows 10/11 |
-| `v1.2.6 2017` | Val Novak, 15 Nov 2017 | same as 1.2.5 but the extra rear wing is **no longer always shown** on the viper/AI cars (a 46-byte change to one visibility check) |
+| `v1.2.6 2017` | Val Novak, 15 Nov 2017, on a finding by **Zero** | same as 1.2.5 but the extra rear wing is **no longer always shown** on the viper/AI cars. **Measured: exactly 46 bytes differ** from 1.2.5 (`0x48b68`–`0xe2535`), same length and still 512-byte aligned — a hex edit, not a recompile |
 
 Notes for anyone cataloguing binaries:
 - The pcgamingwiki "Viper Racing Unofficial Patch 1.2.4" (uploaded by *Blackbird*)
@@ -474,8 +479,9 @@ tutorials and muscle memory**, not code:
   fixed-width, never-longer-than-the-original hex edit — the same constraint the
   modern switcher works within.
 - **The engine.** Rather than being decompiled, `race.bin` was **binary-patched**:
-  Sucahyo lifted the limits (2007), and Charlie Ward/beatcracker fixed the GPU
-  check (2016). These are the two patches most modern installs still rely on.
+  Sucahyo lifted the limits (2007), Charlie Ward/beatcracker fixed the GPU
+  check (2016), and Val Novak made the last edit in 2017 on a finding by Zero.
+  The first two are what most modern installs still rely on.
 
 So the community had mapped the *what* of these formats byte by byte. What it
 never had was the *how at scale* — a way to read and write them programmatically
