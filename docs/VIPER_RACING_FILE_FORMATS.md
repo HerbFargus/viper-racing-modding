@@ -2278,22 +2278,48 @@ and a resolution is only genuinely changed when all four agree:
 | Globals chain B | `0x447E97` | The same pair again |
 
 There are two globals chains because the game keeps **two independent video modes** — one for the frontend
-and one for racing. They are stored in `Config/options.cfg` as `video mode` and `video_mode` respectively,
-and the race mode is announced in the log as `setting driving video mode = N`.
+and one for racing. Both are driven from a **single** `Config/options.cfg` key, `video_mode`, holding a
+**menu index 1–4**, and the race mode is announced in the log as `setting driving video mode = N`.
 
-⚠️ **The two keys use different numbering, which is an easy trap.** The frontend key holds a **label-table
-slot** (0–3); the race key holds a **menu index** (1–4). They are related by the same `slot = 4 − index` as
-the label table itself, so a config reading
+⚠️ **`video mode` — with a space — is NOT a second key.** This section previously documented it as the
+frontend's key holding a label-table *slot* (0–3), paired against `video_mode` as a menu index, and warned
+about the "different numbering". **That is wrong**, and the RC's own symbols say so. The parser splits every
+line at the **first space**:
 
 ```
-video mode  1      -> slot 1  =  the second entry
-video_mode  4      -> index 4 =  slot 0  =  the FIRST entry
+load_options +0x159   call strchr(line, ' ')     ; the FIRST space
+             +0x174   mov byte [edi], 0          ; the name ends there
+             +0x186   inc edi                    ; the value is everything after it
+             +0x187   call find_item(section, name)
 ```
 
-has the menus at one resolution and the race at another. Two ways to get this wrong: reading the underscore
-key as a slot points at the wrong mode entirely, and a regex like `video[ _]mode` matches whichever line
-comes first — which is the frontend one, so a tool asking "what will I race at" silently answers with the
-menu resolution. `vrmod`'s `doctor` reports both, converted.
+So the line `video mode 4` does not parse as `video mode` = 4. It parses as an option named **`video`** with
+the **string value `"mode 4"`** — and nothing reads an option called `video`. The name does not occur
+anywhere in the binary: of the 93 option names passed to `Options{Get,Set}`, the only video one is
+`video_mode`. `find_item` is blunter still — it asserts that a name must not contain one:
+
+```
+find_item: %s:%s has a space in it
+```
+
+MGI's own shipped `options.def` trips their own rule. The line is malformed, the parser turns it into junk,
+and the junk round-trips through every save. Both real consumers read the underscore key:
+
+| | |
+|---|---|
+| `OptionsBegin +0x17d` | registers `"video_mode"` with its default |
+| `ViewPreBegin +0x6` | `OptionsGet("video_mode")` → `VidIsModeSupported()` → falls back to **2** → `gxChangeMode()` |
+
+The value reaches `gxChangeMode` with **no arithmetic applied**, and the fallback is index 2 — the 640×480
+startup gate — which confirms the 1–4 menu-index reading directly.
+
+⚠️ **Why the wrong reading survived.** `slot = 4 − index`, so **index 2 *is* slot 2**. Every sample anyone
+had read `2`, the single value where both interpretations agree. It took a config written by a player racing
+at 1920×1080 — `video mode 4`, impossible for a 0–3 slot — to separate them.
+
+Two practical consequences for tooling. Anchor the key: an unanchored `video[ _]mode` matches the junk line
+**first**, because it comes first in the file, so a tool asking "what will I race at" silently answers with a
+value nothing reads. And read `Config/options.cfg`, not `options.def` — see §5.2.2c.
 
 The enumeration callback compares **only width and height — never the pixel format** — and silently
 discards any mode not matching one of its five hardcoded pairs, however willing the driver was to provide
@@ -2354,6 +2380,29 @@ tachometer needle across row 1024, where a rasteriser bug smashes the stack (§5
 
 The remaining limit is cosmetic: the HUD's **stamps** stop being drawn past roughly 1.77 M pixels — see
 §5.2.3.
+
+#### 5.2.2c Where `options.cfg` actually lives — it depends on the pressing ✅ CONFIRMED
+
+`Config\` is a **relative** path (§5.1's write-path patch is what makes it one), and Win32 resolves a
+relative path against the process's **current working directory** — which, for anyone starting the game the
+normal way, is the folder holding the executable they started. The two pressings put that folder in
+different places relative to `Data`:
+
+| Pressing | What you start | Working directory | So `Config\` is |
+|---|---|---|---|
+| **1.0** | `race.exe`, **inside** the Data contents | the install folder | `<data_dir>/Config` |
+| **1.1** | `Viper Racing.exe`, one level up | the game folder | `<data_dir>/../Config` |
+
+A tool that assumes only the 1.1 shape does not fail loudly on a 1.0 install — it finds nothing at
+`<data_dir>/../Config`, falls through to `options.def`, and reports **the shipped factory default** as if it
+were the player's current setting. `vrmod`'s doctor did exactly this: it told a player who had just raced at
+1920×1080 that they were at 640×480, because `options.def` still said `video_mode 2`.
+
+Worse on a 1.0 install, `<data_dir>/../` is merely whatever folder happens to *contain* the install, so if
+two installs sit side by side the search can read a **different copy of the game's** settings.
+
+So: check the `data_dir` layout first, and exhaust every `options.cfg` candidate before trying any
+`options.def`. `vrmod.writepaths.options_file()` is the single implementation.
 
 #### 5.2.2b Draw distance — the stored value is a fraction, not a distance ✅ CONFIRMED
 

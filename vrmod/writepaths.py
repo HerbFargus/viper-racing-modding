@@ -316,3 +316,51 @@ def revert(data_dir: str | Path, kind: str = LOGS_KIND) -> dict[str, list[str]]:
         safewrite.write_atomic(f, bytes(blob))
         out[f.name] = restored
     return out
+
+
+# ---------------------------------------------------------------------------
+# Where the user data this patch redirects actually lands.
+#
+# `Config\` is relative, and Win32 resolves it against the process's CURRENT
+# WORKING DIRECTORY -- which, for someone starting the game normally, is the
+# folder holding the executable they started. The two pressings put that folder
+# in DIFFERENT places relative to the Data folder:
+#
+#     v1.0   race.exe IS in the Data folder, so the game root IS data_dir
+#     v1.1   "Viper Racing.exe" sits one level up, so the root is data_dir.parent
+#
+# Assuming only the v1.1 shape is a live bug, not a cosmetic one: on a v1.0
+# install `data_dir.parent` is whatever folder happens to contain the install,
+# so a Config there belongs to a DIFFERENT copy of the game -- and when there
+# is none, the search falls through to options.def and silently reports the
+# SHIPPED DEFAULT as if it were the player's current setting. That is exactly
+# what doctor did before this helper existed: it told someone racing at
+# 1920x1080 that they were at 640x480, because options.def still said so.
+#
+# So: check data_dir's own layout first, and exhaust every .cfg before trying
+# any .def.
+
+OPTIONS_CFG = "options.cfg"
+OPTIONS_DEF = "options.def"
+
+
+def config_dirs(data_dir: str | Path) -> list[Path]:
+    """Candidate Config folders, most-likely first. See the note above."""
+    d = Path(data_dir)
+    return [d / USER_DIR_NEW.decode().rstrip("\\"),
+            d.parent / USER_DIR_NEW.decode().rstrip("\\")]
+
+
+def options_file(data_dir: str | Path) -> Path | None:
+    """The options file the game actually reads, or None if there is none.
+
+    options.cfg is what the game writes and re-reads; options.def is only the
+    shipped default, so every .cfg candidate is tried before any .def. Returns
+    the path rather than the contents so callers can say WHICH file they read.
+    """
+    d = Path(data_dir)
+    for name in (OPTIONS_CFG, OPTIONS_DEF):
+        for c in [r / name for r in config_dirs(d)] + [d / name]:
+            if c.is_file():
+                return c
+    return None
