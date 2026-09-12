@@ -80,7 +80,19 @@ INCH_TO_M = 0.0254
 # Several materials a car's .mod files reference (e.g. UCAR.tex, EFFECTS.tex, WHEELS.tex)
 # aren't in the car's own .car archive -- they're shared across cars and live in these
 # resource archives instead. Searched in this order, alongside the car's own archive.
-DEFAULT_SHARED_ARCHIVES = ["race.res", "common.res", "postrace.res", "paintkit.res", "ui.res"]
+# The .res bundles, plus the stock Viper itself. viper.car is in this list
+# because the game genuinely resolves out of it: 4x4cos.car references
+# VIPERW.tex, ships no wheel texture under any name, and its wheels render
+# TEXTURED in game (confirmed 2026-09-12). Those textures are in no .res
+# bundle -- they live only inside viper.car -- so a mod naming them is leaning
+# on a file every install has, exactly like a race.res shared texture.
+#
+# Only viper.car is listed. The other stock cars (exotic/sedan/sports/plane)
+# would follow the same logic if the mechanism is a general car-archive
+# fallback, but that has not been tested and guessing would re-introduce the
+# error this fixes.
+DEFAULT_SHARED_ARCHIVES = ["race.res", "common.res", "postrace.res", "paintkit.res",
+                           "ui.res", "viper.car"]
 
 
 @dataclass
@@ -349,6 +361,26 @@ STOCK_SHARED_TEX = frozenset({
     "xray.tex", "damage.tex", "skid.tex", "splash.tex", "envmap.tex",
 })
 
+# The stock Viper's OWN textures, which behave as shared ones: they are not in
+# any .res bundle, but every install ships viper.car, and a mod referencing them
+# renders correctly -- confirmed in game with 4x4cos.car, which names VIPERW.tex,
+# ships no wheel texture of its own, and whose wheels come out textured.
+#
+# This matters because these were being scored as MISSING, which marked working
+# cars "incomplete": 88 of the 302 incomplete cars in the community corpus
+# reference one of these names, and 75 of those reference nothing else.
+# The retail Viper's body-paint slot. This module already documents the
+# mechanism -- the game remaps this NAME at runtime to whichever paintN.tex the
+# player has selected -- and the remap is keyed on the name, not on which car
+# uses it. So a mod whose body mesh still carries the stock name gets the
+# player's paint exactly as the stock car does, and is not missing anything.
+STOCK_PAINT_TEX = frozenset({"viper.tex"})
+
+STOCK_CAR_TEX = frozenset({
+    "viperw.tex", "viperd.tex",
+    "viperd1.tex", "viperd2.tex", "viperd3.tex", "viperd4.tex",
+})
+
 
 def body_prefix(entries: list[archive.ArchiveEntry]) -> str | None:
     """The car's filename prefix, read from its body mesh (<prefix>0.mod). This is
@@ -584,7 +616,8 @@ def texture_provenance(
     """
     entries = archive.read(Path(car_path))
     own = {e.name.lower() for e in entries if e.name.lower().endswith(".tex")}
-    shared = {s.lower() for s in (shared_names if shared_names is not None else STOCK_SHARED_TEX)}
+    shared = {s.lower() for s in (shared_names if shared_names is not None
+                                  else STOCK_SHARED_TEX | STOCK_CAR_TEX)}
     prefix = body_prefix(entries)
     paint_name = f"{prefix}.tex".lower() if prefix else None
 
@@ -595,7 +628,7 @@ def texture_provenance(
             buckets["own"].add(name)
         elif n in shared:
             buckets["shared"].add(name)
-        elif paint_name and n == paint_name:
+        elif (paint_name and n == paint_name) or n in STOCK_PAINT_TEX:
             buckets["paint"].add(name)
         else:
             buckets["missing"].add(name)

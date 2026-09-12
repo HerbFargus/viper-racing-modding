@@ -128,6 +128,15 @@ def main() -> int:
         check(f"{fn.__name__} accepts shared_dir",
               "shared_dir" in inspect.signature(fn).parameters)
 
+    # The stock Viper's own textures behave as shared ones -- confirmed in game.
+    for n in ("VIPERW.tex", "VIPERD1.tex", "viperd.tex"):
+        check(f"  {n} counts as a stock-car texture",
+              n.lower() in car_mod.STOCK_CAR_TEX)
+    check("  and viper.car is searched, since they are in no .res",
+          "viper.car" in car_mod.DEFAULT_SHARED_ARCHIVES)
+    check("  the stock paint name is treated as the paint slot, not as missing",
+          "viper.tex" in car_mod.STOCK_PAINT_TEX)
+
     data = Path.home() / "Desktop" / "claude-code" / "game-files" / "installs" / "v1.0-RC"
     stock_car = data / "viper.car"
     if stock_car.is_file():
