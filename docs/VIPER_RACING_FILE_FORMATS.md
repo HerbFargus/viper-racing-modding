@@ -2840,14 +2840,28 @@ negative — it should not be repeated.
   retail lacks (retail offers only 11,025 / 22,050 Hz). Since the sample rate is not the culprit (11,025
   crackles the same as 22,050), v1.2.5's actual fix lives in its continuous mixer-feed code (`DSoundMixer`),
   not in setup — which is why it cannot be ported as a small byte patch across the two independent compiles.
-  **The clean, general fix (confirmed in game): a drop-in DirectSound wrapper.** `DSOUND.dll` is a *static*
-  import, and Windows resolves static imports app-directory-first (it is not a KnownDLL), so a local
-  `dsound.dll` shadows the system one with no binary edit. Dropping **dsoal** (`dsound.dll` +
-  `dsoal-aldrv.dll`, the **32-bit** build — the game is a 32-bit process) into the `Data` folder beside
-  `race.bin` reimplements DirectSound on OpenAL Soft / WASAPI and **eliminates the crackle on retail 1.1**.
-  It is non-invasive, reversible (delete the two DLLs), and build-agnostic — the same fix works for any
-  DirectSound-era game. So the practical answer is either **use v1.2.5** (its audio is already fixed) or
-  **drop the dsoal wrapper in** (fixes retail 1.1 too); the in-engine port is unnecessary.
+  **The clean, general fix (confirmed in game on BOTH pressings): a drop-in DirectSound wrapper.**
+  `DSOUND.dll` is a *static* import — `DirectSoundCreate`, confirmed in the import table of v1.1's
+  `race.bin` and of v1.0's `race.exe` alike (their `WINMM` imports are only `timeGetTime` /
+  `timeKillEvent`, i.e. timing, not audio) — and Windows resolves static imports app-directory-first
+  (it is not a KnownDLL), so a local `dsound.dll` shadows the system one with no binary edit. Dropping
+  **dsoal** (`dsound.dll` + `dsoal-aldrv.dll`) beside the engine reimplements DirectSound on
+  OpenAL Soft / WASAPI and **eliminates the crackle** — verified on retail 1.1 and on retail 1.0.
+  It is non-invasive, reversible (delete the two DLLs), and build-agnostic.
+
+  > ⚠️ **It must be the 32-bit (Win32 / x86) build of BOTH DLLs.** Viper Racing is a 32-bit process, and
+  > Windows will not load a 64-bit DLL into one — it refuses outright and silently falls back to the
+  > system `dsound.dll`. The crackle is then completely unchanged while the folder looks exactly as
+  > though the fix were installed, which is the single most likely way this goes wrong. **Observed in
+  > practice.** `vrmod doctor` now reads the PE machine type of both files and reports a 64-bit wrapper
+  > as an error rather than as "wrapper present".
+
+  **Where the DLLs go is the engine's folder, which differs by pressing.** On v1.1 that is `Data\`,
+  beside `race.bin`. On v1.0 there is no launcher and `Data`'s contents *are* the install directory, so
+  they sit beside `race.exe` — the same folder as the `.res` and `.trk` files. See RUNTIME §5.
+
+  So the practical answer is either **use v1.2.5** (its audio is already fixed) or **drop the 32-bit
+  dsoal wrapper in**; the in-engine port is unnecessary.
 - **Command-line switches.** The two binaries carry separate switch parsers — see §5.2.5, which lays out
   the launcher→engine flow. The crash handler prints `No mapfile present`; supplying a `race.map` (or the
   appended map of §5.2.4) makes it symbolise stack traces.
