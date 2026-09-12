@@ -91,7 +91,8 @@ def car_mesh(car_path: str | Path, wheels: bool = True) -> mod.Mesh:
 
 
 def material_colours(car_path: str | Path, mesh: mod.Mesh,
-                     paint_texture: str | Path | None = None) -> dict[str, tuple[int, int, int]]:
+                     paint_texture: str | Path | None = None,
+                     shared_dir: str | Path | None = None) -> dict[str, tuple[int, int, int]]:
     """Average colour of each material's texture, keyed by material name.
     Only used by the "shaded" style.
 
@@ -110,7 +111,9 @@ def material_colours(car_path: str | Path, mesh: mod.Mesh,
     from . import car as car_mod        # local: car imports this module's siblings
     names = {(m.name or "") for m in mesh.materials if m.name}
     try:
-        raw_by_name = car_mod.resolve_textures(car_path, names, paint_texture=paint_texture)
+        raw_by_name = car_mod.resolve_textures(car_path, names,
+                                               paint_texture=paint_texture,
+                                               shared_dir=shared_dir)
     except Exception:
         raw_by_name = {}
     out: dict[str, tuple[int, int, int]] = {}
@@ -151,7 +154,8 @@ FLIP_V = False
 
 
 def material_textures(car_path: str | Path, mesh: mod.Mesh,
-                      paint_texture: str | Path | None = None) -> dict:
+                      paint_texture: str | Path | None = None,
+                      shared_dir: str | Path | None = None) -> dict:
     """Decoded pixels for each material, keyed by material name.
 
     Returns {name: (pixels, size, channels, has_key)} -- ready to index directly.
@@ -161,7 +165,9 @@ def material_textures(car_path: str | Path, mesh: mod.Mesh,
     from . import car as car_mod
     names = {(m.name or "") for m in mesh.materials if m.name}
     try:
-        raw_by_name = car_mod.resolve_textures(car_path, names, paint_texture=paint_texture)
+        raw_by_name = car_mod.resolve_textures(car_path, names,
+                                               paint_texture=paint_texture,
+                                               shared_dir=shared_dir)
     except Exception:
         return {}
     out = {}
@@ -354,7 +360,8 @@ def render(
 
 
 def to_png(car_path: str | Path, style: str = "wire", wheels: bool = True,
-           paint_texture: str | Path | None = None, **kw) -> bytes:
+           paint_texture: str | Path | None = None,
+           shared_dir: str | Path | None = None, **kw) -> bytes:
     """Render a car straight to PNG bytes.
 
     paint_texture supplies the runtime paint (a Config/paint*.tex), which is
@@ -365,9 +372,13 @@ def to_png(car_path: str | Path, style: str = "wire", wheels: bool = True,
     car_path = Path(car_path)
     mesh = car_mesh(car_path, wheels=wheels)
     if style in ("shaded", "textured"):
-        kw.setdefault("colours", material_colours(car_path, mesh, paint_texture=paint_texture))
+        kw.setdefault("colours", material_colours(car_path, mesh,
+                                                 paint_texture=paint_texture,
+                                                 shared_dir=shared_dir))
     if style == "textured":
-        kw.setdefault("textures", material_textures(car_path, mesh, paint_texture=paint_texture))
+        kw.setdefault("textures", material_textures(car_path, mesh,
+                                                   paint_texture=paint_texture,
+                                                   shared_dir=shared_dir))
     pixels, w, h = render(mesh, style=style, **kw)
     rows = [bytearray(pixels[y * w * 3:(y + 1) * w * 3]) for y in range(h)]
     return viewer._rgb_png(w, h, rows)

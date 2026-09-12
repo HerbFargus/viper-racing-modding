@@ -17,6 +17,7 @@ the pixels rather than that a call returned bytes.
 from __future__ import annotations
 
 import sys
+import tempfile
 import zlib
 from pathlib import Path
 
@@ -114,6 +115,52 @@ def main() -> int:
         check("an unknown style is rejected", True, str(e)[:48])
     except Exception as e:                                      # noqa: BLE001
         check("an unknown style is rejected", False, f"{type(e).__name__}")
+
+    # --- shared_dir: resolving textures from a Data folder elsewhere ---------
+    # A lone .car -- a gallery build, an extracted pack -- has no Data folder
+    # beside it, so every shared material resolves to nothing and the car
+    # renders without them. shared_dir points the resolver at a real install
+    # without copying 1.8 MB of .res next to every asset.
+    from vrmod import car as car_mod
+    import inspect
+    for fn in (car_mod.resolve_textures, carshot.to_png,
+               carshot.material_colours, carshot.material_textures):
+        check(f"{fn.__name__} accepts shared_dir",
+              "shared_dir" in inspect.signature(fn).parameters)
+
+    # The stock Viper's own textures behave as shared ones -- confirmed in game.
+    for n in ("VIPERW.tex", "VIPERD1.tex", "viperd.tex"):
+        check(f"  {n} counts as a stock-car texture",
+              n.lower() in car_mod.STOCK_CAR_TEX)
+    check("  and viper.car is searched, since they are in no .res",
+          "viper.car" in car_mod.DEFAULT_SHARED_ARCHIVES)
+    check("  the stock paint name is treated as the paint slot, not as missing",
+          "viper.tex" in car_mod.STOCK_PAINT_TEX)
+
+    data = Path.home() / "Desktop" / "claude-code" / "game-files" / "installs" / "v1.0-RC"
+    stock_car = data / "viper.car"
+    if stock_car.is_file():
+        with tempfile.TemporaryDirectory() as t:
+            lone = Path(t) / "viper.car"
+            lone.write_bytes(stock_car.read_bytes())
+            names = {"effects.tex", "ucar.tex"}
+            bare = car_mod.resolve_textures(lone, names)
+            with_dir = car_mod.resolve_textures(lone, names, shared_dir=data)
+            check("a lone car resolves no shared texture on its own",
+                  not any(bare.values()), f"{sum(1 for v in bare.values() if v)} resolved")
+            check("  ...and does once pointed at a Data folder",
+                  any(with_dir.values()),
+                  f"{sum(1 for v in with_dir.values() if v)}/{len(names)} resolved")
+            a = carshot.to_png(lone, style="shaded")
+            b = carshot.to_png(lone, style="shaded", shared_dir=data)
+            check("  ...and the shaded render actually changes because of it", a != b)
+            # wire ignores textures entirely, which is why a wireframe thumbnail
+            # is unaffected by any of this.
+            w1 = carshot.to_png(lone, style="wire")
+            w2 = carshot.to_png(lone, style="wire", shared_dir=data)
+            check("a WIRE render is unaffected -- it uses no textures", w1 == w2)
+    else:
+        print("  (no pristine install -- skipping the shared_dir render checks)")
 
     # --- optional: a real car, end to end through to_png ---------------------
     if len(sys.argv) > 1:
