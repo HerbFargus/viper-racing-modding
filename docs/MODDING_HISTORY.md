@@ -132,14 +132,23 @@ version is shown in-game at the **Options screen, bottom-right corner**, and is
 stored as a plain string inside `race.bin` itself (near offset `0x0D37FD` — e.g.
 `1.2.4 BETA`, `v1.2.5 2016`).
 
+> That indicator arrived **with the second pressing**. The first pressing runs
+> `race.exe`, which contains no version string at all, and its Options screen shows
+> nothing in that corner — confirmed in game. See *The first pressing shipped a release
+> candidate* below.
+
 **Official (Sierra / Monster Games):**
 
 | Version | Patch file | Notes |
 |---|---|---|
-| 1.0 | (retail) | base game, 1998 |
-| 1.1 | `VIPER11` | lock-ups, Force Feedback, minor fixes |
-| 1.2.1 beta | `VIPER121B` | beta |
-| 1.2.3 beta | `VIPER123B` | last official patch; community builds fork from here |
+| 1.0 | (retail, first pressing) | engine is `race.exe`, built **Oct 21 1998 08:49:56**. A **release candidate** — see below |
+| 1.1 | (retail, second pressing) | engine moved into `race.bin`, built **Jan 25 1999 11:47:39**; disc readme dated 8 Feb 1999 |
+| 1.2 beta | `viperpatch12beta.zip` | hosted on mgiracing.com. **Lost** — every Wayback capture 404s |
+| 1.2.1 beta | `viperpatch121beta.zip` | Windows 2000 support, multiple controllers, an XP sound tweak. The **last patch MGI distributed themselves** |
+| 1.2.3 beta | `Patch_1.2.3(Beta).zip` | built by **Dave Broske (MGI)** for the VRgt team and released by *them*, not by MGI. Every community build is hex-edited from this binary |
+
+Monster Games' own server only ever hosted **five** downloads: those two Viper patches,
+two NASCAR Heat patches and a Heat changelog. **No official car or track ever existed.**
 
 **Community `race.bin` (unofficial, built on 1.2.3):**
 
@@ -159,6 +168,60 @@ Notes for anyone cataloguing binaries:
   resolution, but it can't be confirmed from that mislabeled file.
 - **ResolutionChanger.exe** (shipped in `Data/`) sets screen resolution
   independently of the `race.bin` version.
+
+### The first pressing shipped a release candidate
+
+The retail v1.0 disc — Redump #61183, `Viper Racing (USA)` — boots to a title screen
+carrying this, in green above the artwork:
+
+```
+Oct 21 1998 08:49:56 NON-DEBUG MSVC-4.0
+feedback@mgiracing.com
+Release Candidate 1:  CONFIDENTIAL
+Copyright © 1998 MGI. All rights reserved.
+```
+
+`Release Candidate 1:  CONFIDENTIAL` and the feedback address appear **only** in v1.0's
+`race.exe`. Neither `race.bin` — v1.0's or v1.1's — contains them.
+
+**This is why the first pressing carries a symbol map.** `race.exe` has a ~1 MB overlay
+holding a full linker map: **10,414 symbols across 296 object files** (`physics:control.obj`,
+`ai:driver.obj`, `gx:gfx.obj`, `edit:modtool.obj`, `multi:server.obj`…). It also carries the
+*reader* for it — `No mapfile present`, `Couldn't open exe: %s`, `Can't map view of file` —
+so the binary **opens itself and symbolises its own crashes**:
+
+```
+Panic : Can't load options.def
+trace: byte 0x88 of "?OptionsBegin@@YAXXZ"
+trace: byte 0x72 of "?app_begin@@YAXXZ"
+trace: byte 0x1b of "?AppMain@@YAXXZ"
+trace: byte 0x120 of "_WinMain@16"
+```
+
+None of that was a gift to modders. It is an RC build with its diagnostics still switched
+on, pressed to manufacturing.
+
+**It also explains the second pressing.** Comparing the two discs file by file, 306 of the
+files are identical and only 9 differ — but the executable is replaced outright, and the
+engine moves out of it into `race.bin`:
+
+```
+v1.0  Data\race.exe    2,404,451 b   .text 890,368   + a 1 MB symbol-map overlay
+v1.1  Data\Viper Racing.exe 388,608 b   .text  16,384   (a launcher; no map, no banner)
+```
+
+So February 1999 was not a tidy-up. **Sierra and MGI pressed a release candidate, and the
+v1.1 disc replaced it with the actual release build** — banner gone, map gone, RC markings
+gone, the CD check and environment gates moved into a proper launcher.
+
+The irony is worth stating plainly: the artefact this community has reverse-engineered
+against for twenty-five years — the binary long circulated as `ai-tweaker.exe`, which is
+**byte-identical to v1.0's `Data\race.exe`** — reached the public through a manufacturing
+mistake.
+
+> **Practical consequence.** A *first* pressing gives you the symbol map, self-symbolising
+> crash traces, and the RC title screen. A *second* pressing gives you none of it. If you
+> are buying a disc to work from, the revision matters.
 
 ### Hex editor
 - **XVi32** — the community's recommended editor. Nearly every "edit" that wasn't

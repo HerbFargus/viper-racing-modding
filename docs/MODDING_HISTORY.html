@@ -395,16 +395,19 @@
       <h3>Engine patches &amp; <span class="mono">race.bin</span> versions</h3>
 
       <p>Every modern install runs a community-patched <code>race.bin</code> (the game engine). The version shows in-game at the <strong>Options screen, bottom-right</strong>, and is stored as a plain string inside <code>race.bin</code> itself (near offset <code>0x0D37FD</code>).</p>
+      <blockquote>That indicator arrived <strong>with the second pressing</strong>. The first pressing runs <code>race.exe</code>, which holds no version string at all, and its Options screen shows nothing in that corner &mdash; confirmed in game.</blockquote>
       <p><strong>Official (Sierra / Monster Games):</strong></p>
       <div class="tablewrap"><table>
         <thead><tr><th>Version</th><th>Patch file</th><th>Notes</th></tr></thead>
         <tbody>
-          <tr><td>1.0</td><td>(retail)</td><td>base game, 1998</td></tr>
-          <tr><td>1.1</td><td><code>VIPER11</code></td><td>lock-ups, Force Feedback, minor fixes</td></tr>
-          <tr><td>1.2.1 beta</td><td><code>VIPER121B</code></td><td>beta</td></tr>
-          <tr><td>1.2.3 beta</td><td><code>VIPER123B</code></td><td>last official patch; community builds fork from here</td></tr>
+          <tr><td>1.0</td><td>(retail, first pressing)</td><td>engine is <code>race.exe</code>, built <strong>Oct 21 1998 08:49:56</strong>. A <strong>release candidate</strong> &mdash; see below</td></tr>
+          <tr><td>1.1</td><td>(retail, second pressing)</td><td>engine moved into <code>race.bin</code>, built <strong>Jan 25 1999 11:47:39</strong>; disc readme dated 8 Feb 1999</td></tr>
+          <tr><td>1.2 beta</td><td><code>viperpatch12beta.zip</code></td><td>hosted on mgiracing.com. <strong>Lost</strong> &mdash; every Wayback capture 404s</td></tr>
+          <tr><td>1.2.1 beta</td><td><code>viperpatch121beta.zip</code></td><td>Windows 2000 support, multiple controllers, an XP sound tweak. The <strong>last patch MGI distributed themselves</strong></td></tr>
+          <tr><td>1.2.3 beta</td><td><code>Patch_1.2.3(Beta).zip</code></td><td>built by <strong>Dave Broske (MGI)</strong> for the VRgt team and released by <em>them</em>, not by MGI. Every community build is hex-edited from this binary</td></tr>
         </tbody>
       </table></div>
+      <p>Monster Games' own server only ever hosted <strong>five</strong> downloads: those two Viper patches, two NASCAR&nbsp;Heat patches and a Heat changelog. <strong>No official car or track ever existed.</strong></p>
       <p><strong>Community <code>race.bin</code> (unofficial, built on 1.2.3):</strong></p>
       <div class="tablewrap"><table>
         <thead><tr><th>In-game string</th><th>Author / date</th><th>What it adds</th></tr></thead>
@@ -419,6 +422,30 @@
         <li>A file circulated as <code>race.bin-25kvert-512tex-allmirror</code> is <strong>byte-identical to the 1.2.4-beta</strong> (whose own readme still says 20,000 vertices) &mdash; the name over-promises. &ldquo;512tex&rdquo; most plausibly means the <em>number of textures loaded simultaneously</em>, not a 512&times;512 resolution, but it can't be confirmed from that mislabeled file.</li>
         <li><code>ResolutionChanger.exe</code> (shipped in <code>Data/</code>) sets screen resolution independently of the <code>race.bin</code> version.</li>
       </ul>
+      <h3>The first pressing shipped a release candidate</h3>
+
+      <p>The retail v1.0 disc &mdash; Redump&nbsp;#61183, <em>Viper Racing (USA)</em> &mdash; boots to a title screen carrying this, in green above the artwork:</p>
+      <pre><code>Oct 21 1998 08:49:56 NON-DEBUG MSVC-4.0
+feedback@mgiracing.com
+Release Candidate 1:  CONFIDENTIAL
+Copyright &copy; 1998 MGI. All rights reserved.</code></pre>
+      <p><code>Release Candidate 1:&nbsp;&nbsp;CONFIDENTIAL</code> and the feedback address appear <strong>only</strong> in v1.0's <code>race.exe</code>. Neither <code>race.bin</code> &mdash; v1.0's or v1.1's &mdash; contains them.</p>
+
+      <p><strong>This is why the first pressing carries a symbol map.</strong> <code>race.exe</code> has a ~1&nbsp;MB overlay holding a full linker map: <strong>10,414 symbols across 296 object files</strong> (<code>physics:control.obj</code>, <code>ai:driver.obj</code>, <code>gx:gfx.obj</code>, <code>edit:modtool.obj</code>&hellip;). It also carries the <em>reader</em> for it, so the binary <strong>opens itself and symbolises its own crashes</strong>:</p>
+      <pre><code>Panic : Can't load options.def
+trace: byte 0x88 of "?OptionsBegin@@YAXXZ"
+trace: byte 0x72 of "?app_begin@@YAXXZ"
+trace: byte 0x1b of "?AppMain@@YAXXZ"
+trace: byte 0x120 of "_WinMain@16"</code></pre>
+      <p>None of that was a gift to modders. It is an RC build with its diagnostics still switched on, pressed to manufacturing.</p>
+
+      <p><strong>It also explains the second pressing.</strong> Comparing the two discs file by file, 306 files are identical and only 9 differ &mdash; but the executable is replaced outright, and the engine moves out of it into <code>race.bin</code>:</p>
+      <pre><code>v1.0  Data\race.exe            2,404,451 b   .text 890,368   + a 1 MB symbol-map overlay
+v1.1  Data\Viper Racing.exe      388,608 b   .text  16,384   (a launcher; no map, no banner)</code></pre>
+      <p>So February 1999 was not a tidy-up. <strong>Sierra and MGI pressed a release candidate, and the v1.1 disc replaced it with the actual release build</strong> &mdash; banner gone, map gone, RC markings gone, the CD check and environment gates moved into a proper launcher.</p>
+      <blockquote>The artefact this community has reverse-engineered against for twenty-five years &mdash; the binary long circulated as <code>ai-tweaker.exe</code>, <strong>byte-identical to v1.0's <code>Data\race.exe</code></strong> &mdash; reached the public through a manufacturing mistake.</blockquote>
+      <p><strong>Practical consequence.</strong> A <em>first</em> pressing gives you the symbol map, self-symbolising crash traces, and the RC title screen. A <em>second</em> pressing gives you none of it. If you are buying a disc to work from, the revision matters.</p>
+
       <h3>Hex editor</h3>
   <div class="tablewrap"><table><thead><tr><th>Tool</th><th>What it does</th></tr></thead><tbody>
       <tr><td><b>XVi32</b></td><td>The community's recommended hex editor &mdash; used for every non-geometry edit: the <code>&lt;car&gt;1.tab</code> spec sheet, texture-name strings inside a <code>.mod</code>, and AI/track names in <code>english.lng</code>.</td></tr>
