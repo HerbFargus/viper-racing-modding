@@ -178,6 +178,56 @@ for the mesh, `vrl2wrl` or a hand conversion for the format, `tga2tex` for the t
 and `cf2txt` for the physics — every step a separate command-line tool. That pipeline is
 what Part A below catalogues, and what `vrmod` folds into one library.
 
+### How good were the models, actually?
+
+The VRgt team ran to a higher standard than the open community, and it shows in the
+binaries. Measured across **1,792 cars** — every car in this archive — reading body
+vertex counts, material splits and texture counts straight out of each `<prefix>0.mod`.
+VRgt-authored cars are excluded from the community column so they don't inflate the
+baseline they're being compared against:
+
+| | retail (MGI) | VRgt | community |
+|---|---:|---:|---:|
+| cars measured | 5 | 81 | 1,706 |
+| body vertices (median) | 199 | **3,361** | 1,130 |
+| faces | 197 | **3,444** | 1,066 |
+| materials | 6 | **10** | 5 |
+| textures | 1 | **24** | 15 |
+
+Three times the geometry, twice the material splits, and over half again the texture
+work. 90% of VRgt cars clear 2,000 vertices against 23% of community cars, and their
+heaviest — the *Edo Competition Enzo* at **13,536 vertices** — is 68× the body of the
+retail Viper it parks next to.
+
+**The ranking inverts on LOD discipline, though.** A car ships `<prefix>1.mod` through
+`<prefix>7.mod` as progressively cheaper stand-ins for distance, roster shots and
+traffic. Counting a level as real only when it is *actually decimated* — bytes that
+merely differ prove nothing, since some cars ship LOD1–7 at equal or higher detail:
+
+| | levels truly decimated | cars with any real LOD | LOD7 vs LOD0 |
+|---|---:|---:|---:|
+| retail (MGI) | 5.60 | 100% | **11%** |
+| VRgt | 2.41 | 53% | 76% |
+| community | 0.06 | **1.3%** | 99% |
+
+MGI built a genuine ladder — `viper.car` steps 325 → 299 → 221 → 186 → 122 → 79 → 48 →
+26 vertices. The community ships the full seven-level chain as *copies of LOD0*:
+`ks360.rar` is 9,268 vertices replicated eight times, so it renders at full detail at
+every distance, and the chain buys nothing at all. VRgt did roughly half the work —
+just over half their cars reduce at all, and even those only reach 76% of LOD0 by the
+last level.
+
+So the fair summary is that VRgt modelled better and were the only group besides MGI
+doing *any* optimisation, but they built three times the geometry while only partly
+paying for it. A grid of VRgt cars costs far more than anything MGI shipped — which is
+the pressure behind the community `race.bin` builds raising the vertex budget to 20k
+(see *Engine patches* below).
+
+One incidental result of the sweep: **not one of the 1,792 cars ships its own
+`cockpit.mod`**. Every car in the scene, VRgt included, puts the driver behind the
+Viper's dashboard — the per-car cockpit override the engine supports was never once
+used.
+
 ### Engine patches & `race.bin` versions
 
 Every modern install runs a community-patched `race.bin` (the game engine). The
