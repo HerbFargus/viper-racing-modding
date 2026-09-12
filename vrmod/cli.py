@@ -742,6 +742,12 @@ def main(argv: list[str] | None = None) -> int:
     p_patch.add_argument("--index", type=int, default=patchset.DEFAULT_INDEX,
                          help="menu index to replace, 1/3/4 (default: 4). Index 2 is the "
                               "startup gate -- repointing it stops the game booting")
+    p_patch.add_argument("--also", action="append", default=None,
+                         metavar="INDEX=WIDTHxHEIGHT",
+                         help="fill another menu slot in the same rebuild, e.g. "
+                              "--also 1=2048x1536. Repeatable. Index 1 is free on "
+                              "modern hardware -- its stock 512x384 is not "
+                              "enumerated, so that entry never appears in the menu")
     p_patch.add_argument("--fov", type=float, default=aspectfix.RATIO_ORIGINAL,
                          help="vertical half-field to preserve (default: 0.65, the original)")
     p_patch.add_argument("--small-tables", action="store_true",
@@ -1574,7 +1580,18 @@ def main(argv: list[str] | None = None) -> int:
             print(patchset.revert(args.data_dir))
         else:
             w, h = (int(v) for v in args.mode.lower().split("x"))
+            extra: dict[int, tuple[int, int]] = {}
+            for spec in (args.also or []):
+                try:
+                    idx, dims = spec.split("=", 1)
+                    ew, eh = (int(v) for v in dims.lower().split("x"))
+                    extra[int(idx)] = (ew, eh)
+                except ValueError:
+                    raise SystemExit(
+                        f"error: expected --also INDEX=WIDTHxHEIGHT, e.g. "
+                        f"--also 1=2048x1536; got {spec!r}")
             rep = patchset.apply(args.data_dir, mode=(w, h), index=args.index,
+                                 modes=extra or None,
                                  with_map=not args.no_map, ratio=args.fov,
                                  big_tables=not args.small_tables,
                                  max_verts=args.max_verts,

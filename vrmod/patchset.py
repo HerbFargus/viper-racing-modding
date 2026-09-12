@@ -48,6 +48,15 @@ is still a function of (arguments + what the Report says was carried); a rebuild
 with carry-over is byte-identical to applying the same patches by hand.
 `carry_over=False` gives the bare rebuild and reports what it dropped.
 
+THE TABLE, NOT ONE ENTRY. Resolution IS one of this module's own steps, but it
+used to write a single menu index and leave the snapshot's stock values in the
+other three -- so a player who had repointed a second slot lost it on the next
+rebuild, just as silently. `modes={index: (w, h)}` now sets as many entries as
+you like in one reproducible call, and any non-stock entry the call does not
+mention is carried like the four above. Index 1 is where this matters: its
+stock 512x384 is not enumerated by modern drivers, so that menu entry never
+appears and the slot is free on every modern machine.
+
 WHICH BINARY. The set follows the engine the install actually RUNS: `race.exe` on
 the v1.0 pressing, `race.bin` on v1.1 and the community builds. A v1.0 folder
 holds both, and only race.exe is ever loaded, so targeting the name rather than
@@ -185,6 +194,52 @@ STOCK_ENGINES: dict[str, tuple[str, str]] = {
 }
 
 
+def _stock_by_index() -> dict[int, tuple[int, int]]:
+    """The stock table keyed by MENU INDEX rather than by slot.
+
+    resolution.read() returns the table in slot order, and the labels run
+    descending, so index = MODES - slot. Keying by index is what callers think
+    in -- it is what --set and set_mode take.
+    """
+    return {resolution.MODES - s: wh for s, wh in enumerate(STOCK_MODES)}
+
+
+def _modes_by_index(d: Path) -> dict[int, tuple[int, int]]:
+    return {resolution.MODES - s: wh for s, wh in enumerate(resolution.read(d))}
+
+
+def _effective_modes(mode: tuple[int, int] | None, index: int,
+                     modes: dict[int, tuple[int, int]] | None
+                     ) -> dict[int, tuple[int, int]]:
+    """What the caller asked the table to look like, keyed by menu index.
+
+    `mode`/`index` name the primary entry and keep their historical meaning;
+    `modes` adds to it and wins on a clash, so passing only `modes` still gets
+    the default 1920x1080 at index 4. Pass mode=None to set nothing but `modes`.
+
+    Validated here, before apply() restores the snapshot, so a bad request
+    cannot leave a half-rebuilt binary behind.
+    """
+    eff: dict[int, tuple[int, int]] = {}
+    if mode is not None:
+        eff[index] = mode
+    for i, wh in (modes or {}).items():
+        eff[int(i)] = (int(wh[0]), int(wh[1]))
+    for i, (w, h) in eff.items():
+        if not 1 <= i <= resolution.MODES:
+            raise PatchSetError(
+                f"menu index must be 1-{resolution.MODES}, got {i}")
+        if i == resolution.BOOT_GATE_INDEX:
+            raise PatchSetError(
+                f"menu index {resolution.BOOT_GATE_INDEX} is the startup gate: its "
+                f"availability flag is what the game checks before it will start at "
+                f"all, so pointing it at a mode the driver does not offer stops the "
+                f"game booting. Use another index.")
+        if w < 100 or h < 100:
+            raise PatchSetError(f"index {i}: {w}x{h} is not a usable mode")
+    return eff
+
+
 @dataclass
 class CarryOver:
     """Patches this module does not own, captured before a rebuild.
@@ -206,13 +261,21 @@ class CarryOver:
     modassert: bool = False
     headon_disabled: bool = False
     hornball: tuple[float, float] | None = None
+    # Menu index -> mode, for entries that are not stock. Resolution IS one of
+    # this module's own steps, but it only ever set ONE index, so any other slot
+    # the player had repointed went back to stock on the next rebuild -- and
+    # index 1 is dead on modern hardware (512x384 is not enumerated), so that
+    # spare slot is exactly where a second mode tends to live.
+    resolution: dict[int, tuple[int, int]] = field(default_factory=dict)
 
     def __bool__(self) -> bool:
         return bool(self.writepath_kinds or self.modassert
-                    or self.headon_disabled or self.hornball)
+                    or self.headon_disabled or self.hornball or self.resolution)
 
     def describe(self) -> list[str]:
         out = [f"write paths ({k})" for k in self.writepath_kinds]
+        out += [f"menu index {i} at {w}x{h}"
+                for i, (w, h) in sorted(self.resolution.items())]
         if self.modassert:
             out.append("module assertion silenced")
         if self.headon_disabled:
@@ -246,6 +309,12 @@ def _capture(d: Path) -> CarryOver:
             t = hornball.read(d)
             if not t.is_stock:
                 c.hornball = (t.speed_mult, t.cooldown)
+    except Exception:
+        pass
+    try:
+        stock = _stock_by_index()
+        c.resolution = {i: wh for i, wh in _modes_by_index(d).items()
+                        if wh != stock[i]}
     except Exception:
         pass
     return c
@@ -418,8 +487,9 @@ def status(data_dir: str | Path) -> dict[str, str]:
 
 def apply(data_dir: str | Path,
           *,
-          mode: tuple[int, int] = DEFAULT_MODE,
+          mode: tuple[int, int] | None = DEFAULT_MODE,
           index: int = DEFAULT_INDEX,
+          modes: dict[int, tuple[int, int]] | None = None,
           with_map: bool = True,
           big_tables: bool = True,
           ratio: float = aspectfix.RATIO_ORIGINAL,
@@ -428,15 +498,24 @@ def apply(data_dir: str | Path,
           carry_over: bool = True) -> Report:
     """Rebuild race.bin from the pristine snapshot with the full patch set.
 
-    carry_over: re-apply the patches this module does not own (write paths,
-    module assertion, head-on toggle, horn-ball tuning) after the rebuild, since
-    restoring the snapshot reverts them too. On by default, because losing them
-    silently is the worse surprise; every one is listed in the Report. Pass
-    False for a genuinely bare rebuild -- it then reports what it dropped.
+    mode/index name the primary entry; `modes` is a {menu index: (w, h)} map
+    that adds further entries and wins on a clash, so the whole four-slot table
+    can be set in one reproducible call. mode=None sets nothing but `modes`.
+    Index 2 is refused either way -- its availability flag gates startup.
+
+    carry_over: re-apply what the rebuild would otherwise silently revert --
+    the write paths, module assertion, head-on toggle and horn-ball tuning,
+    plus any table entry the player had repointed and did not name in this
+    call. On by default, because losing them silently is the worse surprise;
+    every one is listed in the Report. Pass False for a genuinely bare rebuild
+    -- it then reports what it dropped.
     """
     d = Path(data_dir)
     f = _race_bin(d)
     rep = Report()
+    # Validate the whole request before anything is written, so a bad index
+    # cannot leave a half-rebuilt binary on disk.
+    requested = _effective_modes(mode, index, modes)
 
     snap = _snapshot(d, force_baseline)
     rep.baseline = f"{snap.name} ({snap.stat().st_size:,} bytes)"
@@ -474,22 +553,35 @@ def apply(data_dir: str | Path,
     rep.add("aspect", f"Hor+ at R0={ratio:.4f}, patched at {hex(at)} "
                       f"(constants {hex(r0)}, {hex(half)})")
 
-    # 4 -- resolution
-    w, h = mode
-    was = resolution.set_mode(d, index, w, h)
-    rep.add("resolution", f"menu index {index}: {was[0]}x{was[1]} -> {w}x{h}")
+    # 4 -- resolution. The whole TABLE, not one entry: anything the player had
+    #      repointed and did not name in this call is carried, because the
+    #      snapshot restore above put every slot back to stock.
+    table = dict(requested)
+    if carry_over:
+        for i, wh in carried.resolution.items():
+            table.setdefault(i, wh)
+    for i in sorted(table):
+        w, h = table[i]
+        was = resolution.set_mode(d, i, w, h)
+        how = "" if i in requested else "  (carried)"
+        rep.add("resolution", f"menu index {i}: {was[0]}x{was[1]} -> {w}x{h}{how}")
+
     rows = tablefix.entries(d)
-    if h - 0x50 >= rows:
-        rep.notes.append(
-            f"{w}x{h} pivots the tachometer needle at row {h - 0x50}, past the "
-            f"{rows}-scanline edge tables, so the NEEDLE will not be drawn. The dial "
-            f"itself is unaffected." + ("" if big_tables else
-            " Dropping --small-tables would raise the tables to 2048 and fix it."))
-    if w > 2048:
-        rep.notes.append(
-            f"{w} is wider than 2048, which legacy Direct3D surfaces cap at. Expect "
-            f"'create device' / DDERR_INVALIDOBJECT and a misleading "
-            f"'requires DirectX 5 or 6' dialog from the launcher.")
+    for i, (w, h) in sorted(table.items()):
+        if h - 0x50 >= rows:
+            rep.notes.append(
+                f"{w}x{h} (index {i}) pivots the tachometer needle at row "
+                f"{h - 0x50}, past the {rows}-scanline edge tables, so the NEEDLE "
+                f"will not be drawn. The dial itself is unaffected."
+                + ("" if big_tables else
+                   " Dropping --small-tables would raise the tables to 2048 and "
+                   "fix it."))
+        if w > 2048:
+            rep.notes.append(
+                f"{w} (index {i}) is wider than 2048, which legacy Direct3D "
+                f"surfaces cap at. Expect 'create device' / DDERR_INVALIDOBJECT "
+                f"and a misleading 'requires DirectX 5 or 6' dialog from the "
+                f"launcher.")
 
     # 5b -- per-object vertex buffer (OPT-IN). Off unless a size is asked for,
     #       because the stock cap suits every stock car and raising it only helps
