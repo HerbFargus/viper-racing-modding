@@ -27,6 +27,7 @@ from vrmod import carshot, mod  # noqa: E402
 
 PASS = FAIL = 0
 STYLES = ("wire", "shaded", "textured")
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 
 def check(name: str, ok: bool, detail: str = "") -> None:
@@ -54,6 +55,27 @@ def cube() -> mod.Mesh:
     m = mod.Material(name="body.tex", vertex_start=0, vertex_end=len(verts),
                      face_start=0, face_end=len(faces))
     return mod.Mesh(vertices=verts, materials=[m], faces=faces)
+
+
+def cube_on_a_plain(span: float = 400.0) -> mod.Mesh:
+    """The cube again, this time with a vast flat quad under it.
+
+    The shape a track actually has: a small subject standing on a ground plane
+    sized to hide the horizon rather than to frame the subject. Fitting to the
+    whole bounding box renders the cube at a fraction of its size, which is
+    what track thumbnails did until render() learned to take a fit box.
+    """
+    m = cube()
+    verts = list(m.vertices)
+    base = len(verts)
+    for x, z in ((-span, -span), (span, -span), (span, span), (-span, span)):
+        verts.append(mod.Vertex(x=x, y=-1.0, z=z, nx=0.0, ny=1.0, nz=0.0,
+                                u=0.0, v=0.0))
+    faces = list(m.faces) + [(base, base + 1, base + 2), (base, base + 2, base + 3)]
+    mats = list(m.materials) + [
+        mod.Material(name="ground.tex", vertex_start=base, vertex_end=len(verts),
+                     face_start=len(m.faces), face_end=len(faces))]
+    return mod.Mesh(vertices=verts, materials=mats, faces=faces)
 
 
 def texture_stub(size: int = 4):
@@ -162,6 +184,34 @@ def main() -> int:
     else:
         print("  (no pristine install -- skipping the shared_dir render checks)")
 
+    # --- the fit box: framing on the subject, not on the backdrop ------------
+    # Encodes the bug this was written for. A first version of track_fit made
+    # the box `pad` units TALL as well as wide; the view looks down at an
+    # angle, so that height went straight into the vertical extent being
+    # fitted and every track came out SMALLER than with no crop at all. So it
+    # is not enough to check that fit changes the image -- check which way.
+    plain = cube_on_a_plain()
+    subject = [(x, y, z) for x in (-2.0, 2.0) for z in (-2.0, 2.0)
+               for y in (-1.0, 1.0)]
+    cols = {"body.tex": (200, 40, 40), "ground.tex": (40, 90, 40)}
+    try:
+        wide, w, h = carshot.render(plain, style="shaded", colours=cols)
+        near, _, _ = carshot.render(plain, style="shaded", fit=subject, colours=cols)
+    except Exception as e:                                      # noqa: BLE001
+        check("fit box renders", False, f"{type(e).__name__}: {e}")
+    else:
+        check("fit box renders", True, f"{w}x{h}")
+        check("fit changes the framing", wide != near, "not the same image")
+        def reds(px):
+            return sum(1 for i in range(0, len(px), 3)
+                       if px[i] > 60 and px[i] > px[i + 1] * 2)
+        red_wide, red_near = reds(wide), reds(near)
+        check("fit makes the subject BIGGER, not smaller", red_near > red_wide * 4,
+              f"{red_wide} px unfitted -> {red_near} px fitted")
+        check("the backdrop still fills the frame behind it",
+              non_background(near, w, h, carshot.BACKGROUND) > w * h * 0.8,
+              "cropping in should not leave holes")
+
     # --- optional: a real car, end to end through to_png ---------------------
     if len(sys.argv) > 1:
         target = Path(sys.argv[1])
@@ -178,12 +228,42 @@ def main() -> int:
                           f"{type(e).__name__}: {e}")
         trks = sorted(target.glob("*.trk")) if target.is_dir() else []
         if trks:
-            try:
-                png = carshot.track_to_png(trks[0])
-                check("track_to_png returns a PNG",
-                      png[:8] == b"\x89PNG\r\n\x1a\n", f"{trks[0].name}, {len(png)} bytes")
-            except Exception as e:                              # noqa: BLE001
-                check("track_to_png returns a PNG", False, f"{type(e).__name__}: {e}")
+            trk = trks[0]
+            pngs = {}
+            for style in STYLES:
+                try:
+                    png = carshot.track_to_png(trk, style=style)
+                    pngs[style] = png
+                    check(f"track_to_png({style}) returns a PNG",
+                          png[:8] == PNG_MAGIC, f"{trk.name}, {len(png)} bytes")
+                except Exception as e:                          # noqa: BLE001
+                    check(f"track_to_png({style}) returns a PNG", False,
+                          f"{type(e).__name__}: {e}")
+            if "wire" in pngs and "textured" in pngs:
+                check("a textured track is not the wireframe",
+                      pngs["wire"] != pngs["textured"])
+            from vrmod import viewer                            # noqa: PLC0415
+            tmesh = viewer._track_render_mesh(trk)
+            texs = carshot.track_material_textures(trk, tmesh)
+            names = {(m.name or "") for m in tmesh.materials if m.name}
+            check("track textures resolve from the track's own archive",
+                  len(texs) > 0, f"{len(texs)}/{len(names)} materials")
+            box = carshot.track_fit(trk, tmesh)
+            if box is None:
+                check("track_fit found the racing line", False, "no default.ili?")
+            else:
+                check("track_fit found the racing line", True, f"{len(box)} corners")
+                mx = [v.x for v in tmesh.vertices]
+                mz = [v.z for v in tmesh.vertices]
+                fx = [c[0] for c in box]
+                fz = [c[2] for c in box]
+                # The claim track_fit's docstring makes: it only ever crops IN.
+                # A box wider than the mesh just adds back the empty margin it
+                # exists to remove.
+                check("the fit box only ever crops in",
+                      min(fx) >= min(mx) - 1e-6 and max(fx) <= max(mx) + 1e-6
+                      and min(fz) >= min(mz) - 1e-6 and max(fz) <= max(mz) + 1e-6,
+                      f"x {max(fx) - min(fx):,.0f} of {max(mx) - min(mx):,.0f}")
 
     print(f"\n{PASS}/{PASS + FAIL} passed")
     return 1 if FAIL else 0
