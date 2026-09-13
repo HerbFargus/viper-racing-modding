@@ -19,16 +19,31 @@ Looking for **community mods** rather than the tools? They live at
 2,023 cars and tracks, browsable at
 [herbfargus.github.io/viper-racing-gallery](https://herbfargus.github.io/viper-racing-gallery/).
 
-Plus documentation in [`docs/`](docs/):
+Plus documentation in [`docs/`](docs/), in three parts.
+
+**[`docs/reference/`](docs/reference/) — what the game *is*.** The reverse
+engineering, on three axes. Headings carry their evidence: `✅ CONFIRMED` for
+something read out of the binary or the file, `✅ MEASURED` for something
+observed in game.
+
+| Doc | Axis |
+|---|---|
+| [File formats](docs/reference/file-formats.md) | The **bytes** — the layout of every resource type the game ships |
+| [Asset tree](docs/reference/asset-tree.md) | The **structure** — what's inside a `.car`/`.trk`, and where each texture it references resolves |
+| [Runtime](docs/reference/runtime.md) | The **behaviour** — LOD per camera view, AI reactions, the engine's command-line parameters |
+
+**[`docs/history/`](docs/history/) — what people *did* with it.**
 
 | Doc | What it covers |
 |---|---|
-| [File-format reference](docs/VIPER_RACING_FILE_FORMATS.md) | The reverse-engineered byte layout of every resource type the game ships |
-| [Asset decomposition tree](docs/VIPER_RACING_ASSET_TREE.md) | What's inside a `.car`/`.trk`, and where every texture and model it references actually resolves |
-| [Runtime behaviour](docs/VIPER_RACING_RUNTIME.md) | Which detail level you see in each camera view (measured in-game), and the command-line parameters the game accepts |
-| [Modding history](docs/MODDING_HISTORY.md) | The people, the tools they built, and how the formats came to be understood |
+| [Modding history](docs/history/modding-history.md) | The people, the tools they built between roughly 1999 and 2010, and how the formats came to be understood |
+| [Workflow comparison](docs/history/workflow-comparison.md) | The old one-off utilities against `vrmod`, job by job — including what still needs the old tools |
 
-**The docs** are in [`docs/`](docs/) as Markdown and render on GitHub. (They were published to GitHub Pages alongside the retired browser Library; a docs-only site is the next change.)
+**[`docs/archive/`](docs/archive/) — rescued primary sources.** Not our writing:
+community material from sites that no longer exist, preserved as it was.
+Currently [Wrxds's car tutorial](docs/archive/wrxds-car-tutorial/), a
+seventeen-step walkthrough with its original screenshots.
+
 
 > **Repo naming:** the GitHub repo is `viper-racing-modding`; the Python package is
 > `vrmod`; the desktop app's product name is "Viper Racing Mod Manager". The
@@ -41,7 +56,9 @@ Plus documentation in [`docs/`](docs/):
 vrmod/            the toolkit: parsers/builders, CLI, and the web UI (switcher_ui.py)
   assets/         three.min.js (bundled for offline 3D) + stock slot icons
 desktop/          the standalone app: app.py, the PyInstaller spec, icon
-docs/             reverse-engineered file-format reference
+docs/reference/   the reverse engineering: bytes, structure, runtime behaviour
+docs/history/     who built the old tools, and old workflow vs new
+docs/archive/     rescued community material, preserved as it was
 scripts/          check suites and corpus tooling
 ```
 

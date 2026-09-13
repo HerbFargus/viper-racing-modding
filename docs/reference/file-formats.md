@@ -1884,7 +1884,7 @@ everything else.
 | polygons per track | **65,000** |
 
 The 65,000-polygon ceiling is worth reading against the `race.bin` table in
-[MODDING_HISTORY.md](MODDING_HISTORY.md): Sucahyo — who wrote both this tool and the 1.2.4-beta engine
+[MODDING_HISTORY.md](../history/modding-history.md): Sucahyo — who wrote both this tool and the 1.2.4-beta engine
 patch — raised track support to **95,000 polygons** in that patch. These figures are stated without a
 version, so read them as the constraint the tool was written against rather than a measurement of any
 particular binary.

@@ -3,8 +3,8 @@
 **Purpose:** a top-down map of *what is inside a car or a track* and *where every piece it needs actually
 comes from* — the containment tree (`.car`/`.trk` → members → textures → pixels) plus the shared `.res`
 bundles an asset reaches into at runtime. This is the companion to
-[VIPER_RACING_FILE_FORMATS.md](VIPER_RACING_FILE_FORMATS.md) (which documents the byte layout of each
-format) and [VIPER_RACING_RUNTIME.md](VIPER_RACING_RUNTIME.md) (which LOD each camera view actually
+[VIPER_RACING_FILE_FORMATS.md](file-formats.md) (which documents the byte layout of each
+format) and [VIPER_RACING_RUNTIME.md](runtime.md) (which LOD each camera view actually
 shows, and the game's command-line flags); this document is about **structure and resolution**, not
 byte offsets. Everything below was walked
 directly out of a pristine retail `Data/` folder with `vrmod`.
@@ -381,4 +381,4 @@ tools (`grf`/`bpp`/`sol` editing) operate on one `.trk` at a time.
 
 *Walked from a pristine retail `Data/` with `vrmod`; member lists and texture references are byte-exact,
 semantic labels carry the confidence tag shown. Companion to the
-[file-format reference](VIPER_RACING_FILE_FORMATS.md). 🐍*
+[file-format reference](file-formats.md). 🐍*

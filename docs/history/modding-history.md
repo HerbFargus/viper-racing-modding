@@ -7,7 +7,7 @@ modern hardware, and passing format knowledge along in hand-written tutorials.
 
 This document records **who did that work, the tools they built, and how the
 game's file formats came to be understood.** It's the companion to
-[`VIPER_RACING_FILE_FORMATS.md`](VIPER_RACING_FILE_FORMATS.md): that reference
+[`VIPER_RACING_FILE_FORMATS.md`](../reference/file-formats.md): that reference
 describes *what the formats are*; this one describes *how the community learned
 them and what they built* — the context that made a toolkit like `vrmod`
 worth writing.
@@ -64,7 +64,7 @@ knowledge into one programmatic library.
   Racing dedicated server, and wrote the community's most complete **car
   creation / conversion tutorial** (19 pages). His machine also hosted the FTP
   archive Val's site linked as "accumulated from 1998". Archived copy:
-  [`docs/tutorials/wrxds-car-tutorial/`](tutorials/wrxds-car-tutorial/).
+  [`docs/tutorials/wrxds-car-tutorial/`](../archive/wrxds-car-tutorial/).
 - **Max** — a car modder ("Add-on cars by Max").
 - …and the wider community of racers and converters who contributed cars,
   tracks, retextures, and testing over the years.
@@ -122,7 +122,7 @@ by Frank P. Wolf, distributed from his own site (`members.aol.com/racingwolf999/
   lines and a speed profile. It also emits simple swept meshes, but in a modern
   BTB-based build those are a fallback — the visible track comes from BTB via
   Zmodeler. Fully specified in
-  [VIPER_RACING_FILE_FORMATS.md](VIPER_RACING_FILE_FORMATS.md#vrtrackmaker--the-driving-model-not-the-track).
+  [VIPER_RACING_FILE_FORMATS.md](../reference/file-formats.md#vrtrackmaker--the-driving-model-not-the-track).
 - **MKWORLD / mkfltoa** ✓ — generate the surface + collision set
   (`.sol` / `.obt` / `.bsp` / `.grf` / `.bpp`) from a text scene description;
   **nhmkworld** ✓ — the graphic pass that adds objects to `.grf` / `.bpp`.
@@ -138,7 +138,7 @@ by Frank P. Wolf, distributed from his own site (`members.aol.com/racingwolf999/
   `mkilicc` nor its `.ili` source format is needed for a generated track.
 - **make-track.bat + compile-track.bat** ✓ — the two batch files that drive the
   whole build and then pack the `.tra` with `mkres @reslist.txt`. Reproduced
-  verbatim in [VIPER_RACING_FILE_FORMATS.md](VIPER_RACING_FILE_FORMATS.md#how-a-track-is-actually-built).
+  verbatim in [VIPER_RACING_FILE_FORMATS.md](../reference/file-formats.md#how-a-track-is-actually-built).
 - **trkaitweaker** ✓ — AI tuning. **jpg2sky / sky-tga2tex** — the four skybox tiles.
 
 ### Where the cars came from
@@ -678,7 +678,7 @@ There was never an official Viper Racing exporter in any version. BTB contribute
 then carried through Zmodeler and 3DS Max before reaching the MKWORLD source files. The full route is
 [documented by HerbFargus](https://github.com/HerbFargus/viper-racing-legacy-modding-tools/wiki/Creating-a-Custom-Track)
 from tracks built with it, and written up step by step in
-[VIPER_RACING_FILE_FORMATS.md](VIPER_RACING_FILE_FORMATS.md#the-modern-workflow-end-to-end):
+[VIPER_RACING_FILE_FORMATS.md](../reference/file-formats.md#the-modern-workflow-end-to-end):
 
 ```
 BTB Pro  ->  .dof  ->  Zmodeler  ->  .mod + .3ds  ->  3DS Max (spline)  ->  .ase
@@ -816,7 +816,7 @@ the brake lights.
 The same host carried the FTP archive (`ftp://wrxds.mine.nu/vrmods/`) that Val's
 site pointed at as *"accumulated from 1998"*. That listing was **never captured**
 — the files and their names are gone. The tutorial pages were, and are now kept
-in [`docs/tutorials/wrxds-car-tutorial/`](tutorials/wrxds-car-tutorial/) with
+in [`docs/tutorials/wrxds-car-tutorial/`](../archive/wrxds-car-tutorial/) with
 their images and the assets they offered for download.
 
 It matters twice over. It is the era's best surviving account of how a car was

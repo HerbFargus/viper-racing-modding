@@ -292,7 +292,7 @@ def vertex_budget(data_dir: str | Path) -> tuple[int | None, str]:
     mod.VERTEX_BUDGETS. The original release allows 1,200; the three confirmed
     community builds -- Sucahyo's v1.2.4 BETA (2007) and Val Novak's v1.2.5 2016
     and v1.2.6 2017 -- all document 20,000 (their readmes/changelogs state the
-    same figure; see MODDING_HISTORY.md's race.bin version table). Any other
+    same figure; see docs/history/modding-history.md's race.bin version table). Any other
     version marker reports None rather than guess.
     """
     from . import mod as mod_mod
