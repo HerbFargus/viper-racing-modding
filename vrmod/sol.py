@@ -3,7 +3,7 @@
 Not a mesh: an array of collision primitives (boxes, capsules and spheres), the
 complement to `.bpp`'s triangle soup. Static world surfaces live in the BSP;
 discrete objects live here. The layout is documented in
-VIPER_RACING_FILE_FORMATS.md §4.8, read from the loader at `0x42FEE0`.
+docs/reference/file-formats.md §4.8, read from the loader at `0x42FEE0`.
 
 ```
 header          20 bytes   n_primitives, n_index, then zeros

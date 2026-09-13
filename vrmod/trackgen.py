@@ -1,6 +1,6 @@
 """Generate a track's MKWORLD source set from a centreline.
 
-This is the *driving* half of the track pipeline (see VIPER_RACING_FILE_FORMATS.md,
+This is the *driving* half of the track pipeline (see docs/reference/file-formats.md,
 "vrTrackMaker -- the driving model, not the track"): a centreline goes in, and the
 two fooland*.txt scene sources plus their swept meshes come out, ready for
 mkfltoa/MKWORLD. The looks half -- the visible track -- comes from a modeller.

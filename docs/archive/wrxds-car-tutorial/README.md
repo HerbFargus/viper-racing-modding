@@ -72,7 +72,7 @@ screenshots: the cross-section bands it sweeps along a spline (Road, Wall, Side,
 Rumble1, Rumble2, Grass), its banking and threshold controls, and its built-in
 AI-path lookup distances. That is what specified the one stage of track
 authoring this project had recorded as a gap — see
-[VIPER_RACING_FILE_FORMATS.md](../../VIPER_RACING_FILE_FORMATS.md) under
+[VIPER_RACING_FILE_FORMATS.md](../../reference/file-formats.md) under
 "vrTrackMaker, the stage in the middle".
 
 `foolandsurface.jpg` also recovered the MKWORLD scene format verbatim —

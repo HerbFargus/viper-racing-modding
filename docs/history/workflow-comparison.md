@@ -3,11 +3,11 @@
 *Viper Racing* modding was built by a small group of people between roughly 1999 and 2010, out of
 one-off utilities that each did a single job. Most were Windows-only, several survive as a single
 binary with no source, and the sites that hosted them are gone. See
-[MODDING_HISTORY.md](MODDING_HISTORY.md) for who wrote what.
+[MODDING_HISTORY.md](modding-history.md) for who wrote what.
 
 This document compares the **process**, step for step: what building a track or a car took then, and
 what it takes now. It is not a tutorial, and it is not a tool chart — the chart is in the history
-document, and the formats are in [VIPER_RACING_FILE_FORMATS.md](VIPER_RACING_FILE_FORMATS.md).
+document, and the formats are in [VIPER_RACING_FILE_FORMATS.md](../reference/file-formats.md).
 
 **The bottom line.** Every stage of both pipelines now runs from one cross-platform Python library,
 with one exception, and it is a smaller one than it was: **barriers**. A track's `.sol` is still
@@ -190,5 +190,5 @@ a site went down, a format went with it.
 The new workflow is one library that understands the formats, with a CLI, a desktop mod manager and a
 browser viewer over the same code. None of that is better modding; it is the same jobs, done against
 documented formats rather than through tools whose behaviour had to be inferred. The formats are
-written down in [VIPER_RACING_FILE_FORMATS.md](VIPER_RACING_FILE_FORMATS.md), and that is the part
+written down in [VIPER_RACING_FILE_FORMATS.md](../reference/file-formats.md), and that is the part
 that outlives the software.
