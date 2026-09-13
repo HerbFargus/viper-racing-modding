@@ -3,6 +3,20 @@
 A complete **19-step tutorial on building or converting a car for
 Viper Racing**, recovered from the Internet Archive and kept here verbatim.
 
+**[Read it &rarr;](index.htm)** — or jump to
+[1. gathering information](step_1.htm) ·
+[2. the 3D mesh](step_2.htm) ·
+[5. textures](step_5.htm) ·
+[6. sounds](step_6.htm) ·
+[7. performance](step_7.htm) ·
+[10. first drive](step_10.htm) ·
+[14. the dashboard](step_14.htm) ·
+[17. packaging it up](step_17.htm).
+Supporting files: [`inertias.xls`](inertias.xls),
+[`lefthandCockpit.tab`](lefthandCockpit.tab),
+[`righthandCockpit.tab`](righthandCockpit.tab),
+[`files/`](files/).
+
 ## Why this is in the repo
 
 The original lived at `http://wrxds.mine.nu/tutorial/` — a machine that started

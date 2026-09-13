@@ -61,6 +61,15 @@ TITLE = {
     "archive/vnovak-track-tutorial/README.md": "Val’s track tutorials",
 }
 
+# For an archived tutorial the card should open THE TUTORIAL. Pointing it at the
+# README -- a page about the tutorial -- is the sort of indirection that reads as
+# an oversight, because it is one: someone clicking "Wrxds's car tutorial" wants
+# step 1, not provenance. The README stays one click away, labelled.
+ENTRY = {
+    "archive/wrxds-car-tutorial/README.md": ("index.htm", "About this copy"),
+    "archive/vnovak-track-tutorial/README.md": ("part1.html", "About this copy"),
+}
+
 BLURB = {
     "reference/file-formats.md": (
         "The <b>bytes</b>", "The layout of every resource type the game ships — "
@@ -135,6 +144,11 @@ h1{font-size:2.1rem;line-height:1.15;margin:.2em 0 .1em;text-wrap:balance}
 .card p{margin:0;color:var(--dim);font-size:14.5px;line-height:1.5}
 .card .meta{margin-top:.7em;font-size:12.5px;color:var(--dim);
             font-family:system-ui,sans-serif}
+.cardwrap{display:flex;flex-direction:column;gap:6px}
+.cardwrap .card{flex:1}
+.sub{font-family:system-ui,sans-serif;font-size:12.5px;color:var(--dim);
+     text-decoration:none;padding-left:2px}
+.sub:hover{color:var(--acc)}
 article{max-width:none}
 article h1{margin-top:0}
 article h2{margin:2.2em 0 .5em;padding-top:.3em;border-top:1px solid var(--edge);
@@ -332,11 +346,16 @@ def main() -> int:
                 meta = f"{len(steps)} steps · {shots} screenshots · as published"
             elif rel.startswith("archive/"):
                 meta = f"{len(pages)} pages · {shots} screenshots · as published"
+            target, sub_label = ENTRY.get(rel, (None, None))
+            href = (f"{rel.rsplit('/', 1)[0]}/{target}" if target
+                    else f"{rel[:-3]}.html")
+            extra = (f'<a class="sub" href="{rel[:-3]}.html">{sub_label} &rarr;</a>'
+                     if target else "")
             cards.append(
-                f'<a class="card" href="{rel[:-3]}.html">'
+                f'<div class="cardwrap"><a class="card" href="{href}">'
                 f'{f"<div class=kicker>{kicker}</div>" if kicker else ""}'
                 f'<h3>{html.escape(shown)}</h3><p>{desc}</p>'
-                f'<div class="meta">{meta}</div></a>')
+                f'<div class="meta">{meta}</div></a>{extra}</div>')
         if cards:
             sections.append(f'<section class="group"><h2>{heading}</h2>'
                             f'<p>{blurb}</p><div class="cards">'
