@@ -590,11 +590,15 @@ def track_to_png(trk_path: str | Path, style: str = "wire", **kw) -> bytes:
     counterpart to to_png, drawn from the very same geometry the 3D viewer shows
     (viewer._track_render_mesh).
 
-    Defaults to "wire" for the same reason to_png does, and it is cost, not
-    taste: the mod manager's library is a GRID, so every visible thumbnail
-    renders at once, and this rasteriser is pure Python -- the GIL serialises
-    them however many threads the server runs. Measured at preview size on a
-    v1.0 install, median of six each:
+    Defaults to "wire" for the same two reasons to_png does. They point the
+    same way, so either alone would be enough, but only one of them is a hard
+    constraint.
+
+    COST, which is the binding one. The mod manager's library is a GRID: every
+    visible thumbnail renders at once, on demand, while someone waits -- and
+    this rasteriser is pure Python, so the GIL serialises them however many
+    threads the server runs. Measured at preview size on a v1.0 install,
+    median of six each:
 
         tracks   wire 0.29s -> textured 0.43s   x1.5
         cars     wire 0.10s -> textured 0.45s   x4.6
@@ -603,9 +607,14 @@ def track_to_png(trk_path: str | Path, style: str = "wire", **kw) -> bytes:
     all live in its own archive, so it only pays for sampling. Either way a
     hundred-item grid is the difference between waiting and not.
 
-    The gallery bakes textured because it bakes once, offline, into files.
-    Pass style="textured" for that; trackmap.render is the cheaper top-down
-    outline again.
+    CONSISTENCY, which is why wireframe is also the right look rather than
+    merely the affordable one. Cars and tracks sit in the same grid, so one
+    blueprint set reads as a library; a textured track beside a wireframe car
+    reads as a bug. Whichever way this moves, it should move for both.
+
+    The gallery is textured because it PRE-RENDERS -- it bakes every thumbnail
+    offline into a file, once, and pays neither cost. Pass style="textured"
+    for that; trackmap.render is the cheaper top-down outline again.
 
     The framing crop (track_fit) applies to every style: it is about what the
     frame contains, not how it is shaded, and the wireframe suffers from the

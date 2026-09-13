@@ -1286,10 +1286,13 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             # from its own geometry. 0.29s median, cached by mtime like
             # /carshot.
             #
-            # Wireframe, not the textured form the gallery shows, because the
-            # gallery PRE-RENDERS: it bakes 2,023 thumbnails offline into files
-            # once and serves the files. This renders on demand, into a grid,
-            # while someone waits -- see carshot.track_to_png for the numbers.
+            # Wireframe, not the textured form the gallery shows, for two
+            # reasons that point the same way: the gallery PRE-RENDERS, baking
+            # 2,023 thumbnails offline into files once, where this renders on
+            # demand into a grid while someone waits; and cars and tracks share
+            # that grid, so one blueprint set reads as a library where a
+            # textured track beside a wireframe car reads as a bug. See
+            # carshot.track_to_png for the numbers.
             from urllib.parse import unquote
             name = unquote(self.path[len("/trackshot/"):])
             f = d / name
