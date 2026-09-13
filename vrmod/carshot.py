@@ -287,6 +287,16 @@ def render(
         tinfo = face_tex[fi] if textured else None
         if tinfo is not None:
             va, vb, vc = mesh.vertices[ia], mesh.vertices[ib], mesh.vertices[ic]
+            # Real files carry junk UVs: daytonarc's track.grf has 20 vertices
+            # out of 93,930 whose v is NaN. The wire and shaded styles never
+            # look at UVs and so never noticed, but sampling one raises
+            # "cannot convert float NaN to integer" and takes the whole
+            # thumbnail with it -- two tracks vanished from the catalogue that
+            # way. A face we cannot sample falls back to its flat colour.
+            # Checked per FACE, not per pixel: the per-pixel loop is the entire
+            # cost of this renderer.
+            if not math.isfinite(va.u + vb.u + vc.u + va.v + vb.v + vc.v):
+                tinfo = None
         if shading:
             # Shade from the stored vertex normal, rotated into view space so
             # the lighting follows the rendered orientation, not model space.

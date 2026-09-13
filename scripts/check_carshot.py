@@ -184,6 +184,26 @@ def main() -> int:
     else:
         print("  (no pristine install -- skipping the shared_dir render checks)")
 
+    # --- junk UVs must not sink the render -----------------------------------
+    # daytonarc's track.grf carries 20 vertices (of 93,930) whose v is NaN.
+    # Wire and shaded never read UVs, so only the textured style ever met it:
+    # "cannot convert float NaN to integer", and two tracks dropped out of the
+    # catalogue the first time it was built textured.
+    junk = cube()
+    junk.vertices[0] = junk.vertices[0].__class__(
+        **{**junk.vertices[0].__dict__, "v": float("nan")})
+    junk.vertices[1] = junk.vertices[1].__class__(
+        **{**junk.vertices[1].__dict__, "u": float("inf")})
+    try:
+        px, w, h = carshot.render(junk, style="textured",
+                                  textures={"body.tex": texture_stub()},
+                                  colours={"body.tex": (200, 40, 40)})
+        check("a NaN or inf UV does not sink the render", True,
+              f"{non_background(px, w, h, carshot.BACKGROUND)} px still drawn")
+    except Exception as e:                                      # noqa: BLE001
+        check("a NaN or inf UV does not sink the render", False,
+              f"{type(e).__name__}: {e}")
+
     # --- the fit box: framing on the subject, not on the backdrop ------------
     # Encodes the bug this was written for. A first version of track_fit made
     # the box `pad` units TALL as well as wide; the view looks down at an
