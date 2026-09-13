@@ -90,11 +90,37 @@ workflow the tool chart already lists.
 
 ## Provenance
 
-- Original: `http://wrxds.mine.nu/tutorial/` by **BlasterMaster555**
-- Source: Internet Archive Wayback Machine, 2013 capture (with 2012/2011
-  fallbacks for pages the 2013 crawl missed)
-- Retrieved: 2026-09-09
+- Original: `http://wrxds.mine.nu/tutorial/` by **BlasterMaster555**, later
+  `https://wrxds.com/tutorial/`
+- Source: Internet Archive Wayback Machine — pages from the 2013 capture of
+  `wrxds.mine.nu` (with 2012/2011 fallbacks for pages that crawl missed);
+  twelve images and four data files from `wrxds.com`, 2020 and 2022 captures
+- Retrieved: 2026-09-09, completed 2026-09-13
 - Reproduced here unaltered except for stripping the Wayback toolbar and
   rewriting links to the local copies.
+
+## What is here
+
+Complete: every page, and every image they reference.
+
+Getting there took two hosts. The tutorial was first recovered from
+`wrxds.mine.nu/tutorial/`, the machine this repo's history names — and that
+capture is missing twelve images and four data files. Querying the Archive for
+them by name returns nothing, which looked conclusive: gone, never captured.
+
+It was the wrong question. The site later moved to **`wrxds.com/tutorial/`**,
+where the images sit at the top level rather than under `images/`, so a search
+for `wrxds.mine.nu/tutorial/images/SELon.jpg` finds nothing while
+`wrxds.com/tutorial/SELon.jpg` has been sitting there the whole time. All twelve
+came back from that host, the last of them (`saveasmod.jpg`) from an 8 August
+2020 capture after the 2022 one failed.
+
+Recovered alongside them: `README.TXT`, `inertias.xls`, and both
+`lefthandCockpit.tab` / `righthandCockpit.tab` — the working cockpit tables the
+tutorial hands you, which this toolkit reads directly.
+
+The lesson is worth keeping with the files: **a missing capture means you have
+not found the host yet**, not that the thing is lost. A site that outlived its
+own domain twice is exactly the case where one query looks like proof.
 
 Credit is the author's. This copy exists so the work is not lost with the host.
