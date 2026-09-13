@@ -529,8 +529,10 @@ function trackThumbs(t){
              : t.slot ? '/icon/'+t.slot+'.png' : '';
   // No in-game menu picture -> render the track's own 3D mesh (same wireframe
   // look as the car thumbnails) so it still shows something drawn from its
-  // geometry rather than a blank. "gen" switches the fit to contain, since a
-  // rendered wireframe wants the whole frame, unlike a cropped photo.
+  // geometry rather than a blank. Every thumbnail in this grid renders at
+  // once, which is why these are wireframes and the gallery's pre-rendered
+  // ones are not. "gen" switches the fit to contain, since a rendered
+  // wireframe wants the whole frame, unlike a cropped photo.
   const shot = game || '/trackshot/'+encodeURIComponent(t.name);
   return `<div class="shots">
     <img class="shot${game?'':' gen'}" src="${shot}" alt="" onerror="this.style.visibility='hidden'">
@@ -1281,7 +1283,16 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             # nor a .stp) would otherwise show only its flat outline. Render its
             # 3D scenery mesh instead -- the same wireframe carshot draws for a
             # car (see carshot.track_to_png), so every track has a preview drawn
-            # from its own geometry. ~0.15s, cached by mtime like /carshot.
+            # from its own geometry. 0.29s median, cached by mtime like
+            # /carshot.
+            #
+            # Wireframe, not the textured form the gallery shows, for two
+            # reasons that point the same way: the gallery PRE-RENDERS, baking
+            # 2,023 thumbnails offline into files once, where this renders on
+            # demand into a grid while someone waits; and cars and tracks share
+            # that grid, so one blueprint set reads as a library where a
+            # textured track beside a wireframe car reads as a bug. See
+            # carshot.track_to_png for the numbers.
             from urllib.parse import unquote
             name = unquote(self.path[len("/trackshot/"):])
             f = d / name
