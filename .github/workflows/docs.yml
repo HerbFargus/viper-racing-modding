@@ -1,0 +1,81 @@
+name: Publish the documentation
+
+# Renders docs/ and deploys it to GitHub Pages, contents page at the root.
+#
+# WHY IT IS A BUILD. The docs used to be published by committing hand-written
+# HTML next to the Markdown, and they drifted: the published file-format
+# reference held 64% of the words in its source, the modding history 47%. The
+# Markdown got 33 commits and its render got 5. Generating here means that
+# cannot happen again -- there is no second copy to forget.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "scripts/build_docs.py"
+      - "scripts/check_docs_links.py"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - run: python -m pip install --quiet markdown
+
+      # Before rendering, not after: a link that does not resolve in the source
+      # will not resolve in the site either, and failing here says which file
+      # and which link rather than leaving it to be clicked.
+      - name: Check every relative link and anchor resolves
+        run: python scripts/check_docs_links.py
+
+      - name: Render docs/ to site/
+        run: python scripts/build_docs.py -o site
+
+      # The deploy gate. The sibling gallery repo published an empty catalogue
+      # for weeks because nothing asserted the build had produced anything;
+      # this is the same assertion, one line, before the same mistake.
+      - name: Refuse to deploy an empty site
+        run: |
+          python - <<'PY'
+          import pathlib, sys
+          site = pathlib.Path("site")
+          pages = sorted(site.rglob("*.html"))
+          index = site / "index.html"
+          print(f"{len(pages)} page(s), index {index.stat().st_size:,} bytes"
+                if index.is_file() else "NO INDEX")
+          if not index.is_file():
+              sys.exit("refusing to deploy: no index.html")
+          if len(pages) < 6:
+              sys.exit(f"refusing to deploy: only {len(pages)} pages built")
+          PY
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

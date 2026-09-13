@@ -19,7 +19,9 @@ Looking for **community mods** rather than the tools? They live at
 2,023 cars and tracks, browsable at
 [herbfargus.github.io/viper-racing-gallery](https://herbfargus.github.io/viper-racing-gallery/).
 
-Plus documentation in [`docs/`](docs/), in three parts.
+Plus documentation in [`docs/`](docs/), in three parts — readable on GitHub, or rendered with a contents page at
+[**herbfargus.github.io/viper-racing-modding**](https://herbfargus.github.io/viper-racing-modding/).
+The HTML is built by CI and never committed, so it cannot drift from the Markdown the way the old hand-maintained copies did.
 
 **[`docs/reference/`](docs/reference/) — what the game *is*.** The reverse
 engineering, on three axes. Headings carry their evidence: `✅ CONFIRMED` for

@@ -31,22 +31,13 @@ LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*$", re.M)
 
 
-def slug(text: str) -> str:
-    """GitHub's heading -> anchor rule, near enough for our own headings.
-
-    Lowercase, strip anything that is not a word character, space or hyphen,
-    then spaces to hyphens. Emoji and the tick marks these headings use
-    (`## 2. The universal container ... CONFIRMED`) fall out under the same
-    rule GitHub applies.
-    """
-    text = re.sub(r"`([^`]*)`", r"\1", text)
-    text = "".join(c for c in unicodedata.normalize("NFKD", text)
-                   if not unicodedata.combining(c))
-    text = re.sub(r"[^\w\s-]", "", text.lower())
-    # One hyphen per whitespace CHARACTER, not per run. "vrTrackMaker — the
-    # driving model" drops the em-dash and leaves two spaces, which GitHub
-    # turns into two hyphens; collapsing them reported a live anchor as dead.
-    return re.sub(r"\s", "-", text.strip())
+# The builder owns the slug rule and the checker borrows it, rather than each
+# having an opinion. They have to agree exactly: the checker's whole job is to
+# say whether a link will resolve in the site the builder produces, and two
+# independent implementations of GitHub's rule would eventually disagree about
+# some heading nobody thought to test.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from build_docs import slug  # noqa: E402
 
 
 def anchors(path: Path) -> set[str]:
