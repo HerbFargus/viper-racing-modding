@@ -46,7 +46,7 @@ import threading
 import webbrowser
 from pathlib import Path
 
-from . import aifield, archive, carshot, cf, doctor, envelope, grf, hornball, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch, headon, drawdistance, writepaths, modassert, carlist
+from . import aifield, ainames, archive, carshot, cf, doctor, envelope, grf, hornball, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch, headon, drawdistance, writepaths, modassert, carlist
 
 _PAGE = r"""<!doctype html>
 <meta charset="utf-8"><title>Viper Racing -- Mod Manager</title>
@@ -222,6 +222,15 @@ body.resizing #frame{pointer-events:none}   /* keep the drag out of the iframe *
                      color:var(--dim);display:block;margin-bottom:7px;font-weight:600}
 .ai-total{color:var(--dim);font-size:12.5px}
 .ai-total b{color:var(--fg);font-weight:600}
+
+/* Seven name boxes. auto-fit rather than a fixed seven columns so the row
+   wraps on a narrow window instead of squeezing each box to nothing. */
+.ai-names{display:grid;gap:8px;margin:4px 0 10px;
+          grid-template-columns:repeat(auto-fit,minmax(112px,1fr))}
+.ai-name{background:var(--bg);border:1px solid var(--edge);border-radius:6px;
+         color:var(--fg);padding:7px 9px;font:inherit;font-size:13px;width:100%}
+.ai-name:focus{outline:none;border-color:var(--acc)}
+.ai-name::placeholder{color:var(--dim);opacity:.55}
 
 /* toggle switch */
 .tgl{position:relative;display:inline-flex;align-items:center;gap:10px;cursor:pointer;
@@ -849,6 +858,29 @@ async function renderGame(){
      </div>
    </div>`;
 
+  // Seven boxes, because seven is what the file holds: english.lng keeps
+  // AIDriverName:<Tier>:Driver0..6 for each difficulty. A name typed here is
+  // written to every tier, so it shows up whichever difficulty you race.
+  const nm = STATE.ai_names || {names: [], soft_max: 9, stock: true};
+  const nameBoxes = (nm.names.length ? nm.names : Array(7).fill(null))
+    .map((v, i) => `<input class="ai-name" id="ai-name-${i}" value="${(v||'').replace(/"/g,'&quot;')}"
+            placeholder="${nm.stock_names && nm.stock_names[i] || ''}" maxlength="40"
+            oninput="aiNameCheck()">`).join('');
+  const drivers = `
+   <div class="panel">
+     <div class="panel-head"><h2>AI driver names</h2>
+       <span class="note">${nm.stock ? 'stock roster' : 'renamed'}</span></div>
+     <p class="lede">Who you are racing. Leave a box empty to keep MGI's name for
+       that slot. Names are written across every difficulty, so the same seven
+       turn up whether you race Easy or Career.</p>
+     <div class="ai-names">${nameBoxes}</div>
+     <p class="note" id="ai-name-warn" style="min-height:1.2em"></p>
+     <div class="row">
+       <button class="btn" onclick="applyAiNames()">Apply names</button>
+       <button class="btn ghost" onclick="resetAiNames()" ${nm.stock?'disabled':''}>Restore MGI's</button>
+     </div>
+   </div>`;
+
   const carLine = verts
     ? `Engine buffer holds <b style="color:var(--fg)">${verts.toLocaleString()}</b> verts per mesh${
         (vmax && verts < vmax)
@@ -1056,8 +1088,8 @@ async function renderGame(){
      </div>
    </div>`;
 
-  el$('config').innerHTML = opponents + aiCar + cars + tracks + hbPanel + hoPanel
-                          + resPanel + ddPanel + fixes;
+  el$('config').innerHTML = opponents + drivers + aiCar + cars + tracks
+                          + hbPanel + hoPanel + resPanel + ddPanel + fixes;
 }
 
 async function setDrawDistance(units){
@@ -1097,6 +1129,38 @@ async function aiStep(delta){
   const r = await api('/api/aifield', {count: next});
   if(!r.ok) return toast(r.error, 'bad');
   toast(`AI field: ${r.count} opponent${r.count===1?'':'s'} (${r.total} cars total)`);
+  await refresh();
+}
+
+function aiNameValues(){
+  return Array.from({length: 7}, (_, i) => el$('ai-name-' + i).value.trim());
+}
+
+function aiNameCheck(){
+  // Advisory, not a block. The FILE has no length limit -- that was measured --
+  // but the menu and the standings draw into a fixed space and nobody has yet
+  // looked at a long one in game. MGI's longest is the only evidence there is.
+  const max = (STATE.ai_names || {}).soft_max || 9;
+  const over = aiNameValues().filter(v => v.length > max);
+  el$('ai-name-warn').textContent = over.length
+    ? `${over.length} name${over.length===1?' is':'s are'} longer than MGI's longest `
+      + `(${max} characters). It will be written, but the game may clip it on screen.`
+    : '';
+}
+
+async function applyAiNames(){
+  const names = aiNameValues();
+  if(names.every(v => !v)) return toast('Type a name first.', 'bad');
+  const r = await api('/api/ainames', {names});
+  if(!r.ok) return toast(r.error, 'bad');
+  toast(`Renamed ${r.changed} entr${r.changed===1?'y':'ies'} across every difficulty.`);
+  await refresh();
+}
+
+async function resetAiNames(){
+  const r = await api('/api/ainames', {reset:true});
+  if(!r.ok) return toast(r.error, 'bad');
+  toast("MGI's drivers are back.");
   await refresh();
 }
 
@@ -1476,6 +1540,20 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                                    "message": f"Draw distance: {units:,} units. "
                                               "Set it with the game closed -- it rewrites "
                                               "options.cfg on exit."})
+            if self.path == "/api/ainames":
+                try:
+                    if req.get("reset"):
+                        changed = ainames.reset(d)
+                    else:
+                        names = req.get("names") or []
+                        if not isinstance(names, list):
+                            return self._json({"ok": False,
+                                               "error": "names must be a list"}, 400)
+                        changed = ainames.apply(d, names[:ainames.SLOTS])
+                except Exception as ex:                         # noqa: BLE001
+                    return self._json({"ok": False,
+                                       "error": f"{type(ex).__name__}: {ex}"}, 400)
+                return self._json({"ok": True, "changed": changed})
             if self.path == "/api/fix":
                 # Only named, understood repairs -- never an arbitrary write.
                 action = req.get("action")
@@ -1716,6 +1794,17 @@ def _status_payload(d: Path) -> dict:
     except Exception:
         ai_field = {"count": None, "max": aifield.MAX_AI}
     try:
+        # `names` is None per slot where the difficulties disagree, which is
+        # what stock looks like; the stock roster goes along as the placeholder
+        # so an empty box shows the name it would keep rather than nothing.
+        ai_names = {"names": ainames.current(d),
+                    "stock_names": ainames.STOCK["Easy"],
+                    "stock": ainames.is_stock(d),
+                    "soft_max": ainames.SOFT_MAX}
+    except Exception:
+        ai_names = {"names": [], "stock_names": ainames.STOCK["Easy"],
+                    "stock": True, "soft_max": ainames.SOFT_MAX}
+    try:
         primary = primarycar.status(d)
     except Exception:
         primary = "unknown"
@@ -1735,7 +1824,7 @@ def _status_payload(d: Path) -> dict:
         "library_tracks": library_tracks,
         "car_active_count": sum(1 for c in cars if c["active"]),
         "car_disabled_count": sum(1 for c in cars if not c["active"]),
-        "ai_field": ai_field, "primary_car": primary,
+        "ai_field": ai_field, "ai_names": ai_names, "primary_car": primary,
         "vertex_verts": verts, "vertex_max": vertexbuffer.FORMAT_CAP_VERTS,
         "resolution": res_info,
         "fp": _folder_fingerprint(d),
