@@ -199,7 +199,17 @@ def _viewer(yaw: float, pitch: float):
     return view
 
 
-def _project(mesh: mod.Mesh, width: int, height: int, yaw: float, pitch: float):
+def _project(mesh: mod.Mesh, width: int, height: int, yaw: float, pitch: float,
+             fit: list[tuple[float, float, float]] | None = None):
+    """Project the mesh to screen space, framed on `fit` if given.
+
+    `fit` is a set of world points the frame must contain; everything else
+    still projects and simply falls outside, clipped by the rasteriser. It
+    exists because fitting to the full bounding box is wrong whenever one
+    piece of the mesh is far larger than the subject: a track's ground plane
+    can span 80,000 units around a circuit only 7,000 across, and fitting to
+    it shrinks the whole circuit to a few pixels of empty field.
+    """
     view = _viewer(yaw, pitch)
     # Z is negated: Viper's mesh space is LEFT-handed and this projects into a
     # right-handed screen space, the same conversion mod.to_obj() applies. Without
@@ -209,8 +219,9 @@ def _project(mesh: mod.Mesh, width: int, height: int, yaw: float, pitch: float):
     pts = [view(v.x, v.y, -v.z) for v in mesh.vertices]
     if not pts:
         raise CarShotError("mesh has no vertices")
-    us = [p[0] for p in pts]
-    vs = [p[1] for p in pts]
+    frame = [view(x, y, -z) for x, y, z in fit] if fit else pts
+    us = [p[0] for p in frame]
+    vs = [p[1] for p in frame]
     du = (max(us) - min(us)) or 1.0
     dv = (max(vs) - min(vs)) or 1.0
     scale = min((width - 2 * MARGIN) / du, (height - 2 * MARGIN) / dv)
@@ -228,11 +239,12 @@ def render(
     base: tuple[int, int, int] = BASE,
     colours: dict[str, tuple[int, int, int]] | None = None,
     textures: dict | None = None,
+    fit: list[tuple[float, float, float]] | None = None,
 ) -> tuple[bytes, int, int]:
     """Render the mesh to raw RGB bytes. Returns (pixels, width, height)."""
     if style not in ("wire", "shaded", "textured"):
         raise ValueError(f"unknown style {style!r} (expected 'wire', 'shaded' or 'textured')")
-    view, screen = _project(mesh, width, height, yaw, pitch)
+    view, screen = _project(mesh, width, height, yaw, pitch, fit=fit)
 
     buf = [list(background) * width for _ in range(height)]
     zbuf = [[-1e30] * width for _ in range(height)]
@@ -275,6 +287,16 @@ def render(
         tinfo = face_tex[fi] if textured else None
         if tinfo is not None:
             va, vb, vc = mesh.vertices[ia], mesh.vertices[ib], mesh.vertices[ic]
+            # Real files carry junk UVs: daytonarc's track.grf has 20 vertices
+            # out of 93,930 whose v is NaN. The wire and shaded styles never
+            # look at UVs and so never noticed, but sampling one raises
+            # "cannot convert float NaN to integer" and takes the whole
+            # thumbnail with it -- two tracks vanished from the catalogue that
+            # way. A face we cannot sample falls back to its flat colour.
+            # Checked per FACE, not per pixel: the per-pixel loop is the entire
+            # cost of this renderer.
+            if not math.isfinite(va.u + vb.u + vc.u + va.v + vb.v + vc.v):
+                tinfo = None
         if shading:
             # Shade from the stored vertex normal, rotated into view space so
             # the lighting follows the rendered orientation, not model space.
@@ -386,29 +408,209 @@ def to_png(car_path: str | Path, style: str = "wire", wheels: bool = True,
 
 # Tracks are wide, near-flat layouts, so a steeper look-down than the car's 18
 # degrees reads far better -- you see the circuit shape, not an edge-on smear.
-# Wireframe (like the cars), not shaded: hidden-line removal keeps a track's
-# few-thousand-face scenery readable rather than a ball of string, and unlike
-# the flat-grey shaded form it shows the circuit winding through the terrain --
-# the track's identifying feature. Same cheap software path as the car shot
-# (~0.15s), since track meshes are only 4-8k faces.
+# Same cheap software path as the car shot, since track meshes are only 4-8k
+# faces. The gallery bakes these textured rather than wireframe: what identifies
+# a track at icon size is the circuit winding through its terrain, and hidden-
+# line wireframe cannot show that on tracks whose scenery is dense enough to
+# fill the outline with hatching -- but see track_fit for the framing that has
+# to come with it.
 TRACK_YAW = 30.0
 TRACK_PITCH = 38.0
 TRACK_WIDTH = 260
 TRACK_HEIGHT = 150
 
 
+def track_material_textures(trk_path: str | Path, mesh: mod.Mesh) -> dict:
+    """Decoded pixels for each of a track's materials, keyed by material name.
+
+    The track counterpart to material_textures, and much the simpler of the
+    two: a track's textures always live in its own archive under the material
+    name, with none of a car's shared-.res or runtime-paint resolution.
+
+    Names that do not resolve are omitted rather than faked, so a material
+    pointing at a .stp stamp (checkpt1.mod does) falls through to the flat
+    shaded colour instead of sinking the render.
+    """
+    try:
+        entries = archive.read(Path(trk_path))
+    except Exception:
+        return {}
+    by_name = {e.name.lower(): e for e in entries}
+    out: dict = {}
+    for name in {(m.name or "") for m in mesh.materials if m.name}:
+        entry = by_name.get(name.lower())
+        if entry is None:
+            continue
+        try:
+            info = tex.parse(envelope.build(entry.tag, entry.version, entry.payload))
+            px = tex.decode_base_level(info)
+        except Exception:
+            continue
+        ch = 4 if (info.has_alpha or info.has_colorkey) else 3
+        if info.size <= 0 or len(px) < info.size * info.size * ch:
+            continue
+        out[name] = (px, info.size, ch, bool(info.has_alpha or info.has_colorkey))
+    return out
+
+
+# How much room to leave around the circuit when framing on it. The oracles
+# below trace the middle of the road, so a little padding is needed just to get
+# the road's own width in, and more than that gives the surroundings -- pit
+# buildings, the first row of trees -- somewhere to sit.
+TRACK_FIT_PAD = 0.18
+
+# Below this many collision solids they are a fragment -- one corner's barrier,
+# a single chicane -- not a sample of the whole circuit. Driveup1 has 12, and
+# they cover 152 units of a 447-unit lap.
+SOL_MIN_PRIMS = 100
+# And even a dense set is not believed if it claims the circuit is this much
+# smaller than the racing line says: that is the signature of solids clustered
+# in one place rather than ringing the track.
+SOL_MIN_RATIO = 0.25
+
+
+def _line_box(entries) -> tuple[float, float, float, float] | None:
+    """The racing line's x/z extent. `default.ili` ships with every track and
+    is on the road by definition."""
+    from . import ili
+    entry = next((e for e in entries if e.name.lower() == "default.ili"), None)
+    if entry is None:
+        return None
+    try:
+        line = ili.parse(envelope.build(entry.tag, entry.version, entry.payload))
+    except Exception:
+        return None
+    if len(line) < 4:
+        return None
+    xs = [p.x for p in line]
+    zs = [p.z for p in line]
+    return min(xs), max(xs), min(zs), max(zs)
+
+
+def _sol_box(entries) -> tuple[tuple[float, float, float, float], int] | None:
+    """The collision solids' x/z extent, and how many there are.
+
+    Barriers line the circuit, so their footprint is the road's. This is the
+    second opinion the racing line needs: on Abbey the line spans 1,398 units
+    while the road drawn in track.grf spans about 350, and the solids agree
+    with the road at 496. A 0.68-mile track was being framed four times too
+    wide on the line's word alone.
+    """
+    from . import sol
+    entry = next((e for e in entries if e.name.lower() == "track.sol"), None)
+    if entry is None:
+        return None
+    try:
+        parsed = sol.parse(envelope.build(entry.tag, entry.version, entry.payload))
+    except Exception:
+        return None
+    if not parsed.primitives:
+        return None
+    bounds = [sol._xz_bounds(pr) for pr in parsed.primitives]
+    return ((min(b[0] for b in bounds), max(b[1] for b in bounds),
+             min(b[2] for b in bounds), max(b[3] for b in bounds)),
+            len(parsed.primitives))
+
+
+def track_fit(trk_path: str | Path,
+              mesh: mod.Mesh | None = None) -> list[tuple[float, float, float]] | None:
+    """The circuit's own extent, as corner points for render(fit=...).
+
+    WHY THIS EXISTS. Fitting the frame to the mesh's bounding box assumes the
+    mesh is all subject, and a track's is not: the ground plane is a backdrop
+    sized to hide the horizon, not to frame the circuit. Val's 9.7 Mile spans
+    80,187 units of which the circuit occupies 7,390, and Abbey 20,089 of
+    2,124. Textured, those render as an empty green field with the road a
+    fraction of a pixel wide -- the wireframe got away with it only because an
+    edge is drawn a pixel thick however small it really is.
+
+    TWO ORACLES, SMALLER WINS. Both are in the file already and neither depends
+    on what the author called their materials ("asphalt", "road", "tarmac"...):
+    the AI racing line, which is on the road by definition and ships with every
+    track, and the collision solids, which ring it. They agree within about 30%
+    on most tracks -- Assen 2,072 against 1,511, bemidji 911 against 813 -- and
+    where they disagree badly it is the line that has drifted: Abbey's is four
+    times the size of the road it supposedly follows. So the smaller is taken,
+    subject to the solids looking like a circuit rather than a fragment
+    (SOL_MIN_PRIMS, SOL_MIN_RATIO); 8 of 28 tracks measured carry no solids at
+    all, and those fall back to the line.
+
+    Returns None when neither oracle is available, and the caller then frames
+    on the mesh as before. The result is intersected with `mesh`'s own bounds,
+    so this can only ever crop IN.
+    """
+    try:
+        entries = archive.read(Path(trk_path))
+    except Exception:
+        return None
+
+    line = _line_box(entries)
+    got = _sol_box(entries)
+    boxes = [b for b in (line,) if b]
+    if got is not None:
+        solids, nprims = got
+        line_span = max(line[1] - line[0], line[3] - line[2]) if line else 0.0
+        sol_span = max(solids[1] - solids[0], solids[3] - solids[2])
+        trusted = nprims >= SOL_MIN_PRIMS and (
+            not line_span or sol_span >= line_span * SOL_MIN_RATIO)
+        if trusted:
+            boxes.append(solids)
+    if not boxes:
+        return None
+    x0, x1, z0, z1 = min(boxes, key=lambda b: (b[1] - b[0]) * (b[3] - b[2]))
+
+    pad = max(x1 - x0, z1 - z0) * TRACK_FIT_PAD
+    if pad <= 0:
+        return None
+    x0, x1, z0, z1 = x0 - pad, x1 + pad, z0 - pad, z1 + pad
+
+    # Y comes from the mesh, never from the padding. An earlier version put the
+    # box's height at `pad` -- on a 7,000-unit circuit that is a 1,260-unit-tall
+    # box, and since the view looks down at an angle that height went straight
+    # into the vertical extent being fitted. Every track came out SMALLER than
+    # before the crop, which is a memorable way to learn that a fit box is three
+    # dimensional.
+    ys = (0.0, 0.0)
+    if mesh is not None and mesh.vertices:
+        mx = [v.x for v in mesh.vertices]
+        mz = [v.z for v in mesh.vertices]
+        x0, x1 = max(x0, min(mx)), min(x1, max(mx))
+        z0, z1 = max(z0, min(mz)), min(z1, max(mz))
+        if x1 <= x0 or z1 <= z0:
+            return None
+        my = [v.y for v in mesh.vertices]
+        ys = (min(my), max(my))
+    # All eight corners: the projection is a rotation, so the frame has to
+    # contain every one of them, not just two.
+    return [(x, y, z) for x in (x0, x1) for z in (z0, z1) for y in ys]
+
+
 def track_to_png(trk_path: str | Path, style: str = "wire", **kw) -> bytes:
     """Render a track's 3D scenery mesh straight to PNG bytes -- the track
     counterpart to to_png, drawn from the very same geometry the 3D viewer shows
-    (viewer._track_render_mesh) and in the same blueprint-wire style, for one
-    consistent gallery look. Pass style="shaded" for a solid form instead;
-    trackmap.render is the cheaper top-down-outline alternative."""
+    (viewer._track_render_mesh).
+
+    Defaults to "wire" to match to_png, so the two siblings behave alike and
+    the switcher's previews stay one consistent blueprint set. Pass
+    style="textured" for the full-colour form the gallery bakes -- a track's
+    textures all live in its own archive, so unlike a car there is nothing to
+    resolve and no stock Data folder needed. trackmap.render is the cheaper
+    top-down outline.
+
+    The framing crop (track_fit) applies to every style: it is about what the
+    frame contains, not how it is shaded, and the wireframe suffers from the
+    same oversized ground planes.
+    """
     from . import viewer
-    mesh = viewer._track_render_mesh(Path(trk_path))
+    trk_path = Path(trk_path)
+    mesh = viewer._track_render_mesh(trk_path)
     kw.setdefault("yaw", TRACK_YAW)
     kw.setdefault("pitch", TRACK_PITCH)
     kw.setdefault("width", TRACK_WIDTH)
     kw.setdefault("height", TRACK_HEIGHT)
+    kw.setdefault("fit", track_fit(trk_path, mesh))
+    if style == "textured":
+        kw.setdefault("textures", track_material_textures(trk_path, mesh))
     pixels, w, h = render(mesh, style=style, **kw)
     rows = [bytearray(pixels[y * w * 3:(y + 1) * w * 3]) for y in range(h)]
     return viewer._rgb_png(w, h, rows)
