@@ -596,7 +596,7 @@ Two kinds of software are kept apart deliberately:
 |---|---|---|---|
 | **mktex / tex2tga / tga2tex** *(mktex: RESTools)* | Frank P. Wolf (mktex) | `.tex` ⇄ `.tga` | `vrmod tex2tga` / `tga2tex`, plus in-app import/export |
 | **jpg2sky ("JPG 2 SKY")** | Sucahyo | Split one image into the 4 sky tiles | `vrmod skyexport` / `skyimport` (one panoramic TGA, both ways) |
-| **MKSTAMP / Stp2Tga / tga2stp** | — | `.stp` menu screenshots and `Trackmap` | `stp.py`, `vrmod trackmap` |
+| **MKSTAMP / Stp2Tga / tga2stp** | Monster Games (MKSTAMP, in-house) | `.stp` menu screenshots and `Trackmap` | `stp.py`, `vrmod trackmap` |
 | **mksfx** *(RESTools)* | Frank P. Wolf | `.wav` → `.sfx` | `vrmod wav2sfx` / `sfx2wav` |
 
 ### Tracks
@@ -605,10 +605,10 @@ Two kinds of software are kept apart deliberately:
 | **Trackman** | Frank P. Wolf | Install add-on tracks into the 8 game slots | Switcher track install/restore; `vrmod trk2tra` produces the `.tra` it consumes |
 | **Track Maker** | Sucahyo | Build a track from a 3DS Max ASE file | `vrmod trackgen` — generates the whole source set from a centreline |
 | **vrTrackMaker** | Sucahyo | Consumes a **`.ase` spline exported from 3DS Max** and emits the MKWORLD source set. Emits only surface codes 0, 10 and 16, so water and dirt must be hand-edited into the generated text afterwards — in *both* source files | `vrmod trackgen` — all five surface codes, both files written from one list, and the centreline can be recovered from a road mesh instead of drawn in Max |
-| **MKWORLD / mkfltoa / nhmkworld** | — | Generate the surface + collision set (`.sol`/`.obt`/`.bsp`/`.grf`/`.bpp`) from a text scene | `.obt`, `.bsp` and `.grf` written natively; barriers declared by `vrmod trackgen --walls` and compiled to `.sol` by MKWORLD — *partial*: **`.bpp` still needs `nhmkworld`** |
+| **MKWORLD / mkfltoa / nhmkworld** | Monster Games (in-house) | Generate the surface + collision set (`.sol`/`.obt`/`.bsp`/`.grf`/`.bpp`) from a text scene | `.obt`, `.bsp` and `.grf` written natively; barriers declared by `vrmod trackgen --walls` and compiled to `.sol` by MKWORLD — *partial*: **`.bpp` still needs `nhmkworld`** |
 | **BPP-2-Mod Converter** | Sucahyo | `.bpp` ⇄ `.mod`: fix holes, add surface, read surface types, merge verts | `vrmod bpp2obj`, `bppinfo`, `bppsurface` (read + surface retag; no `.mod` → `.bpp` rebuild) |
 | **Bad Poly Fix** | Sucahyo | Repair the "bad polys" that make holes after conversion | `vrmod collisioncheck` *detects*; no repair |
-| **MKTABLE / MKILI** | — | Data tables / the AI racing line (`.ili`) | `ili.generate` writes all three lines from a centreline; `vrmod` writes the `.obt` table natively — *partial*: fields 12/13 (AI pacing) approximated |
+| **MKTABLE / MKILI** | Monster Games (in-house) | Data tables / the AI racing line (`.ili`) | `ili.generate` writes all three lines from a centreline; `vrmod` writes the `.obt` table natively — *partial*: fields 12/13 (AI pacing) approximated |
 | **trkaitweaker ("Track AI Tweaker")** | Sucahyo | Recompute the AI speed along a `.ili`/`.ild` from the path's curvature, with *mult*/*add* shaping cornering-vs-straight speed and *forward*/*backward lookup* setting how far ahead it brakes and how early it accelerates out. Also converts a Nascar Heat `track.ild` back to `fooland.txt` | **none** — but its readme is the only first-hand account of the AI model recovered, and it identifies what fields 12/13 are for (see the format reference) |
 | **Empty `drivers.res`** | Sucahyo (circulated by Val, 2009/2014) | The stock file bakes 524 per-track `.ilg` AI lines, so on an add-on track the AI follows the *original* track's line — swerving off at the start, or crashing. Replacing it with an EMPTY archive makes the AI fall back to the track's own `default.ili` | `vrmod` can produce the exact file (`archive.to_bytes([])` is byte-identical); no command exposes it yet |
 
@@ -622,6 +622,68 @@ Two kinds of software are kept apart deliberately:
 | **Lapman** | Frank P. Wolf (on findings by "Joe") | Change the 3/8/20 lap counts | **none** |
 | **Optman** | Frank P. Wolf | Extra `options.cfg` settings (e.g. the spotter) | *partial* — `vrmod aifield` writes `options.cfg`, but only the field size |
 | **Viper Racing (Infinity) View Extender** | Val Novak | Push the draw distance past the in-game slider — the 2012 original and a 2016 v2 (`.exe` plus an equivalent `.bat`) | `vrmod drawdistance --max` (by key, not by line number — see formats §5.2.2b) |
+
+### Where the `MK*` toolchain came from ✅ CONFIRMED (binaries)
+
+Most of the tools above name a person. The `MK*` ones never have, and the blank
+was doing real work: those are not community tools at all. They are **Monster
+Games' own build pipeline**, and the binaries say so without being asked.
+
+**They were built alongside the game.** Every 1998 tool carries the same linker
+version as `race.exe` itself, and dates from the months before release:
+
+| Binary | Built | Linker | |
+|---|---|---|---|
+| `MKRES.EXE` | 1998-08-07 | 3.0 | console |
+| `MKTEX.EXE` | 1998-08-16 | 3.0 | console |
+| `MKILIcc.EXE` | 1998-08-18 | 3.0 | console |
+| `MKSTAMP.EXE` | 1998-08-31 | 3.0 | console |
+| `MKWORLD.EXE` | 1998-09-28 | 3.0 | console |
+| `MKTABLE.EXE` | 1998-12-09 | 3.0 | console |
+| **`race.exe`** (v1.0 RC) | **1998-10-21** | **3.0** | GUI |
+
+`MKWORLD` reads **OpenFlight** (`.flt`) — *"can't read this version of
+Openflight! (%d.%d)"* — MultiGen's professional simulation format, licensed
+software with a commercial price tag in 1998. That is not a format a fan scene
+builds against.
+
+**The community tools look nothing like them.** `vrtrackmaker`, `trkaitweaker`
+and `extract` all carry the fake `1992-06-19 22:22` timestamp and linker 2.25 —
+the Borland/Delphi signature — and are full of `TFieldAttribute` and
+`AttributeSet`, Delphi's VCL. Different language, different decade of toolchain,
+different authors. The split is visible in the file headers alone.
+
+**They arrived via NASCAR Heat, not via Viper Racing.** Monster Games reused the
+pipeline on their next game, and that is the disc the community got it from.
+`mkfltoa.exe` still carries the path it was built in:
+
+```
+D:\Install\NASCAR Heat\Disc29\Tools\mkflt_new by TheMask\Public\beta
+  (fixed flipped textures and displaced hitable walls bugs)\Sou...
+```
+
+along with `modified by TheMask in 2005.` and a switch that gives the game away:
+
+```
+-viper = viper mode (uses v%d, strips out pit paths)
+```
+
+A Viper Racing track has no pit paths; a NASCAR one does. The Viper support is
+the *bolt-on*. `extract.exe` has a file dialog reading `Nascar heat mod
+file|*.mod`, and `nhmkworld.exe` — the `nh` is NASCAR Heat — shares MKWORLD's
+usage string verbatim while adding `MKWORLD supports autox and cheater walls`,
+and a Cartman quote (`RESPECT MY AUTHORI-TAH!`) that no 1998 release build
+contained.
+
+**So two of the "1998 SDK" tools are not from 1998.** `nhmkworld.exe` is
+2003-01-02 and `mkfltoa.exe` is 2005-07-03, both linker 6.0: NASCAR Heat
+descendants, re-aimed at Viper Racing by the community. Six of the eight are
+genuinely Monster Games, 1998.
+
+None of this contradicts the developers' documented generosity — Dave Broske
+built the 1.2.3 beta `race.bin` for the VRgt team, and both Daves supported the
+scene for a decade. It refines it: the track toolchain did not need a quiet
+hand-off, because Monster Games had already shipped it on another product.
 
 ### Multiplayer & community infrastructure (historical)
 | Tool | Creator | Purpose | `vrmod` |
