@@ -453,40 +453,26 @@ def track_material_textures(trk_path: str | Path, mesh: mod.Mesh) -> dict:
     return out
 
 
-# How much room to leave around the circuit when framing on the racing line.
-# The line runs down the middle of the road, so a little padding is needed just
-# to get the road's own width in, and more than that gives the surroundings --
-# pit buildings, the first row of trees -- somewhere to sit.
+# How much room to leave around the circuit when framing on it. The oracles
+# below trace the middle of the road, so a little padding is needed just to get
+# the road's own width in, and more than that gives the surroundings -- pit
+# buildings, the first row of trees -- somewhere to sit.
 TRACK_FIT_PAD = 0.18
 
+# Below this many collision solids they are a fragment -- one corner's barrier,
+# a single chicane -- not a sample of the whole circuit. Driveup1 has 12, and
+# they cover 152 units of a 447-unit lap.
+SOL_MIN_PRIMS = 100
+# And even a dense set is not believed if it claims the circuit is this much
+# smaller than the racing line says: that is the signature of solids clustered
+# in one place rather than ringing the track.
+SOL_MIN_RATIO = 0.25
 
-def track_fit(trk_path: str | Path,
-              mesh: mod.Mesh | None = None) -> list[tuple[float, float, float]] | None:
-    """The circuit's own extent, as corner points for render(fit=...).
 
-    WHY THIS EXISTS. Fitting the frame to the mesh's bounding box assumes the
-    mesh is all subject, and a track's is not: the ground plane is a backdrop
-    sized to hide the horizon, not to the circuit. Val's 9.7 Mile spans 80,187
-    units of which the circuit occupies 7,390, and Abbey 20,089 of 2,124 --
-    fitted to the whole box those render as an empty green field with the road
-    a fraction of a pixel wide.
-
-    The racing line (default.ili) is the oracle: it is on the road by
-    definition, it ships with every track, and unlike a material-name guess
-    ("asphalt", "road", "tarmac"...) it does not depend on what the author
-    happened to call things. Returns None when the line is missing or too
-    short to trust, and the caller then frames on the mesh as before.
-
-    The result is intersected with `mesh`'s own bounds so this can only ever
-    crop IN. The line is not always inside the drawable mesh -- 8 Track's runs
-    300 units past it in z -- and a fit box larger than the thing being drawn
-    just adds empty margin, which is the problem this exists to remove.
-    """
+def _line_box(entries) -> tuple[float, float, float, float] | None:
+    """The racing line's x/z extent. `default.ili` ships with every track and
+    is on the road by definition."""
     from . import ili
-    try:
-        entries = archive.read(Path(trk_path))
-    except Exception:
-        return None
     entry = next((e for e in entries if e.name.lower() == "default.ili"), None)
     if entry is None:
         return None
@@ -498,7 +484,81 @@ def track_fit(trk_path: str | Path,
         return None
     xs = [p.x for p in line]
     zs = [p.z for p in line]
-    x0, x1, z0, z1 = min(xs), max(xs), min(zs), max(zs)
+    return min(xs), max(xs), min(zs), max(zs)
+
+
+def _sol_box(entries) -> tuple[tuple[float, float, float, float], int] | None:
+    """The collision solids' x/z extent, and how many there are.
+
+    Barriers line the circuit, so their footprint is the road's. This is the
+    second opinion the racing line needs: on Abbey the line spans 1,398 units
+    while the road drawn in track.grf spans about 350, and the solids agree
+    with the road at 496. A 0.68-mile track was being framed four times too
+    wide on the line's word alone.
+    """
+    from . import sol
+    entry = next((e for e in entries if e.name.lower() == "track.sol"), None)
+    if entry is None:
+        return None
+    try:
+        parsed = sol.parse(envelope.build(entry.tag, entry.version, entry.payload))
+    except Exception:
+        return None
+    if not parsed.primitives:
+        return None
+    bounds = [sol._xz_bounds(pr) for pr in parsed.primitives]
+    return ((min(b[0] for b in bounds), max(b[1] for b in bounds),
+             min(b[2] for b in bounds), max(b[3] for b in bounds)),
+            len(parsed.primitives))
+
+
+def track_fit(trk_path: str | Path,
+              mesh: mod.Mesh | None = None) -> list[tuple[float, float, float]] | None:
+    """The circuit's own extent, as corner points for render(fit=...).
+
+    WHY THIS EXISTS. Fitting the frame to the mesh's bounding box assumes the
+    mesh is all subject, and a track's is not: the ground plane is a backdrop
+    sized to hide the horizon, not to frame the circuit. Val's 9.7 Mile spans
+    80,187 units of which the circuit occupies 7,390, and Abbey 20,089 of
+    2,124. Textured, those render as an empty green field with the road a
+    fraction of a pixel wide -- the wireframe got away with it only because an
+    edge is drawn a pixel thick however small it really is.
+
+    TWO ORACLES, SMALLER WINS. Both are in the file already and neither depends
+    on what the author called their materials ("asphalt", "road", "tarmac"...):
+    the AI racing line, which is on the road by definition and ships with every
+    track, and the collision solids, which ring it. They agree within about 30%
+    on most tracks -- Assen 2,072 against 1,511, bemidji 911 against 813 -- and
+    where they disagree badly it is the line that has drifted: Abbey's is four
+    times the size of the road it supposedly follows. So the smaller is taken,
+    subject to the solids looking like a circuit rather than a fragment
+    (SOL_MIN_PRIMS, SOL_MIN_RATIO); 8 of 28 tracks measured carry no solids at
+    all, and those fall back to the line.
+
+    Returns None when neither oracle is available, and the caller then frames
+    on the mesh as before. The result is intersected with `mesh`'s own bounds,
+    so this can only ever crop IN.
+    """
+    try:
+        entries = archive.read(Path(trk_path))
+    except Exception:
+        return None
+
+    line = _line_box(entries)
+    got = _sol_box(entries)
+    boxes = [b for b in (line,) if b]
+    if got is not None:
+        solids, nprims = got
+        line_span = max(line[1] - line[0], line[3] - line[2]) if line else 0.0
+        sol_span = max(solids[1] - solids[0], solids[3] - solids[2])
+        trusted = nprims >= SOL_MIN_PRIMS and (
+            not line_span or sol_span >= line_span * SOL_MIN_RATIO)
+        if trusted:
+            boxes.append(solids)
+    if not boxes:
+        return None
+    x0, x1, z0, z1 = min(boxes, key=lambda b: (b[1] - b[0]) * (b[3] - b[2]))
+
     pad = max(x1 - x0, z1 - z0) * TRACK_FIT_PAD
     if pad <= 0:
         return None
@@ -506,7 +566,7 @@ def track_fit(trk_path: str | Path,
 
     # Y comes from the mesh, never from the padding. An earlier version put the
     # box's height at `pad` -- on a 7,000-unit circuit that is a 1,260-unit-tall
-    # box, and since the view looks down at 38 degrees that height goes straight
+    # box, and since the view looks down at an angle that height went straight
     # into the vertical extent being fitted. Every track came out SMALLER than
     # before the crop, which is a memorable way to learn that a fit box is three
     # dimensional.
