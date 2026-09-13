@@ -107,6 +107,10 @@ class PackInfo:
     kind: str                      # "zip" | "rar"
     size: int
     sha256: str
+    # Size + mtime is what lets an index skip a pack it has already read. The
+    # sha256 is the identity; this pair is just the cheap "has it changed?"
+    # test, so a re-index costs seconds instead of re-hashing 1.8 GB.
+    mtime: float = 0.0
     members: list[Member] = field(default_factory=list)
     cars: list[str] = field(default_factory=list)
     tracks: list[str] = field(default_factory=list)
@@ -288,6 +292,7 @@ def describe(path: str | Path, *, collection: str = "",
         path=str(p), collection=collection, filename=p.name,
         kind=p.suffix.lower().lstrip("."), size=p.stat().st_size,
         sha256=hashlib.sha256(p.read_bytes()).hexdigest(),
+        mtime=p.stat().st_mtime,
     )
     try:
         info.members = members(p)
