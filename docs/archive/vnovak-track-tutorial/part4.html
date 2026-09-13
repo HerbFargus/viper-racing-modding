@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<!-- Modified 11 Feb 2017 -->
+<html>
+<head><script src="https://web-static.archive.org/_static/js/athena.js" type="text/javascript"></script>
+<script type="text/javascript">window.addEventListener('DOMContentLoaded',function(){var v=archive_analytics.values;v.service='wb';v.server_name='wwwb-app241.us.archive.org';v.server_ms=317;archive_analytics.send_pageview({});});</script>
+<script type="text/javascript" src="https://web-static.archive.org/_static/js/bundle-playback.js?v=Li6h_J3j" charset="utf-8"></script>
+<script type="text/javascript" src="https://web-static.archive.org/_static/js/wombat.js?v=o9P2E1FK" charset="utf-8"></script>
+<script>window.RufflePlayer=window.RufflePlayer||{};window.RufflePlayer.config={"autoplay":"on","unmuteOverlay":"hidden","showSwfDownload":true};</script>
+<script type="text/javascript" src="https://web-static.archive.org/_static/js/ruffle/ruffle.js"></script>
+<script type="text/javascript">
+    __wm.init("https://web.archive.org/web");
+  __wm.wombat("http://vnovak.com/vrtracktogametutpart4.html","20200213125121","https://web.archive.org/","web","https://web-static.archive.org/_static/",
+	      "1581598281");
+</script>
+<link rel="stylesheet" type="text/css" href="https://web-static.archive.org/_static/css/banner-styles.css?v=1utQkbB3" />
+<link rel="stylesheet" type="text/css" href="https://web-static.archive.org/_static/css/iconochive.css?v=3PDvdIFv" />
+<!-- End Wayback Rewrite JS Include -->
+
+<meta charset="UTF-8">
+
+<title>Viper Racing - How to put Track into GameTut Part 4</title>
+<style>
+body {
+             background-color: beige;
+             background-image: url("images/parchment1bak.jpg");
+             font-family: Arial, Helvetica, sans-serif;
+             font-size:125%;
+             color: #000000;
+
+}
+.container{
+           width:950px;
+           height:100%;
+           margin:auto;
+           text-align:center;
+}
+h1 {
+         text-align:center;
+         color: #006000;
+}
+img {
+    max-width: 100%;
+    max-height: 100%;
+}
+</style>
+
+</head>
+
+<body link="#0000ff" vlink="#800080" alink="#ff0000"><div style="font:13px/1.5 system-ui,sans-serif;background:#fffbe6;border-bottom:1px solid #e0d9b8;color:#5a5330;padding:9px 14px">Archived copy of a tutorial by <b>Val Novak</b>, from <code>vnovak.com</code>, captured 13 February 2020. Preserved in <a href="https://github.com/HerbFargus/viper-racing-modding">viper-racing-modding</a>; see <a href="https://herbfargus.github.io/viper-racing-modding/archive/vnovak-track-tutorial/README.html">README</a>.</div>
+ 
+<div class="container">
+      
+<h1>Viper Racing<br>
+How to put your new Track into Game Part 4</h1>
+
+<h2>
+This tutorial is the fourth and final part to explain the basics of getting a new track you just made into MGIs 1998 Viper Racing game.
+</h2>
+
+
+<p>
+The first tut covered making a "path" for your track in 3dsMax3.1.Links to all files required are there also.<br>
+<a href="part1.html" target="_blank">vrtracktogametutpart1.html</a>
+</p>
+
+<p>
+<a href="part2.html" target="_blank">The second part dealt with Zmodeler 1.07.</a> Here is what you do last.
+</p>
+
+<p>
+<img src="images/part4upper1.jpg" alt="AN IMAGE SUPPOSED TO BE HERE">
+</p>
+<p>
+The following images will explain the final steps in detail on how to get your track into Viper Racing.
+</p>
+<p>
+<h1>
+Using Sucahyos Trackmaker Program
+</h1>
+<h3>
+Using vrtrackmaker.exe for Viper Racing is the last step to get your track into the game.
+</h3>
+<h3>
+To see larger view,Right click on pic/view image/Left click the + thingy. 
+</h3>
+<p>
+This final step is detailed below:
+</p>
+
+<p>
+All working files and models and textures should be ready to go at this point.
+</p>
+
+<p>
+Now double click the "vrtrackmaker.exe" and adjust the settings as shown in the next image:
+</p>
+<p>
+<img src="images/vrtrackmaker1.jpg" alt="AN IMAGE SUPPOSED TO BE HERE">
+</p>
+
+<p>
+Click the "Process File" button,click on your ase path file you exported from 3dsMax,click "Open"
+</p>
+
+<p>
+<img src="images/vrtrackmaker2.jpg" alt="AN IMAGE SUPPOSED TO BE HERE">
+</p>
+                                                       
+<p>
+If you get this box pop up click ok to go to the next step,<font color="#800000">BUT</font> if you get an <font color="#800000">error box</font>.....oops....<br>
+Usually the <font color="#800000">error</font> means the ase file you made in 3dsMax has a small problem<br>
+( Viper Racing game engine is real fussy )<br>
+So if you get an <font color="#800000">error</font>,just import the path back into 3dsMax  and look at the start<br>
+line verticies...try to get the start vertex and the 1 on the left and right to be a straight line.<br>Then "normalize spline" again and export the ase to try again.
+</p>
+
+<p>
+<img src="images/vrtrackmaker3.jpg" alt="AN IMAGE SUPPOSED TO BE HERE">
+</p>
+
+<p>
+Now click the "Write model" button and click ok on the pop up.
+</p>
+
+<p>
+<img src="images/vrtrackmaker4.jpg" alt="AN IMAGE SUPPOSED TO BE HERE">
+</p>
+
+<p>
+This part is done.....x out of it.
+</p>
+
+<p>
+<img src="images/vrtrackmaker5.jpg" alt="AN IMAGE SUPPOSED TO BE HERE">
+</p>
+
+<p>
+Delete the following .mod files that were just created inside the "track2gamefiles" folder<br>
+ as these are not required for this type of track we are making for this tutorial:
+</p>
+<p>
+grassl.mod,grassr.mod,asphalt.mod,infill.mod,infilr.mod,rumbll.mod,rumblr.mod,sidel.mod and sider.mod
+</p>
+
+<p>
+We are just using Sucahyos vrtrackmaker.exe program to put our track together that we previously made<br>
+ in 3dsMax or Bobs Track Builder or another 3d making program.
+</p>
+<p><font color="#008000">
+On a side note:<br>
+Sucahyos "vrtrackmaker.exe" program was initially made to make simple,<br>
+quick tracks for Viper Racing using a 3dsMax ase file ( track path ),but that's another tutorial altogether.
+</font>
+</p>
+
+<p>
+Also delete these lines ( as shown in the "fooland<font color="#800000">surface</font>.txt" image below ) in both fooland text files and replace with your own.<br>
+Or if you want, use these lines as a reference first and delete them after entering your mod names in.<br>
+Example of your road surface model would be:<br>
+  modobject(road1.mod, 0, 0, 0, 0)
+</p>
+
+<p>
+<img src="images/foolandsurface1.jpg" alt="AN IMAGE SUPPOSED TO BE HERE">
+</p>
+
+<p>
+"fooland<font color="#008080">graphic</font>.txt" info in the image below:
+</p>
+
+<p>
+<img src="images/foolandgraphic1.jpg" alt="AN IMAGE SUPPOSED TO BE HERE">
+</p>
+
+<p>
+<img src="images/foolandsurface2.jpg" alt="AN IMAGE SUPPOSED TO BE HERE">
+</p>
+
+<p>
+Now you are finally ready to put your track together and if you don't run into errors you can be driving on it<br>
+ in less than 2 minutes.
+</p>
+<p>
+In your working folder,in this case "track2gamefiles", double click the "Make-track.bat" file to start<br>
+ the process.<br>
+When you see "click any key to continue" make sure you don't see any errors in the section<br>
+ of text above that.<br>
+If you do you should try to correct them at this point so just x out of it OR<br>
+you can continue anyway and after the bat file is done,inside your generated "tra" folder,<br>
+check the size of the trackname.tra file.<br>
+IF it is 0 bytes then one or more errors you had was serious enough to cause the<br>
+ track not be be made.<br>
+If it has,for example, 8,225 bytes, then it is probably ok,but to be sure put it in your "Viper Racing/Data" folder,<br>
+fire up trackman and replace any one of the originals,exit trackman and try your track in game to see<br>
+if any objects are missing or you might have an "invisible hole" in the track caused by an overlapping polygon.<br>
+Best idea is to drive completely around the track on the right side on the first lap,<br>
+then on the left side for the next lap.<br>
+Usually you will find an "invisible hole" that way.<br>
+If you drive on an area with an overlapping polygon it will cause your car to fly up in the air or<br>
+fall through it.<br>
+Import the track into Zmodeler 1.07 to find and fix the overlapping polygon or polygons.<br>
+Usually I find one of my grass polygons that in right next to the track is overlapping<br>
+one road surface poygon.<br>
+Sometimes you must zoom in a lot to see the overlap in Zmodeler.
+</p>
+
+<h1>
+Mod code numbers explained next
+</h1>
+
+<p>
+In both of your fooldand text files here are the codes and explanations:
+</p>
+<p>
+The first 4 "modobject"s below can be driven on ( code is zero on the first digit ).<br>
+The fourth one" (trees-buildings-signs-etc.mod, 3, 0 , 0, 0)" has a 3 in front of 3 zeros.<br>
+<br>
+This 3 code tells the game that it is not driveable or hittable and can sit on top of a surface that is<br>
+ driveable.You cannot put a driveable object on top of another driveable surface or<br>
+ the game creates an invisible hole.<br>
+Overlapping polygons also creates an invisible hole.<br>
+Only this code "3, 0, 0, 0" as shown below is acceptable for trees,signs...etc.<br>
+The 3rd number in the "driveable" surfaces give it a different "feel" to it.<br>
+Third number 0 makes surface like pavement or concrete.<br>
+Third number 10 makes surface like sticky grass and slows cars down real quick.<br>
+Third number 16 makes surface like driving on a gravel road,slows cars just a tad.<br>
+Third number 14 makes surface like water,a car would stop and float if you drove onto that surface.
+</p>
+
+<p>
+
+  modobject(pavement1track.mod, 0, 0, 0, 0)
+  modobject(sticky-grass.mod, 0, 0, 10, 0)
+  modobject(gravel1road.mod, 0, 0, 16, 0)
+  modobject(any-water.mod, 0, 0, 14, 0)
+  modobject(trees-buildings-signs-etc.mod, 3, 0, 0, 0)
+</p>
+
+<p>
+One quick note about all your textures ( tganame.tex ) for all your objects and surfaces.<br>
+All your converted tgas ( *.tex files ) must be put into your mkres folder,also add the tex names<br>
+below the "sky4.tex" .<br>
+All file names from "aidef.ccs" to "sky4.tex" inclusive MUST stay listed in the "reslist.txt" file as is.<br>
+Example is shown below:<br>
+</p>
+<img src="images/reslist1example.jpg" alt="AN IMAGE SUPPOSED TO BE HERE">
+<p>
+
+</p>
+
+<p>
+If you have questions <a href="https://web.archive.org/web/20200213125121/http://www.quicktopic.com/31/H/L29zYFpG9Kz">you can post on the forum here</a> or talk to me ( Val ) in the Team Speak 3 program<br>
+we use for our "racefinder" after 7 pm cst 7 days a week.<a href="https://web.archive.org/web/20200213125121/http://vnovak.com/valsonlineracinginfo.html">Info for the Team Speak 3 channel is here:</a>
+</p>
+
+<p>
+<img src="images/endof4parttut.jpg" alt="AN IMAGE SUPPOSED TO BE HERE">
+</p>
+
+<p>
+<a href="https://web.archive.org/web/20200213125121/http://vnovak.com/vrtutorials.html"><img src="images/backtovrtutorialspage.jpg" title="Back To Viper Racing Tutorials Page"></a>
+<a href="https://web.archive.org/web/20200213125121/http://vnovak.com/index.html"><img src="images/vrhome2017.jpg" title="Viper Racing Home Page"></a>
+</p>
+
+
+</div>
+
+</body>
+</html>
+<!--
+     FILE ARCHIVED ON 12:51:21 Feb 13, 2020 AND RETRIEVED FROM THE
+     INTERNET ARCHIVE ON 21:51:20 Sep 13, 2026.
+     JAVASCRIPT APPENDED BY WAYBACK MACHINE, COPYRIGHT INTERNET ARCHIVE.
+
+     ALL OTHER CONTENT MAY ALSO BE PROTECTED BY COPYRIGHT (17 U.S.C.
+     SECTION 108(a)(3)).
+-->
+<!--
+playback timings (ms):
+  captures_list: 0.481
+  exclusion.robots: 0.051
+  exclusion.robots.policy: 0.039
+  esindex: 0.009
+  cdx.remote: 52.65
+  LoadShardBlock: 226.702 (3)
+  PetaboxLoader3.datanode: 231.133 (4)
+  PetaboxLoader3.resolve: 7.461
+  load_resource: 18.321
+  nav: 0.169 (6)
+-->

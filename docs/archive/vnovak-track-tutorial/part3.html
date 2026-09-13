@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<!-- Modified 11 Feb 2017 -->
+<html>
+<head><script src="https://web-static.archive.org/_static/js/athena.js" type="text/javascript"></script>
+<script type="text/javascript">window.addEventListener('DOMContentLoaded',function(){var v=archive_analytics.values;v.service='wb';v.server_name='wwwb-app241.us.archive.org';v.server_ms=151;archive_analytics.send_pageview({});});</script>
+<script type="text/javascript" src="https://web-static.archive.org/_static/js/bundle-playback.js?v=Li6h_J3j" charset="utf-8"></script>
+<script type="text/javascript" src="https://web-static.archive.org/_static/js/wombat.js?v=o9P2E1FK" charset="utf-8"></script>
+<script>window.RufflePlayer=window.RufflePlayer||{};window.RufflePlayer.config={"autoplay":"on","unmuteOverlay":"hidden","showSwfDownload":true};</script>
+<script type="text/javascript" src="https://web-static.archive.org/_static/js/ruffle/ruffle.js"></script>
+<script type="text/javascript">
+    __wm.init("https://web.archive.org/web");
+  __wm.wombat("http://vnovak.com/vrtracktogametutpart3.html","20200213124037","https://web.archive.org/","web","https://web-static.archive.org/_static/",
+	      "1581597637");
+</script>
+<link rel="stylesheet" type="text/css" href="https://web-static.archive.org/_static/css/banner-styles.css?v=1utQkbB3" />
+<link rel="stylesheet" type="text/css" href="https://web-static.archive.org/_static/css/iconochive.css?v=3PDvdIFv" />
+<!-- End Wayback Rewrite JS Include -->
+
+<meta charset="UTF-8">
+
+<title>Viper Racing - How to put Track into GameTut Part 3</title>
+<style>
+body {
+             background-color: beige;
+             background-image: url("images/parchment1bak.jpg");
+             font-family: Arial, Helvetica, sans-serif;
+             font-size:125%;
+             color: #000000;
+
+}
+.container{
+           width:950px;
+           height:100%;
+           margin:auto;
+           text-align:center;
+}
+h1 {
+         text-align:center;
+         color: #006000;
+}
+img {
+    max-width: 100%;
+    max-height: 100%;
+}
+</style>
+
+</head>
+
+<body link="#0000ff" vlink="#800080" alink="#ff0000"><div style="font:13px/1.5 system-ui,sans-serif;background:#fffbe6;border-bottom:1px solid #e0d9b8;color:#5a5330;padding:9px 14px">Archived copy of a tutorial by <b>Val Novak</b>, from <code>vnovak.com</code>, captured 13 February 2020. Preserved in <a href="https://github.com/HerbFargus/viper-racing-modding">viper-racing-modding</a>; see <a href="https://herbfargus.github.io/viper-racing-modding/archive/vnovak-track-tutorial/README.html">README</a>.</div>
+ 
+<div class="container">
+      
+<h1>Viper Racing<br>
+How to put your new Track into Game Part 3</h1>
+
+<p><h2>
+This tutorial is the third part to explain the basics of getting a new track you just made into MGIs 1998 Viper Racing game.
+</h2>
+</p>
+
+<p>
+The first tut covered making a "path" for your track in 3dsMax3.1.Links to all files required are there also.<br>
+<a href="part1.html" target="_blank">vrtracktogametutpart1.html</a>
+</p>
+
+<p>
+<a href="part2.html" target="_blank">The second part dealt with Zmodeler 1.07.</a> Here is what you do next.
+</p>
+
+<p>
+<img src="images/part3upper1.jpg" alt="AN IMAGE SUPPOSED TO BE HERE">
+</p>
+<p>
+The following images will explain more steps in detail on how to get your track into Viper Racing.
+</p>
+<p>
+<h1>
+Using Sucahyos Trackmaker Program
+</h1>
+<h3>
+Using Trackmaker for Viper Racing is the last step to get your track into the game.
+</h3>
+<h3>
+To see larger view,Right click on pic/view image/Left click the + thingy. 
+</h3>
+<p>
+For any dot mod file ( filename.mod ) you must have a 256x256 pixel uncompressed 32 bit tga file<br>
+ in the same working folder so when you import your .mod file into Zmodeler it retains the mapped texture.<br>
+For Viper Racing use 8 digits maximum per tga file ( example: grass15j.tga ).<br>
+Best use a file name that describes the object ( dot mod file ),like for grass surfaces the grass15j.tga works<br>
+ ( description with partial date 15th of June -&gt; 15j using 8 digits maximum ).Caps not required.
+</p>
+
+<p>
+Now about the track you just exported from Zmodeler.<br>
+The texture file that you textured the track with must be in your working folder with your tga file.<br>
+IF your texture was a bmp for example you must convert it to a 256x256 pixel 32 bit uncompressed tga file.<br>
+<a href="https://web.archive.org/web/20200213124037/http://www.pagetutor.com/downloads/psp412.zip">Free non expiry trial version of paint Shop Pro 4.12 should have that option.</a>
+</p>
+
+<p>
+<font color="#FF0000">IMPORTANT:</font><br>
+When working in any file opened with a hex editor,<font color="#FF0000">NEVER</font> backspace - IF you did,<br>
+just "x" out of it, click NO to the "save now",and start over.
+</p>
+
+<p>
+To check or fix  your texture name in your mod file here's what you do:<br>
+Open your objectname.mod file with your Xvi32 hex editor.<br>
+Check mark it to "always open with this file" in windows.
+</p>
+
+<p>
+When open,click search/find.
+</p>
+<img src="images/xvi32hex1.jpg" alt="AN IMAGE SUPPOSED TO BE HERE">
+</p>
+
+<p>
+Set search settings for tex as shown:<br>
+This will search for tex on the right side.
+</p>
+
+<p>
+<img src="images/xvi32hex2.jpg" alt="AN IMAGE SUPPOSED TO BE HERE">
+</p>
+
+<p>
+When you find tex on the right side and it says null.tex usually means that the original texture name<br>
+ was probably lost somewhere in the saving and importing events.<br>
+Say your tga file was called asphaltv.tga.You must type asphaltv.tex in the "null.tex" spot.<br>
+Left click on the n in null and type asphaltv.tex<br>
+</p>
+
+<p>
+<img src="images/xvi32hex3.jpg" alt="AN IMAGE SUPPOSED TO BE HERE">
+</p>
+
+<p>
+Don't worry about the letters going over the old ones and extending farther right in the boxes,<br>
+that's normal.
+</p>
+
+<p>
+<img src="images/xvi32hex4.jpg" alt="AN IMAGE SUPPOSED TO BE HERE">
+</p>
+
+<p>
+ Now x out of it and click YES on the "save now" question.
+</p>
+
+
+<p>
+<img src="images/xvi32hex5.jpg" alt="AN IMAGE SUPPOSED TO BE HERE">
+</p>
+
+<p>
+Now when you eventually get it into the game,it won't be red.<br>
+ ( red is the default color for null.tex or wrong spelling of the .tex file,<br>
+or the object wasn't uv mapped [ textured ] to begin with  ).
+</p>
+
+<p>
+For textures Viper Racing uses a .tex file extension converted from 24 bit uncompressed<br>
+ 256x256 pixel .tga files ( maximum 8 digits ).<br>
+You convert your tga files to .tex files inside the tga2tex folder.<br>
+For the ones that have an "alpha channel, use the "tga2texALPHA.bat"<br>
+ ( just double click it for converting the alpha channel tgas to tex files ).<br>
+For the ones that do not have an "alpha channel, use the "tga2tex.bat"<br>
+ ( just double click it for converting the normal tgas to tex format ).<br>
+The tex files are all mixed in each folder,so just remember which have the alpha channel<br>
+because the normal tgas will lose 50% quality using the tga2texALPHA.bat file.<br>
+Then just open the folder and copy or cut and paste the correct .tex files into your "mkresfiles" folder.<br>
+Add them to the reslist.txt file also.
+</p>
+
+<p>
+Say you have a road,grass and 1  scenery object to put the track together with.<br>
+The following example will show how to do all this and put the correct names into the 2 fooland.txt files.<br> 
+</p>
+
+<p>
+Inside the "mkresfiles" folder,Right click on the "putstracktogether.bat",Left click "edit"<br> 
+( open with notepad {if it didn't already} ),then replace the "trackname" word with the<br> 
+name of your track ( try to keep it less than 8 digits ).<br>
+Close ( click the x ) /save changes?  click YES.
+</p>
+
+<p>
+If you add another texture file "tganame.tex" to your track ( mkres folder )<br>
+ you MUST add it to your "reslist.txt" file located in the "mkresfiles" folder.<br>
+IMPORTANT:<br>
+NO spaces can be left  after the last reslist entry or you will get an error when the "putstracktogether.bat" file<br>
+ is activated last by the "Make-track.bat" file when you are putting your track together.
+</p>
+
+<p>
+If you add another "objectname.mod" to your folder you MUST add it to one or both fooland text files.
+</p>
+
+<p>
+If you can drive on it ,the "objectname.mod" MUST also be added to BOTH the "foolandsurface.txt" and<br>
+ "foolandgraphic.txt" files in your main folder you are working in ( in this case "track2gamefiles" ).
+</p>
+
+<p>
+If the "objectname.mod" is just for graphics,like a building or trees, ( not solid for driving on ) <br>
+add it only to the "foolandgraphic.txt" file.<br>
+Examples inside both fooland files are shown.<br>
+Trees,buildings,signs,etc....( graphic objects ) have the code   modobject(trees1row.mod, 3, 0, 0, 0) <br>
+The 3 code not a zero at the beginning means it's a graphic object.<br>
+If it was a 0 it would be a driveable surface like this:<br>
+ modobject(mainroad.mod, 0, 0, 0, 0)
+</p>
+
+<p>
+When putting the track together ( by double clicking Make-track.bat ) and you get an error,<br>
+read it carefully and try to figure out what you did wrong.<br>
+Could be as simple as misspelling a word or forgetting to add a mod to one of the fooland files or a tex file into the "reslist.txt" file.
+</p>
+
+<p>
+If all went good,open your "out" folder that was automatically generated and copy and paste the "trackname.tra"<br>
+ into your "Viper Racing/Data" folder ( all tracks and cars live there ).<br>
+If the trakname.tra size shows zero bytes,you muffed it somewhere.Check everything cause it don't take much to mess up.
+</p>
+
+<p>
+As a faster way of doing it you could add it to your right click on the file / sendto choice.
+<br>
+<a href="https://web.archive.org/web/20200213124037/http://www.thewindowsclub.com/add-customize-send-to-menu-windows">Here is how to do the sendto thingy.</a>
+</p>
+
+<h1>
+How to make a track  jpg image to show in "trackman" and an stp image to show in the game lobby. 
+</h1>
+
+
+<p>
+Inside the trackumade folder there is a jpg template for the correct size ( 257 pixels wide x 305 pixels high )<br>
+ of the image you need for your track to show up in trackman when you left click on an add-on track name on the left.<br>
+For example you could take a screen shot of your start line area of your track and using<br>
+ your paint program make an image of the correct pixel size of 257 by 305.<br>
+When that jpg is done it goes into your "Viper Racing/data" folder.<br>
+Don't forget to include both the 180x120 pixel stp image and 257x305 pixel jpg when you zip up your track ( trackname.tra ).<br>
+I can put your tracks for download on my website for free so everybody can have fun racing on them.<br>
+You can email them ( zip or rar ) to me at val5662@yahoo.com<br>
+Don't forget to include a readme with your real or ficticious name<br>
+ ( example Bob Smith or SmithyB - you get the idea... ) so you can be credited for your work.
+ </p>
+
+<p>
+The 257x305 pixel jpg and the 180x120 pixel stp file you make go into your "Viper Racing/Data" folder.<br>
+To create an stp image file for your track to show in the game lobby,<br>
+first you make a tga file exactly 180 pixels wide x 120 pixels high,export it to the "tga2stp" folder<br>
+ with the option 24 bit uncompressed.<br>
+Exact name of track is required.Example: Track29.tra means the tga will be Track29.tga<br>
+Right click on the tga2stp.bat file ,click edit ( opens with notepad ) then type your
+track name where it says Track29.<br>
+Close it / save changes then double click it to convert your Track29.tga into an stp file.<br>
+Now the stp file must be modified using the hex editor.<br>
+Double click the stp file,open,choose Xvi32.exe &lt; your hex editor.<br>
+When it opens the stp left click on the first digit,top line on the right side and keep clicking the delete key<br>
+ untill you have the "!" at the front of the line as shown in the 2 images below.
+</p>
+
+<p>
+<img src="images/hexingthestp1.jpg" alt="AN IMAGE SUPPOSED TO BE HERE">
+</p>
+
+<p>
+<img src="images/hexingthestp2.jpg" alt="AN IMAGE SUPPOSED TO BE HERE">
+</p>
+
+<p>
+x out of that / save now - YES.<br>
+Now you can put the stp and jpg into your "Viper Racing/Data" folder.<br>
+Don't forget to zip all these files together; Track29.tra,Track29-readme.txt,Track29.stp and Track29.jpg and call it Track29.zip or Track29.rar ( for example ).
+</p>
+
+<p>
+<a href="part4.html"><img src="images/part4june15.jpg" alt="CLICK HERE FOR PART 4 TUT"></a>
+</p>
+</div>
+
+</body>
+</html>
+<!--
+     FILE ARCHIVED ON 12:40:37 Feb 13, 2020 AND RETRIEVED FROM THE
+     INTERNET ARCHIVE ON 21:51:07 Sep 13, 2026.
+     JAVASCRIPT APPENDED BY WAYBACK MACHINE, COPYRIGHT INTERNET ARCHIVE.
+
+     ALL OTHER CONTENT MAY ALSO BE PROTECTED BY COPYRIGHT (17 U.S.C.
+     SECTION 108(a)(3)).
+-->
+<!--
+playback timings (ms):
+  captures_list: 0.446
+  exclusion.robots: 0.051
+  exclusion.robots.policy: 0.04
+  esindex: 0.007
+  cdx.remote: 5.494
+  LoadShardBlock: 78.393 (3)
+  PetaboxLoader3.resolve: 60.619 (4)
+  PetaboxLoader3.datanode: 51.62 (4)
+  load_resource: 43.659
+  nav: 0.204 (6)
+-->

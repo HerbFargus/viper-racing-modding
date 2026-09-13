@@ -97,4 +97,29 @@ workflow the tool chart already lists.
 - Reproduced here unaltered except for stripping the Wayback toolbar and
   rewriting links to the local copies.
 
+## What is here, and what is missing
+
+Four files the first pass had not recovered were fetched later and are now
+present: `README.TXT`, `inertias.xls`, and both `lefthandCockpit.tab` /
+`righthandCockpit.tab` — the last two being the working cockpit tables the
+tutorial hands you, which this toolkit can read directly.
+
+**Twelve images are permanently gone.** They are referenced by the pages and the
+Internet Archive never captured them — queried by name against the CDX index,
+every one returns zero captures:
+
+```
+SELon.jpg                    firstnameunited.jpg
+almostlinedup.jpg            lineduponx.jpg
+clickimport.jpg              loopingplayback.gif
+cockpittabexplained.jpg      materialeditorpulldownmenu.jpg
+crossectionwheel.jpg         saveasmod.jpg
+soundproperties.jpg          texturewindow.jpg
+```
+
+So those steps show a broken image where a screenshot should be. Recording it
+here rather than quietly repairing the HTML: an archive that hides its own gaps
+is worth less than one that names them, and if a copy ever turns up these are
+the filenames to look for.
+
 Credit is the author's. This copy exists so the work is not lost with the host.

@@ -58,6 +58,7 @@ TITLE = {
     "history/modding-history.md": "Modding history",
     "history/workflow-comparison.md": "Workflow comparison",
     "archive/wrxds-car-tutorial/README.md": "Wrxds’s car tutorial",
+    "archive/vnovak-track-tutorial/README.md": "Val’s track tutorials",
 }
 
 BLURB = {
@@ -85,6 +86,10 @@ BLURB = {
         "Community tutorial", "Building a car for Viper Racing, step by step, "
         "with its original screenshots — plus where it came from and when it "
         "was captured."),
+    "archive/vnovak-track-tutorial/README.md": (
+        "Community tutorial", "Getting a track you have built into the game, in "
+        "four parts, plus the same job from Bob's Track Builder — by the author "
+        "of most of the tracks the community plays. With his template kit."),
 }
 
 CSS = """
@@ -318,10 +323,15 @@ def main() -> int:
             words = len((DOCS / rel).read_text(encoding="utf-8").split())
             shown = TITLE.get(rel, title)
             meta = f"{words:,} words · {nheads} sections"
+            here = (DOCS / rel).parent
             steps = sorted({re.sub(r"[a-z]$", "", p.stem[5:])
-                            for p in (DOCS / rel).parent.glob("step_*.htm")})
+                            for p in here.glob("step_*.htm")})
+            pages = sorted(here.glob("*.html")) + sorted(here.glob("*.htm"))
+            shots = len(list((here / "images").glob("*"))) if (here / "images").is_dir() else 0
             if steps:
-                meta = f"{len(steps)} steps · as published"
+                meta = f"{len(steps)} steps · {shots} screenshots · as published"
+            elif rel.startswith("archive/"):
+                meta = f"{len(pages)} pages · {shots} screenshots · as published"
             cards.append(
                 f'<a class="card" href="{rel[:-3]}.html">'
                 f'{f"<div class=kicker>{kicker}</div>" if kicker else ""}'
