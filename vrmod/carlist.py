@@ -105,7 +105,7 @@ import struct
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import safewrite
+from . import backups, safewrite
 
 RACE_BIN = "race.bin"
 
@@ -242,7 +242,10 @@ def apply(data_dir: str | Path, geometry: Geometry | None = None, *,
                         + b"\x6a" + bytes([geometry.w])
                         + b"\x68" + struct.pack("<I", geometry.y)
                         + b"\x68" + struct.pack("<I", geometry.x))
-    backup = f.with_suffix(f.suffix + ".carlist-backup")
+    # Folder first, then beside the file: an install patched before
+    # backups moved has its only pristine copy loose in Data/, and
+    # missing it here would take a fresh "backup" of a patched binary.
+    backup = backups.locate(f, ".carlist-backup") or backups.path_for(f, ".carlist-backup")
     if not backup.exists():
         shutil.copy2(f, backup)
     safewrite.write_atomic(f, bytes(blob))

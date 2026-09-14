@@ -14,13 +14,17 @@ WHAT IS AND IS NOT MOVED. Archive backups are -- the `<stem>_original<ext>.bak`
 copies an edit leaves, and the `.dekey-backup` copies a sweep leaves. Those are
 45 of the 56 files and 96 of the 119 MB, through two code paths.
 
-The BINARY patch backups stay where they are: `.vram-backup`, `.aspect-backup`,
+BINARY patch backups move too: `.vram-backup`, `.aspect-backup`,
 `.carlist-backup`, `.headon-backup`, `.modassert-backup`, `.needle-backup`,
-`.aifield-backup`, `.surface-backup`, `.map-backup`, `.sky-backup`. Eleven files
-and 23 MB, written and read by seven different modules that each look beside the
-binary they patched. Moving them means editing seven restore paths for a fifth
-of the benefit, and a restore path that breaks is somebody unable to undo a
-patch to race.bin. Not worth it for tidiness.
+`.aifield-backup`, `.surface-backup`, `.map-backup`, `.res-backup`. Nine modules
+write them and each checks "have I already backed this up?" by looking beside
+the file, so all of those lookups go through locate() instead.
+
+The one that needed real care is `patchset.find_pristine_backup`, which hunts
+for an UNPATCHED engine among the copies the toolkit has already taken -- it
+globs beside race.bin. Left alone it would have found nothing and told the user
+to go and find their disc while holding a perfectly good copy of their own, and
+it would have done that silently. It searches both locations now.
 
 READING IS BACKWARD-COMPATIBLE and has to be: anyone who used the tool before
 this has loose backups already. Every lookup checks the folder first and then
@@ -39,6 +43,19 @@ DIR_NAME = "Backups"
 EDIT_SUFFIX = ".bak"
 SWEEP_SUFFIX = ".dekey-backup"
 
+# What the binary patchers leave beside race.bin / race.exe. Each is written by
+# a different module, and each of those modules uses "does my backup already
+# exist?" as its write-once guard -- so every one of them has to ask through
+# locate(), or it will take a second backup of an already-patched binary and
+# quietly destroy the only pristine copy.
+BINARY_SUFFIXES = (
+    ".vram-backup", ".aspect-backup", ".carlist-backup", ".headon-backup",
+    ".modassert-backup", ".needle-backup", ".aifield-backup",
+    ".surface-backup", ".map-backup", ".sky-backup", ".res-backup",
+    ".table-backup",
+    ".writepaths-backup",
+)
+
 
 def folder(data_dir: Path, create: bool = False) -> Path:
     d = Path(data_dir) / DIR_NAME
@@ -53,6 +70,39 @@ def is_archive_backup(path: Path) -> bool:
     if n.endswith(SWEEP_SUFFIX):
         return True
     return n.endswith(EDIT_SUFFIX) and "_original" in n
+
+
+def is_binary_backup(path: Path) -> bool:
+    n = path.name.lower()
+    return any(n.endswith(sfx) for sfx in BINARY_SUFFIXES)
+
+
+def is_backup(path: Path) -> bool:
+    return is_archive_backup(path) or is_binary_backup(path)
+
+
+def locate(original: Path, suffix: str, data_dir: Path | None = None) -> Path | None:
+    """An existing backup of `original` with this suffix, or None.
+
+    Folder first, then beside the file. The fallback is not politeness: every
+    binary patcher uses this as its write-once guard, and an install patched
+    before this change has its only pristine engine sitting loose in Data/.
+    Missing it means taking a fresh "backup" of an already-patched binary.
+    """
+    original = Path(original)
+    data_dir = Path(data_dir) if data_dir else original.parent
+    for cand in (folder(data_dir) / (original.name + suffix),
+                 original.with_name(original.name + suffix)):
+        if cand.is_file():
+            return cand
+    return None
+
+
+def path_for(original: Path, suffix: str, data_dir: Path | None = None) -> Path:
+    """Where a NEW backup of `original` should be written (folder created)."""
+    original = Path(original)
+    data_dir = Path(data_dir) if data_dir else original.parent
+    return folder(data_dir, create=True) / (original.name + suffix)
 
 
 def store(source: Path, suffix: str, data_dir: Path | None = None) -> Path:
@@ -132,7 +182,7 @@ def migrate(data_dir: Path, dry_run: bool = False) -> list[tuple[Path, Path]]:
     data_dir = Path(data_dir)
     moved = []
     for p in sorted(data_dir.iterdir()):
-        if not p.is_file() or not is_archive_backup(p):
+        if not p.is_file() or not is_backup(p):
             continue
         dest = _unique(folder(data_dir, create=not dry_run) / p.name)
         if not dry_run:

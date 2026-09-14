@@ -23,7 +23,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import resolution, vrampatch
+from . import backups, resolution, vrampatch
 
 RACE_BIN = "race.bin"
 
@@ -116,10 +116,10 @@ def install(data_dir: str | Path, source: str | Path) -> tuple[BinInfo, BinInfo 
         if incoming.sha256 == (replaced.sha256 if replaced else None):
             raise RaceBinError("that is already the race.bin in this folder")
         tag = (replaced.version or "replaced").replace(" ", "-") if replaced else "replaced"
-        backup = target.with_suffix(f"{target.suffix}.{tag}-backup")
+        backup = backups.path_for(target, f".{tag}-backup")
         i = 2
         while backup.exists():
-            backup = target.with_suffix(f"{target.suffix}.{tag}-backup{i}")
+            backup = backups.path_for(target, f".{tag}-backup{i}")
             i += 1
         shutil.copy2(target, backup)
 

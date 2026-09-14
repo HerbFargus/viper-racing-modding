@@ -29,7 +29,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from . import writepaths
+from . import backups, writepaths
 
 MAX_AI = 15                 # 15 AI + player = 16 total; 16 AI hits the driver-16 panic
 DEFAULT_AI = 7
@@ -109,7 +109,8 @@ def set_count(data_dir: str | Path, ai_count: int) -> dict:
         raise AiFieldError(
             "no options.cfg or options.def found -- run the game once so it writes "
             "Config/options.cfg, then set the count.")
-    bak = f.with_suffix(f.suffix + BACKUP_SUFFIX)
+    bak = (backups.locate(f, BACKUP_SUFFIX)
+           or backups.path_for(f, BACKUP_SUFFIX))
     if not bak.is_file():
         bak.write_bytes(f.read_bytes())
     t = f.read_text(encoding="utf-8", errors="replace")
@@ -125,7 +126,8 @@ def revert(data_dir: str | Path) -> str:
     f = options_path(data_dir)
     if f is None:
         raise AiFieldError("no options file to revert")
-    bak = f.with_suffix(f.suffix + BACKUP_SUFFIX)
+    bak = (backups.locate(f, BACKUP_SUFFIX)
+           or backups.path_for(f, BACKUP_SUFFIX))
     if not bak.is_file():
         raise AiFieldError(f"no {bak.name} to restore from")
     f.write_bytes(bak.read_bytes())

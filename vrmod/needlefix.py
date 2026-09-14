@@ -95,7 +95,7 @@ import shutil
 import struct
 from pathlib import Path
 
-from . import safewrite
+from . import backups, safewrite
 
 RACE_BIN = "race.bin"
 TABLE_ENTRIES = 0x400            # 4096-byte table / 4 bytes per scanline
@@ -256,7 +256,10 @@ def apply(data_dir: str | Path, entries: int = TABLE_ENTRIES) -> dict[str, str]:
     f = _race_bin(data_dir)
     blob = bytearray(f.read_bytes())
     done: dict[str, str] = {}
-    backup = f.with_suffix(f.suffix + ".needle-backup")
+    # Folder first, then beside the file: an install patched before
+    # backups moved has its only pristine copy loose in Data/, and
+    # missing it here would take a fresh "backup" of a patched binary.
+    backup = backups.locate(f, ".needle-backup") or backups.path_for(f, ".needle-backup")
     if not backup.exists():
         shutil.copy2(f, backup)
 

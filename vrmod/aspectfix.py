@@ -115,7 +115,7 @@ import shutil
 import struct
 from pathlib import Path
 
-from . import safewrite
+from . import backups, safewrite
 
 RACE_BIN = "race.bin"
 
@@ -296,7 +296,10 @@ def apply(data_dir: str | Path, ratio: float = RATIO_ORIGINAL) -> tuple[int, int
     at = hits[0].start()
     blob[at:at + _REGION] = _replacement(r0_va, half_va)
 
-    backup = f.with_suffix(f.suffix + ".aspect-backup")
+    # Folder first, then beside the file: an install patched before
+    # backups moved has its only pristine copy loose in Data/, and
+    # missing it here would take a fresh "backup" of a patched binary.
+    backup = backups.locate(f, ".aspect-backup") or backups.path_for(f, ".aspect-backup")
     if not backup.exists():
         shutil.copy2(f, backup)
     safewrite.write_atomic(f, bytes(blob))

@@ -57,7 +57,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from . import safewrite
+from . import backups, safewrite
 
 RACE_BIN = "race.bin"
 
@@ -156,7 +156,10 @@ def apply(data_dir: str | Path) -> int:
         raise PatchError(
             f"unexpected byte at the patch site ({blob[at]:#04x}); refusing to write")
     blob[at:at + 1] = DISABLED
-    backup = f.with_suffix(f.suffix + ".headon-backup")
+    # Folder first, then beside the file: an install patched before
+    # backups moved has its only pristine copy loose in Data/, and
+    # missing it here would take a fresh "backup" of a patched binary.
+    backup = backups.locate(f, ".headon-backup") or backups.path_for(f, ".headon-backup")
     if not backup.exists():
         shutil.copy2(f, backup)
     safewrite.write_atomic(f, bytes(blob))

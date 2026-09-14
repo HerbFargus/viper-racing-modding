@@ -41,7 +41,7 @@ import struct
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import safewrite
+from . import backups, safewrite
 
 RACE_BIN = "race.bin"
 TEXT_SECTION = 1                 # .text is section 1 in every build seen
@@ -200,7 +200,10 @@ def install(data_dir: str | Path) -> tuple[int, int]:
             "a second map. Run remove() first.")
 
     text = build(blob)
-    backup = f.with_suffix(f.suffix + ".map-backup")
+    # Folder first, then beside the file: an install patched before
+    # backups moved has its only pristine copy loose in Data/, and
+    # missing it here would take a fresh "backup" of a patched binary.
+    backup = backups.locate(f, ".map-backup") or backups.path_for(f, ".map-backup")
     if not backup.exists():
         shutil.copy2(f, backup)
     safewrite.write_atomic(f, blob + text.encode("ascii"))

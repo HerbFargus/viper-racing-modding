@@ -64,7 +64,7 @@ import shutil
 import struct
 from pathlib import Path
 
-from . import safewrite
+from . import backups, safewrite
 
 RACE_BIN = "race.bin"
 
@@ -199,7 +199,8 @@ def apply(data_dir: str | Path) -> dict[str, object]:
         raise TableFixError("internal error: the function changed size")
     blob[start:end] = out
 
-    backup = f.with_suffix(f.suffix + ".table-backup")
+    backup = (backups.locate(f, ".table-backup")
+              or backups.path_for(f, ".table-backup"))
     if not backup.exists():
         shutil.copy2(f, backup)
     safewrite.write_atomic(f, bytes(blob))

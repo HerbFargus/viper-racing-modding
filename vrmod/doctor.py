@@ -899,11 +899,11 @@ def check(data_dir: str | Path) -> Report:
     # separate from the finding above because the advice is opposite -- these
     # are worth keeping and worth moving, and telling someone to delete their
     # undo history is how an undo history stops existing.
-    loose = [b for b in backups.find(data_dir)
-             if b.parent.name != backups.DIR_NAME]
+    loose = [p for p in data_dir.iterdir()
+             if p.is_file() and backups.is_backup(p)]
     if loose:
         mb = sum(p.stat().st_size for p in loose) / 1048576
-        add(Finding(INFO, f"{len(loose)} car/track backups sitting loose in Data",
+        add(Finding(INFO, f"{len(loose)} backups sitting loose in Data",
                     f"{mb:.0f} MB of whole-archive copies mixed in with the game's own "
                     f"files. They are your undo history and worth keeping, but Data/ is "
                     f"where the game looks for cars and tracks, and a real install had 56 "
@@ -912,7 +912,9 @@ def check(data_dir: str | Path) -> Report:
                     f"same way it ignores Disabled/. Restores keep working from either "
                     f"place.",
                     action="backups"))
-    filed = [b for b in backups.find(data_dir) if b.parent.name == backups.DIR_NAME]
+    bdir = backups.folder(data_dir)
+    filed = ([p for p in bdir.iterdir() if p.is_file() and backups.is_backup(p)]
+             if bdir.is_dir() else [])
     if filed:
         mb = sum(p.stat().st_size for p in filed) / 1048576
         add(Finding(OK, f"{len(filed)} backups filed in {backups.DIR_NAME}/, {mb:.0f} MB",

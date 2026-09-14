@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import math
 
-from . import archive, envelope, ili
+from . import backups, archive, envelope, ili
 
 # Sampled straight out of the stock maps.
 BACKGROUND = (0, 0, 0)
@@ -332,7 +332,8 @@ def install(trk_path, out_path=None, **kwargs) -> tuple:
     updated = archive.replace_entry(entries, existing.name, raw)
     out_path = Path(out_path) if out_path else trk_path
     if out_path == trk_path:
-        backup = trk_path.with_suffix(trk_path.suffix + ".map-backup")
+        backup = (backups.locate(trk_path, ".map-backup")
+                  or backups.path_for(trk_path, ".map-backup"))
         if not backup.exists():
             shutil.copy2(trk_path, backup)
     out_path.write_bytes(archive.to_bytes(updated, partitioned=layout.partitioned))

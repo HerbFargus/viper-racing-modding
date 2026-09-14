@@ -1503,7 +1503,8 @@ def main(argv: list[str] | None = None) -> int:
                 entries = archive.replace_entry(entries, bpp_name, new_std)
                 out = args.out or args.track
                 if out == args.track:
-                    backup = out.with_suffix(out.suffix + ".surface-backup")
+                    backup = (backups.locate(out, ".surface-backup")
+                               or backups.path_for(out, ".surface-backup"))
                     if not backup.exists():
                         shutil.copy2(out, backup)
                         print(f"  backed up original -> {backup.name}")

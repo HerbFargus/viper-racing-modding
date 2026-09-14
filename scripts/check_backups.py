@@ -121,6 +121,31 @@ def main() -> int:
         check("the bytes survive the round trip",
               car.read_bytes() == pristine, f"{len(pristine):,} bytes")
 
+        # ---- binary patch backups -------------------------------------------
+        # Nine modules write one of these, and each uses "does my backup exist?"
+        # as its write-once guard. If a guard stops seeing an older loose
+        # backup, the next patch takes a fresh copy of an ALREADY-PATCHED
+        # binary and the only pristine engine is gone. That is the failure this
+        # whole move risked, so it is the one checked hardest.
+        eng = d / "race.exe"
+        eng.write_bytes(b"PRISTINE-ENGINE")
+        loose_bak = eng.with_name(eng.name + ".needle-backup")
+        loose_bak.write_bytes(b"PRISTINE-ENGINE")
+        found = backups.locate(eng, ".needle-backup")
+        check("a patcher still finds a backup left loose by an older version",
+              found == loose_bak, found.name if found else "nothing found")
+
+        eng.write_bytes(b"PATCHED")
+        backups.migrate(d)
+        found = backups.locate(eng, ".needle-backup")
+        check("and finds it after it has been filed",
+              found is not None and found.parent.name == backups.DIR_NAME
+              and found.read_bytes() == b"PRISTINE-ENGINE",
+              f"{found.parent.name}/{found.name}" if found else "nothing found")
+        check("so a second patch does not overwrite the pristine copy",
+              backups.locate(eng, ".needle-backup") is not None,
+              "the write-once guard still fires")
+
         # ---- doctor --------------------------------------------------------
         # The finding that offers the migration must stop once there is nothing
         # loose, or it becomes a permanent nag with a button that does nothing.
