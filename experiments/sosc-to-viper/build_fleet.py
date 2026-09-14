@@ -29,18 +29,22 @@ sys.path.insert(0, str(ROOT))
 from build_car import build                        # noqa: E402
 from vrmod import car                              # noqa: E402
 
-# model in SIM3D2.MAX, output prefix, donor car, and the real car it resembles
+# model in SIM3D2.MAX, output prefix, short texture code, donor car, and the
+# real car it resembles
 # (the last column is the user's identification from the game's own artwork, and
 # is here so the fleet is recognisable to someone who knows the cars rather than
 # the filenames).
+# The codes are distinct across the fleet, not just within each car: all seven
+# cars sit in the same Data/ directory, so two of them naming a texture the same
+# thing would be one overwriting the other.
 FLEET = [
-    ("STREETS_FERRARI", "azzaroni", "exotic.car", "Ferrari 250 GT"),
-    ("STREETS_GT40",    "j57",      "exotic.car", "1966 Ford GT40"),
-    ("STREETS_BUG",     "strtrat",  "sedan.car",  "Volkswagen Beetle"),
-    ("STREETS_UTILITY", "hmxvan",   "4x4cos.car", "1973 GMC C-Series"),
-    ("STREETS_JAVELIN", "airhawk",  "exotic.car", "1969 Chevrolet Camaro"),
-    ("STREETS_HUNTER",  "hunter",   "4x4cos.car", "-"),
-    ("STREETSCAR6",     "police",   "sedan.car",  "1985 Oldsmobile Cutlass"),
+    ("STREETS_FERRARI", "azzaroni", "azz", "exotic.car", "Ferrari 250 GT"),
+    ("STREETS_GT40",    "j57",      "j57", "exotic.car", "1966 Ford GT40"),
+    ("STREETS_BUG",     "strtrat",  "str", "sedan.car",  "Volkswagen Beetle"),
+    ("STREETS_UTILITY", "hmxvan",   "hmx", "4x4cos.car", "1973 GMC C-Series"),
+    ("STREETS_JAVELIN", "airhawk",  "ahk", "exotic.car", "1969 Chevrolet Camaro"),
+    ("STREETS_HUNTER",  "hunter",   "hun", "4x4cos.car", "-"),
+    ("STREETSCAR6",     "police",   "pol", "sedan.car",  "1985 Oldsmobile Cutlass"),
 ]
 
 
@@ -56,11 +60,15 @@ def main() -> int:
             raise SystemExit(f"missing {p}")
     out.mkdir(parents=True, exist_ok=True)
 
+    codes = [c for _, _, c, _, _ in FLEET]
+    if len(set(codes)) != len(codes):
+        raise SystemExit(f"texture codes are not unique: {codes}")
+
     built = []
-    for model, prefix, donor, real in FLEET:
+    for model, prefix, code, donor, real in FLEET:
         print(f"\n{prefix}  ({model}, from {donor} -- {real})")
         built.append(build(max_path, model, skin, install / donor,
-                           out / prefix, prefix))
+                           out / prefix, prefix, code))
 
     # --- LODs, which a single conversion does not touch --------------------
     print()

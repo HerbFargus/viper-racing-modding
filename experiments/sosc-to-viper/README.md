@@ -74,6 +74,27 @@ only the shape does. `vrmod modlod` regenerates the chain from the converted
 body, and `check_mesh.py` now compares every LOD's bounding box and material
 set against LOD 0.
 
+**Texture names have a length limit, and nothing says so.** Of the seven cars,
+`azzaroni` loaded with no texture at all — flat paint colour — while the other
+six were fine. The only thing that separated it was the name: its generated
+textures were `azzaronit089.tex` at **16 characters**, where the next longest
+were 15. Nothing in the retail data comes close (longest shipped member
+`7scraped.tex`, 12; longest shipped material `effects.tex`, 11), nothing in the
+community cars does either (longest material `whel955p.tex`, 12), and the
+failure is silent: the car loads, drives, and renders in flat paint. Generated
+names are now held to `NAME_LIMIT = 12`, the ceiling the working corpus
+observes, via a short per-car code (`azzt089.tex`) rather than the full prefix.
+
+**Doubling the unresolvable faces was a bad trade.** Where edge propagation
+cannot orient a face — 26 of them on the Airhawk, 4 on the van, 2 on the
+Ferrari, none elsewhere — the first mitigation emitted the face twice, once
+each way, so neither winding could be culled. Two coplanar triangles then fight
+for the depth buffer. The speckled band reported along the Airhawk's flank
+appeared on the one car with a meaningful number of twins, and the measurement
+agrees: doubling took the Airhawk from **5 inconsistent edges of 609 (0.8%,
+inside the stock band) to 10 of 616 (1.6%)**, because a twin pair makes new
+conflicts with its neighbours. It is off by default; `double=True` keeps it.
+
 **The UVs were outside the unit square.** This was the see-through patch along
 the flank, and it is the one worth remembering. The raw conversion put the
 Airhawk's v at 1.0–2.0 and the police car's at 1.0–3.0 — the same texel as
@@ -119,17 +140,16 @@ python experiments/sosc-to-viper/check_mesh.py <viper_install> <out_dir>/*/*.car
 the three `.MAX` files read exactly the face count their table declares, and
 the atlas walk lands exactly on the file size.
 
-`check_mesh.py` passes 27 of 28. The one failure is real and is left failing:
-the Airhawk retains 10 genuinely inconsistent edges of 616 (1.6%, against 0.4%
-for the worst shipped car) that edge propagation cannot resolve, because the
-source mesh is not cleanly orientable there. Those faces are emitted twice,
-once each way, so neither winding can be culled — but the metric still counts
-them, and pretending otherwise by widening the threshold would throw away the
-only signal that would catch the problem coming back.
+`check_mesh.py` passes 28/28. It did not always: with face doubling on, the
+Airhawk failed at 10 inconsistent edges of 616, and that failure is what
+identified doubling as the wrong mitigation rather than something to widen the
+threshold around. Without it the Airhawk sits at 5 of 609 (0.8%), inside the
+band the shipped cars occupy.
 
 ## Known residuals
 
-- The Airhawk's 10 inconsistent edges, above.
+- The Airhawk keeps 5 inconsistent edges of 609 that the source mesh cannot
+  resolve. That is inside the stock band, but they are real.
 - 96 faces each on the van and the police car span slightly more than one
   texture repeat (1.01) and are squeezed by 1% to fit the unit square.
 - Damaged variants (`STREETS_D*` in `SIM3D3.MAX`) are not wired into Viper's

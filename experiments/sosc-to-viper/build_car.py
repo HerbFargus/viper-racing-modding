@@ -37,7 +37,18 @@ sys.path.insert(0, str(ROOT))
 from max2obj import models, read_model            # noqa: E402
 from vrmod import archive, envelope, mod          # noqa: E402
 
-USAGE = ("build_car.py <MAX> <MODEL> <SIM3D.BMP> <donor.car> <out_dir> <prefix>")
+USAGE = ("build_car.py <MAX> <MODEL> <SIM3D.BMP> <donor.car> <out_dir> "
+         "<prefix> [code]")
+# Generated texture names are held to what the retail data actually uses: no
+# shipped archive member is longer than 12 characters (`7scraped.tex`) and no
+# shipped material name longer than 11 (`effects.tex`). The first name this
+# experiment ever pushed past 15 -- `azzaronit089.tex`, at 16 -- is the one car
+# of seven that loaded with NO texture at all, flat paint colour, while its
+# 15-character siblings were fine. 15 characters plus a terminator is a 16-byte
+# buffer, and nothing in 1,770 community cars comes near it either (the longest
+# car name in the corpus is 10, so its paint texture is 14). Names are kept
+# inside the retail envelope rather than at the edge of the observed cliff.
+NAME_LIMIT = 12
 PAL_ENTRIES = 256
 
 
@@ -72,7 +83,7 @@ def fit(verts, target_len: float, ground: float = 0.0):
             for x, y, z in verts], scale
 
 
-def wind_outward(verts, faces):
+def wind_outward(verts, faces, double=False):
     """Make the winding consistent across the mesh, then point it outward.
 
     Streets of SimCity renders two-sided, so its winding is arbitrary -- 101 of
@@ -159,11 +170,16 @@ def wind_outward(verts, faces):
 
     # Propagation makes a mesh consistent only where it CAN be: an edge shared
     # by three faces, or a shell that is not cleanly orientable, leaves
-    # conflicts behind. The Airhawk keeps 33 of them where the others keep none.
-    # Rather than pick a side and lose whichever face was right, those few are
-    # emitted twice, once each way, so neither can be culled. Stock viper.car
-    # carries 1% inconsistency itself, so a handful is normal rather than a sign
-    # the mesh is wrong.
+    # conflicts behind -- 26 faces on the Airhawk, 4 on the van, 2 on the
+    # Ferrari, none on the other four.
+    #
+    # `double` emits those twice, once each way, so neither winding can be
+    # culled. It is OFF by default because it appears to trade one artifact for
+    # a worse one: two coplanar triangles fight for the depth buffer, and the
+    # speckled band reported along the Airhawk's flank showed up on the ONE car
+    # with a meaningful number of twins, after they were introduced. A face
+    # left single can at worst vanish; a doubled pair shimmers across the whole
+    # surface it covers.
     seen_edge = {}
     conflicted = set()
     for fi, f in enumerate(faces):
@@ -180,7 +196,7 @@ def wind_outward(verts, faces):
                     conflicted.add(seen_edge[key][1])
             else:
                 seen_edge[key] = (d, fi)
-    for fi in sorted(conflicted):
+    for fi in (sorted(conflicted) if double else ()):
         twin = dict(faces[fi])
         twin["idx"] = list(reversed(twin["idx"]))
         twin["uv"] = list(reversed(twin["uv"]))
@@ -298,8 +314,14 @@ def tga_from_indexed(w: int, h: int, px: bytes, pal) -> bytes:
 
 
 def build(max_path: Path, model: str, skin: Path, donor: Path,
-          out_dir: Path, prefix: str) -> Path:
-    """Convert one vehicle. Returns the path to the finished .car."""
+          out_dir: Path, prefix: str, code: str | None = None,
+          double: bool = False) -> Path:
+    """Convert one vehicle. Returns the path to the finished .car.
+
+    `code` is the short stem the generated textures are named from, and it
+    matters more than it looks: see NAME_LIMIT.
+    """
+    code = (code or prefix[:3]).lower()
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     work = out / "_work"
@@ -331,9 +353,9 @@ def build(max_path: Path, model: str, skin: Path, donor: Path,
     fitted, scale = fit(verts, target_len)
     print(f"  fitted to {target_len:.2f} long (scale {scale:.6f})")
     before = len(faces)
-    flipped, shells, doubled = wind_outward(fitted, faces)
+    flipped, shells, doubled = wind_outward(fitted, faces, double=double)
     print(f"  winding: {before} faces in {shells} shell(s), flipped {flipped}, "
-          f"doubled {doubled} still-conflicted")
+          f"{doubled} still conflicted{' (doubled)' if double else ''}")
     moved, widest = unit_uvs(faces)
     print(f"  uvs: normalised {moved} face(s) into the unit square; "
           f"widest face spanned {widest:.2f} of a repeat"
@@ -346,13 +368,17 @@ def build(max_path: Path, model: str, skin: Path, donor: Path,
         if key in mats:
             continue
         if f["type"] == 13:                       # dedicated texture, by index
-            name = f"{prefix}t{f['tex']:03d}.tex"
+            name = f"{code}t{f['tex']:03d}.tex"
             w, h, px = atl[f["tex"]]
             tex_files[name] = tga_from_indexed(w, h, px, pal)
         else:                                     # colour map
-            name = f"{prefix}c{f['tex']:03d}.tex"
+            name = f"{code}c{f['tex']:03d}.tex"
             tex_files[name] = tga_solid(pal[f["tex"]])
         mats[key] = name
+    over = [n for n in set(mats.values()) if len(n) > NAME_LIMIT]
+    if over:
+        raise SystemExit(f"texture name(s) over {NAME_LIMIT} characters: {over} "
+                         f"-- pass a shorter `code` (see NAME_LIMIT)")
     print(f"  materials: {len(mats)} -> {sorted(set(mats.values()))}")
 
     # --- OBJ, then vrmod does the rest -------------------------------------
@@ -420,10 +446,12 @@ def build(max_path: Path, model: str, skin: Path, donor: Path,
 
 
 def main() -> int:
-    if len(sys.argv) != 7:
+    if len(sys.argv) not in (7, 8):
         raise SystemExit(USAGE)
     max_path, model, skin, donor, out_dir, prefix = sys.argv[1:7]
-    build(Path(max_path), model, Path(skin), Path(donor), Path(out_dir), prefix)
+    code = sys.argv[7] if len(sys.argv) > 7 else None
+    build(Path(max_path), model, Path(skin), Path(donor), Path(out_dir),
+          prefix, code)
     return 0
 
 
