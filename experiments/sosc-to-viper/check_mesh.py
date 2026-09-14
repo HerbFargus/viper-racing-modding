@@ -228,6 +228,37 @@ def main() -> int:
         check("every LOD is a reduction of this body", not wrong,
               "; ".join(wrong[:2]) or f"{len(chain)} meshes in the chain")
 
+        # Brake lights. NOTHING here can be checked by looking: carshot renders
+        # <prefix>0.mod and the wheels, and never draws the brake mesh, so a
+        # render of a car with its lamps buried inside the bodywork looks
+        # perfect. The same blind spot as the backface and UV-wrap ones -- the
+        # only defence is to assert the geometry directly.
+        brake = bodies(car).get(f"{name[:-5]}b.mod") or bodies(car).get(
+            f"{name[:-5]}B.mod")
+        if brake is None:
+            check("the car has a brake mesh", False, "no <prefix>b.mod")
+        else:
+            bz = [v.z for v in brake.vertices]
+            bx = [v.x for v in brake.vertices]
+            body_tail = min(v.z for v in mesh.vertices)
+            half = max(abs(v.x) for v in mesh.vertices)
+            # On the tail, not inside it and not trailing in mid-air. The donor's
+            # unfitted mesh sat 19cm inside the Airhawk and 9cm behind the Beetle.
+            gap = min(bz) - body_tail
+            check("brake lights sit on the car's own tail", -0.02 <= gap <= 0.12,
+                  f"{gap:+.2f} from the body's rearmost point "
+                  f"(inherited donor meshes were -0.19 to +0.09 out)")
+            left = [v.x for v in brake.vertices if v.x < 0]
+            right = [v.x for v in brake.vertices if v.x >= 0]
+            check("a lamp on each side, both within the bodywork",
+                  bool(left) and bool(right) and max(abs(x) for x in bx) <= half * 1.05,
+                  f"x {min(bx):.2f}..{max(bx):.2f} against a half-width of {half:.2f}")
+            check("the pair is symmetric",
+                  bool(left) and bool(right)
+                  and abs(abs(min(left)) - max(right)) <= 0.12,
+                  f"outer edges |{min(left):.2f}| and {max(right):.2f}"
+                  if left and right else "one side missing")
+
     print(f"\n{PASS}/{PASS + FAIL} passed")
     return 1 if FAIL else 0
 
