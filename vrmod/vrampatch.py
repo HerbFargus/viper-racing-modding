@@ -57,7 +57,7 @@ import re
 import shutil
 from pathlib import Path
 
-from . import safewrite
+from . import backups, safewrite
 
 # Engine binaries, LIVE ONE FIRST -- see "TWO LAYOUTS" above. Order is load-bearing:
 # status() reports on the live binary, and apply() returns its offset.
@@ -142,7 +142,10 @@ def _patch_file(f: Path) -> int | None:
             f"unexpected bytes at the patch site in {f.name} ({chunk.hex(' ')}); "
             "refusing to write")
     blob[at:at + len(VRAM_ADD)] = NOPS
-    backup = f.with_suffix(f.suffix + ".vram-backup")
+    # Folder first, then beside the file: an install patched before
+    # backups moved has its only pristine copy loose in Data/, and
+    # missing it here would take a fresh "backup" of a patched binary.
+    backup = backups.locate(f, ".vram-backup") or backups.path_for(f, ".vram-backup")
     if not backup.exists():
         shutil.copy2(f, backup)
     safewrite.write_atomic(f, bytes(blob))

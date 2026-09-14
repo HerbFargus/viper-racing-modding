@@ -421,7 +421,15 @@ def find_pristine_backup(data_dir: str | Path) -> tuple[Path, str] | None:
     d = Path(data_dir)
     eng = _race_bin(d)
     size = eng.stat().st_size
-    cands = [p for p in d.glob(eng.name + ".*")
+    # BOTH locations. Backups now live in Data/Backups/, and an install patched
+    # before that move has them loose beside the engine -- often the only
+    # pristine copy it owns. Searching one place would make this return None on
+    # half the installs in the world and send someone off to find their disc
+    # while holding a perfectly good copy of their own, without saying so.
+    from . import backups as backups_mod
+    places = [d, backups_mod.folder(d)]
+    cands = [p for place in places if place.is_dir()
+             for p in place.glob(eng.name + ".*")
              if p.is_file() and p != eng
              and (p.name.endswith("-backup") or p.name.endswith(SNAPSHOT_SUFFIX))
              and p.stat().st_size == size]

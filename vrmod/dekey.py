@@ -58,7 +58,7 @@ import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import archive, envelope, tex
+from . import archive, backups as backups_mod, envelope, tex
 
 # TWO raw values decode to black, not one. Green occupies a 6-bit field but only
 # its top 5 bits are significant -- the decoder masks the low bit off -- so
@@ -205,17 +205,17 @@ def sweep_file(path: Path, *, dry_run: bool = False,
         raise RuntimeError(f"{path.name}: size changed {len(data)} -> {len(out)}; "
                            "refusing to write")
     if backup:
-        # A suffix of its own, alongside .vram-backup / .sky-backup / .map-backup,
-        # for two reasons. It is not a loadable game file -- the engine scans
-        # Data/ and loads every *.car and *.trk, deriving member names from the
-        # filename, so a "viper_original.car" makes it hunt for
-        # "viper_original0.mod" and panic. And it is DISTINGUISHABLE: doctor's
-        # leftover check offers to delete "*.bak" and "*_original.*", which for
-        # a whole-install sweep would be an offer to delete the only undo, and
-        # revert() needs to know which backup belongs to which file without
-        # guessing.
-        report.backup = _unique(path.with_name(path.name + BACKUP_SUFFIX))
-        shutil.copy2(path, report.backup)
+        # A suffix of its own, alongside .vram-backup / .sky-backup, for two
+        # reasons. It is not a loadable game file -- the engine scans Data/ and
+        # loads every *.car and *.trk, deriving member names from the filename,
+        # so a "viper_original.car" makes it hunt for "viper_original0.mod" and
+        # panic. And it is DISTINGUISHABLE: revert() has to know which backup
+        # belongs to which file without guessing.
+        #
+        # It goes in Data/Backups/ rather than beside the file: a whole-install
+        # sweep leaves one per changed file, which on a real install was 21 of
+        # the 56 backups cluttering a Data root that held 24 actual game assets.
+        report.backup = backups_mod.store(path, BACKUP_SUFFIX)
     path.write_bytes(out)
     return report
 
@@ -298,10 +298,11 @@ def affected(root: Path, scope: str = "stock") -> list[Path]:
 
 
 def backups(root: Path) -> list[Path]:
+    """Sweep backups, wherever they are -- the folder or loose (older installs)."""
     root = Path(root)
     if root.is_file():
         root = root.parent
-    return sorted(p for p in root.rglob("*" + BACKUP_SUFFIX) if p.is_file())
+    return backups_mod.find(root, BACKUP_SUFFIX)
 
 
 def revert(root: Path) -> list[tuple[Path, Path]]:
@@ -312,9 +313,11 @@ def revert(root: Path) -> list[tuple[Path, Path]]:
     the whole point of the dedicated suffix is that what remains on disk says
     truthfully whether there is anything to undo.
     """
+    root = Path(root)
+    data_dir = root.parent if root.is_file() else root
     done = []
     for b in backups(root):
-        target = b.with_name(b.name[:-len(BACKUP_SUFFIX)])
+        target = backups_mod.target_of(b, data_dir)
         shutil.copy2(b, target)
         b.unlink()
         done.append((target, b))

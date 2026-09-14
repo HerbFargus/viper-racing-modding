@@ -12,7 +12,7 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from . import aifield, archive, aspectfix, bpp as bppmod, car, carshot, catalog as catalog_mod, cf, cockpit_tab, dekey, doctor, envelope, hornball, mapfile, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon, drawdistance, surface, writepaths, modassert, carlist
+from . import aifield, archive, aspectfix, backups, bpp as bppmod, car, carshot, catalog as catalog_mod, cf, cockpit_tab, dekey, doctor, envelope, hornball, mapfile, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon, drawdistance, surface, writepaths, modassert, carlist
 
 COMMIT_PATH = "/__vrmod_commit__"
 
@@ -106,6 +106,18 @@ def _new_tex_mode_wrap(pixels: bytes) -> tuple[str, int]:
     return ("alpha" if has_alpha else "opaque"), 1
 
 
+def _store_edit_backup(path: Path) -> Path:
+    """Back a .car/.trk up before editing it, into Data/Backups/.
+
+    `.bak` so the copy is not itself a loadable game file -- the engine scans
+    Data/ and derives member names from each filename, so a loadable
+    "viper_original.car" makes it hunt for "viper_original0.mod" and panic. The
+    folder is what keeps those copies from burying the Data root: 56 backups
+    against 24 real assets on a real install before this.
+    """
+    return backups.store_as(path, f"{path.stem}_original{path.suffix}.bak")
+
+
 def find_original_backup(car_path: Path) -> Path | None:
     """The earliest _apply_commit backup for this car -- its pristine pre-tool
     state. The first Save writes `<stem>_original<suffix>.bak` (no collision
@@ -113,12 +125,20 @@ def find_original_backup(car_path: Path) -> Path | None:
     the oldest by mtime (copy2 preserves the source car's mtime, so oldest =
     most original)."""
     car_path = Path(car_path)
-    primary = car_path.with_name(f"{car_path.stem}_original{car_path.suffix}.bak")
-    if primary.exists():
-        return primary
-    cands = sorted(car_path.parent.glob(f"{car_path.stem}_original*{car_path.suffix}*.bak"),
-                   key=lambda p: p.stat().st_mtime)
-    return cands[0] if cands else None
+    # Both locations, folder first, because an install that predates the
+    # Backups/ folder still has its history loose in Data/ and restoring from
+    # it has to keep working. The pattern is the same in either place.
+    pattern = f"{car_path.stem}_original*{car_path.suffix}*.bak"
+    plain = f"{car_path.stem}_original{car_path.suffix}.bak"
+    for d in (backups.folder(car_path.parent), car_path.parent):
+        if not d.is_dir():
+            continue
+        if (d / plain).exists():
+            return d / plain
+        cands = sorted(d.glob(pattern), key=lambda p: p.stat().st_mtime)
+        if cands:
+            return cands[0]
+    return None
 
 
 def _restore_original(car_path: Path) -> Path:
@@ -170,9 +190,7 @@ def _apply_commit(body: dict) -> tuple[Path, Path]:
         car_path = Path(body["car_path"])
         entries = archive.read(car_path)
         out_entries, made = car.build_lod_chain(entries)
-        backup = _unique_path(
-            car_path.with_name(f"{car_path.stem}_original{car_path.suffix}.bak"))
-        shutil.copy2(car_path, backup)
+        backup = _store_edit_backup(car_path)
         archive.write(out_entries, car_path)
         return car_path, backup, [], [f"Generated {len(made)} LOD level(s): "
                                       + ", ".join(f"{n} ({v}v)" for n, v in made)], None
@@ -336,8 +354,7 @@ def _apply_commit(body: dict) -> tuple[Path, Path]:
         archive.write(forked, out_path)
         return out_path, None, resized, warnings, None
 
-    backup_path = _unique_path(car_path.with_name(f"{car_path.stem}_original{car_path.suffix}.bak"))
-    shutil.copy2(car_path, backup_path)
+    backup_path = _store_edit_backup(car_path)
     archive.write(entries, car_path)
     return car_path, backup_path, resized, warnings, None
 
@@ -439,8 +456,7 @@ def _apply_track_commit(body: dict) -> tuple[Path, Path]:
 
     # ".bak" so the backup isn't a loadable ".trk" (same reasoning as the car
     # backup in _apply_commit -- keep stray copies out of the game's scan).
-    backup_path = _unique_path(track_path.with_name(f"{track_path.stem}_original{track_path.suffix}.bak"))
-    shutil.copy2(track_path, backup_path)
+    backup_path = _store_edit_backup(track_path)
     archive.write(entries, track_path)
     return track_path, backup_path, resized, [], None
 
@@ -1239,6 +1255,19 @@ def main(argv: list[str] | None = None) -> int:
                          help=f"restore every file from its {dekey.BACKUP_SUFFIX} and remove "
                               f"the backups, undoing a previous sweep")
 
+    p_backups = sub.add_parser(
+        "backups",
+        help="List, tidy or restore the .car/.trk backups this tool leaves. They live "
+             f"in Data/{backups.DIR_NAME}/, which the game ignores the same way it "
+             "ignores Disabled/; older installs have them loose in Data/ and both are "
+             "read",
+    )
+    p_backups.add_argument("data_dir", type=Path)
+    p_backups.add_argument("--migrate", action="store_true",
+                           help=f"move loose backups into Data/{backups.DIR_NAME}/")
+    p_backups.add_argument("--dry-run", action="store_true",
+                           help="with --migrate, report the moves without making them")
+
     p_modpatch = sub.add_parser(
         "modpatch",
         help="Swap one or more already-edited standalone .mod files into a .car archive by entry name",
@@ -1474,7 +1503,8 @@ def main(argv: list[str] | None = None) -> int:
                 entries = archive.replace_entry(entries, bpp_name, new_std)
                 out = args.out or args.track
                 if out == args.track:
-                    backup = out.with_suffix(out.suffix + ".surface-backup")
+                    backup = (backups.locate(out, ".surface-backup")
+                               or backups.path_for(out, ".surface-backup"))
                     if not backup.exists():
                         shutil.copy2(out, backup)
                         print(f"  backed up original -> {backup.name}")
@@ -2191,6 +2221,26 @@ def main(argv: list[str] | None = None) -> int:
                   + ("" if stubborn == 0 else "  -- FAILED, the sweep did not finish"))
             if stubborn:
                 return 1
+    elif args.command == "backups":
+        if args.migrate:
+            moved = backups.migrate(args.data_dir, dry_run=args.dry_run)
+            for src, dst in moved:
+                print(f"{'would move' if args.dry_run else 'moved'} {src.name}")
+            mb = sum(s.stat().st_size for s, _ in moved) / 1048576 if moved else 0
+            verb = "would move" if args.dry_run else "moved"
+            print(f"\n{len(moved)} file(s), {mb:.0f} MB {verb} into "
+                  f"{backups.folder(args.data_dir).name}/")
+            return 0
+        found = backups.find(args.data_dir)
+        loose = [b for b in found if b.parent.name != backups.DIR_NAME]
+        mb = sum(b.stat().st_size for b in found) / 1048576
+        for b in found:
+            where = "loose" if b.parent.name != backups.DIR_NAME else backups.DIR_NAME
+            print(f"  {b.name:44s} {b.stat().st_size/1048576:>6.1f} MB  {where}"
+                  f"  -> {backups.target_of(b, args.data_dir).name}")
+        tail = (f"; {len(loose)} still loose in Data/ -- --migrate moves them"
+                if loose else "")
+        print(f"\n{len(found)} archive backup(s), {mb:.0f} MB{tail}")
     elif args.command == "modpatch":
         entries = archive.read(args.car_file)
         edits = {}

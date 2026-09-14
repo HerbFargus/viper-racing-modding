@@ -33,7 +33,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from . import archive, envelope, tex
+from . import backups, archive, envelope, tex
 
 TILES = ("sky1.tex", "sky2.tex", "sky3.tex", "sky4.tex")
 
@@ -159,7 +159,8 @@ def install(trk_path: str | Path, pixels: bytes, width: int, height: int,
     layout = archive.read_layout(trk_path.read_bytes())
     out_path = Path(out_path) if out_path else trk_path
     if out_path == trk_path:
-        backup = trk_path.with_suffix(trk_path.suffix + ".sky-backup")
+        backup = (backups.locate(trk_path, ".sky-backup")
+                  or backups.path_for(trk_path, ".sky-backup"))
         if not backup.exists():
             shutil.copy2(trk_path, backup)
     out_path.write_bytes(archive.to_bytes(entries, partitioned=layout.partitioned))

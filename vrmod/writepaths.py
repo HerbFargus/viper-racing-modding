@@ -63,7 +63,7 @@ import re
 import shutil
 from pathlib import Path
 
-from . import safewrite
+from . import backups, safewrite
 
 # Engine binaries, live one first -- same ordering rule as vrampatch: a v1.0
 # install ships both, and only race.exe is ever loaded.
@@ -230,7 +230,8 @@ def _apply_to(f: Path, kind: str) -> list[tuple[str, str]]:
     for off, budget, old, new in plan:
         blob[off:off + budget] = new + b"\x00" * (budget - len(new))
 
-    backup = f.with_suffix(f.suffix + ".writepaths-backup")
+    backup = (backups.locate(f, ".writepaths-backup")
+              or backups.path_for(f, ".writepaths-backup"))
     if not backup.exists():
         shutil.copy2(f, backup)
     safewrite.write_atomic(f, bytes(blob))

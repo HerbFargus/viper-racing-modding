@@ -37,7 +37,7 @@ import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import (carlist, dekey, mapfile, modassert, patchset, resolution, switcher,
+from . import (backups, carlist, dekey, mapfile, modassert, patchset, resolution, switcher,
                vrampatch, writepaths)
 
 # Severity, worst first. "bad" means the game probably will not run or work
@@ -894,4 +894,30 @@ def check(data_dir: str | Path) -> Report:
                     "Left by this tool and by TrackMan -- your undo history, so they are not "
                     "junk exactly, but each is a full copy of an archive and they add up.",
                     "Delete any you no longer need; the newest of each is the one to keep."))
+
+    # Loose archive backups: not clutter to delete but clutter to FILE. Kept
+    # separate from the finding above because the advice is opposite -- these
+    # are worth keeping and worth moving, and telling someone to delete their
+    # undo history is how an undo history stops existing.
+    loose = [p for p in data_dir.iterdir()
+             if p.is_file() and backups.is_backup(p)]
+    if loose:
+        mb = sum(p.stat().st_size for p in loose) / 1048576
+        add(Finding(INFO, f"{len(loose)} backups sitting loose in Data",
+                    f"{mb:.0f} MB of whole-archive copies mixed in with the game's own "
+                    f"files. They are your undo history and worth keeping, but Data/ is "
+                    f"where the game looks for cars and tracks, and a real install had 56 "
+                    f"backups against 24 actual assets.",
+                    f"Move them into Data/{backups.DIR_NAME}/, which the game ignores the "
+                    f"same way it ignores Disabled/. Restores keep working from either "
+                    f"place.",
+                    action="backups"))
+    bdir = backups.folder(data_dir)
+    filed = ([p for p in bdir.iterdir() if p.is_file() and backups.is_backup(p)]
+             if bdir.is_dir() else [])
+    if filed:
+        mb = sum(p.stat().st_size for p in filed) / 1048576
+        add(Finding(OK, f"{len(filed)} backups filed in {backups.DIR_NAME}/, {mb:.0f} MB",
+                    "Out of the game's way and still restorable. `vrmod backups <Data>` "
+                    "lists them; `vrmod dekey --revert` undoes a sweep."))
     return rep

@@ -70,7 +70,7 @@ import re
 import shutil
 from pathlib import Path
 
-from . import safewrite
+from . import backups, safewrite
 
 RACE_BIN = "race.bin"
 
@@ -157,7 +157,10 @@ def apply(data_dir: str | Path) -> int:
         raise ModAssertError("already patched -- nothing to do")
     at = _site(bytes(blob))
     blob[at:at + 1] = RET
-    backup = f.with_suffix(f.suffix + ".modassert-backup")
+    # Folder first, then beside the file: an install patched before
+    # backups moved has its only pristine copy loose in Data/, and
+    # missing it here would take a fresh "backup" of a patched binary.
+    backup = backups.locate(f, ".modassert-backup") or backups.path_for(f, ".modassert-backup")
     if not backup.exists():
         shutil.copy2(f, backup)
     safewrite.write_atomic(f, bytes(blob))

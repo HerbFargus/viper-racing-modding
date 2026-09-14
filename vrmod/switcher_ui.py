@@ -46,7 +46,7 @@ import threading
 import webbrowser
 from pathlib import Path
 
-from . import aifield, ainames, archive, carshot, cf, dekey, doctor, envelope, grf, hornball, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch, headon, drawdistance, writepaths, modassert, carlist
+from . import aifield, ainames, archive, backups, carshot, cf, dekey, doctor, envelope, grf, hornball, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch, headon, drawdistance, writepaths, modassert, carlist
 
 _PAGE = r"""<!doctype html>
 <meta charset="utf-8"><title>Viper Racing -- Mod Manager</title>
@@ -1892,6 +1892,15 @@ def _fix_vram(d: Path) -> str:
             f"(original saved as {doctor.live_binary(d)}.vram-backup).")
 
 
+def _fix_backups(d: Path) -> str:
+    moved = backups.migrate(d)
+    if not moved:
+        return "Nothing loose to file."
+    mb = sum(dst.stat().st_size for _, dst in moved) / 1048576
+    return (f"Filed {len(moved)} backup(s), {mb:.0f} MB, into {backups.DIR_NAME}/. "
+            f"Restores still work -- both locations are searched.")
+
+
 def _fix_dekey(d: Path) -> str:
     """Sweep the shipped assets, and verify from the files rather than the tally.
 
@@ -1961,6 +1970,7 @@ def _fix_carlist(d: Path) -> str:
 FIX_ACTIONS = {
     "vram": _fix_vram,
     "dekey": _fix_dekey,
+    "backups": _fix_backups,
     "dpi": _fix_dpi,
     "patch": _fix_patch,
     "wp_logs": lambda d: _fix_writepaths(d, writepaths.LOGS_KIND),
