@@ -5,6 +5,15 @@ units -- confirmed against viper.car, whose file says 3583 lb, 450 hp, 96.2 in
 wheelbase and 47.0 in height, and a real Viper GTS-R is 3,400 lb, 450 hp, 96.2
 in and 47.0 in. So this is a mapping job, not a conversion one.
 
+DECIDED: the authentic figures are what ship. Boosting a car is the editor's
+job, not this script's -- and the editor can do it. The dial editor's slider
+ranges come from the five stock cars, so 57 of the values here sit outside them
+(a 50 hp Beetle against a 180-600 hp range, four gears against five-or-six), but
+those ranges are INFORMATIONAL: they render as a tooltip on a free numeric
+input, deliberately not as a min/max. Nothing is clamped and nothing is silently
+rewritten by opening a converted car. `--compress` stays for anyone who wants a
+raceable field without editing seven cars by hand.
+
 THE HONEST WARNING. The cars Viper Racing ships are not real-world specified:
 
     viper   450 hp / 3,583 lb        exotic  600 hp / 2,460 lb
