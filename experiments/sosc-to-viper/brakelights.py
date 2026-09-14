@@ -32,6 +32,7 @@ guessed pair should not look the same in the output.
 from __future__ import annotations
 
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -144,6 +145,64 @@ def lamp_points(body, textures) -> list[tuple[float, float, float]]:
                                     a * vs[0].y + b * vs[1].y + c * vs[2].y,
                                     a * vs[0].z + b * vs[1].z + c * vs[2].z))
     return pts
+
+
+def measure_from_render(car: Path, prefix: str):
+    """Find the painted lamps in a rendered rear view of the car.
+
+    This replaced a detector that worked in UV space, and the reason is worth
+    keeping: the UV detector had to reason about which texels a face covers and
+    was wrong about the Airhawk's lamps three times running -- too inboard, then
+    too low, then too high. Rendering the car's rear and looking for red in the
+    picture measures the same thing the player sees, in one step, with no UV
+    mapping to get wrong. On the Airhawk it lands on 55-63% of body height,
+    which is exactly between the two wrong answers the UV detector gave.
+
+    Two filters do the work:
+
+      outboard     Only red outside 35% of the half-width. Number plates,
+                   badges and centre reflectors live in the middle.
+      below 70%    Tail lights are never on the roof. Without this the police
+                   car's median lands on its light bar at 91% and its brake
+                   lights end up above the rear window.
+    """
+    import subprocess
+    import numpy as np
+    from PIL import Image
+
+    with tempfile.TemporaryDirectory() as tmp:
+        png = Path(tmp) / "rear.png"
+        r = subprocess.run([sys.executable, "-m", "vrmod.cli", "carshot", str(car),
+                            str(png), "--style", "textured", "--yaw", "0",
+                            "--pitch", "0", "--width", "700", "--height", "500",
+                            "--no-wheels"], cwd=str(ROOT), capture_output=True)
+        if r.returncode or not png.is_file():
+            return None
+        im = np.array(Image.open(png).convert("RGB")).astype(int)
+
+    bg = im[2, 2]
+    solid = ~np.all(im == bg, axis=-1)
+    sy, sx = np.nonzero(solid)
+    if not len(sx):
+        return None
+    x0, x1, y0, y1 = sx.min(), sx.max(), sy.min(), sy.max()
+    half = (x1 - x0) / 2
+    r_, g_, b_ = im[:, :, 0], im[:, :, 1], im[:, :, 2]
+    red = (r_ >= 80) & (g_ <= 60) & (b_ <= 60) & (r_ >= 2.0 * np.maximum(g_, b_).clip(1))
+    ys, xs = np.nonzero(red)
+
+    keep = [(abs(x - (x0 + x1) / 2) / half, (y1 - y) / (y1 - y0))
+            for x, y in zip(xs, ys)
+            if abs(x - (x0 + x1) / 2) > 0.35 * half and (y1 - y) / (y1 - y0) <= 0.70]
+    if len(keep) < 20:
+        return None
+    hs = sorted(h for _, h in keep)
+    outs = sorted(o for o, _ in keep)
+    med = hs[len(hs) // 2]
+    span = max(hs[int(len(hs) * 0.9)] - hs[int(len(hs) * 0.1)], 0.10)
+    return dict(height=med, span=min(span, 0.22),
+                x_in=max(outs[int(len(outs) * 0.05)], 0.30),
+                x_out=min(outs[int(len(outs) * 0.95)], 0.95))
 
 
 def _cluster(points, axis_span=0.30):
@@ -339,14 +398,32 @@ def build_mesh(left: Lamp, right: Lamp, version: int = 1) -> mod.Mesh:
     return mod.Mesh(vertices=verts, materials=mats, faces=faces, version=version)
 
 
+def from_measurement(m, body) -> tuple[Lamp, Lamp]:
+    """Turn render-space fractions into a pair of lamps in car space."""
+    xs = [v.x for v in body.vertices]
+    ys = [v.y for v in body.vertices]
+    half = max(abs(min(xs)), abs(max(xs)))
+    h = max(ys) - min(ys)
+    base = min(ys)
+    lo = base + (m["height"] - m["span"] / 2) * h
+    hi = base + (m["height"] + m["span"] / 2) * h
+    band = [v.z for v in body.vertices if lo - 0.05 <= v.y <= hi + 0.05]
+    z = (min(band) if band else min(v.z for v in body.vertices)) - PROUD
+    return (Lamp(-m["x_out"] * half, -m["x_in"] * half, lo, hi, z),
+            Lamp(m["x_in"] * half, m["x_out"] * half, lo, hi, z))
+
+
 def fit(car: Path, prefix: str, write: bool = True):
     """Refit one car's brake mesh. Returns (how, left, right)."""
     ents, body, textures = load(car, prefix)
-    found = find_lamps(body, textures)
-    how = "fitted"
-    if found is None:
+    measured = measure_from_render(car, prefix)
+    if measured is not None:
+        found = from_measurement(measured, body)
+        how = (f"measured (lamps at {measured['height']:.0%} height, "
+               f"{measured['x_in']:.0%}-{measured['x_out']:.0%} outboard)")
+    else:
         found = fallback_lamps(body)
-        how = "FALLBACK (no convincing pair in the art)"
+        how = "FALLBACK (no lamps visible in a rear view)"
     left, right = found
 
     name = next((n for n in ents if n == f"{prefix}b.mod"), None)
