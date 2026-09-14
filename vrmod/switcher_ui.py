@@ -46,7 +46,7 @@ import threading
 import webbrowser
 from pathlib import Path
 
-from . import aifield, ainames, archive, carshot, cf, doctor, envelope, grf, hornball, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch, headon, drawdistance, writepaths, modassert, carlist
+from . import aifield, ainames, archive, carshot, cf, dekey, doctor, envelope, grf, hornball, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch, headon, drawdistance, writepaths, modassert, carlist
 
 _PAGE = r"""<!doctype html>
 <meta charset="utf-8"><title>Viper Racing -- Mod Manager</title>
@@ -1892,6 +1892,30 @@ def _fix_vram(d: Path) -> str:
             f"(original saved as {doctor.live_binary(d)}.vram-backup).")
 
 
+def _fix_dekey(d: Path) -> str:
+    """Sweep the shipped assets, and verify from the files rather than the tally.
+
+    Scoped to what the game shipped with, like the CLI default: the button sits
+    in a panel the user opened to check their install, not to have a few hundred
+    community cars rewritten. `vrmod dekey --all` is the deliberate version.
+    """
+    reports, skipped = dekey.sweep_tree(d, scope="stock")
+    changed = [r for r in reports if r.lifted]
+    if not changed:
+        return "Nothing to do -- no shipped texture is sitting on the marker."
+    left = sum(dekey.remaining_keys(r.path.read_bytes()) for r in reports)
+    if left:
+        raise RuntimeError(f"swept {len(changed)} files but {left:,} key texels "
+                           f"remain -- nothing was verified, restore from the "
+                           f"{dekey.BACKUP_SUFFIX} files")
+    total = sum(r.lifted for r in changed)
+    tail = (f" {len(skipped)} file(s) the game did not ship with were left alone."
+            if skipped else "")
+    return (f"Lifted {total:,} texels in {len(changed)} file(s); none remain. "
+            f"Originals kept as *{dekey.BACKUP_SUFFIX}, restored by "
+            f"'vrmod dekey --revert'.{tail}")
+
+
 def _fix_dpi(d: Path) -> str:
     return (f"DPI-aware set ({patchset.set_dpi_aware(d)}). Takes effect on the "
             "next launch.")
@@ -1936,6 +1960,7 @@ def _fix_carlist(d: Path) -> str:
 
 FIX_ACTIONS = {
     "vram": _fix_vram,
+    "dekey": _fix_dekey,
     "dpi": _fix_dpi,
     "patch": _fix_patch,
     "wp_logs": lambda d: _fix_writepaths(d, writepaths.LOGS_KIND),

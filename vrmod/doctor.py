@@ -37,7 +37,7 @@ import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import (carlist, mapfile, modassert, patchset, resolution, switcher,
+from . import (carlist, dekey, mapfile, modassert, patchset, resolution, switcher,
                vrampatch, writepaths)
 
 # Severity, worst first. "bad" means the game probably will not run or work
@@ -319,7 +319,13 @@ def leftovers(data_dir: Path) -> list[Path]:
     out: list[Path] = []
     for pattern in LEFTOVER_GLOBS:
         out.extend(p for p in d.glob(pattern) if p.is_file())
-    return sorted(set(out) - {d / patchset.SNAPSHOT})
+    # The sweep's backups are excluded for the same reason as the snapshot: a
+    # whole-install sweep leaves one per file, and "delete any you no longer
+    # need" applied to those is an offer to delete the only way back. They have
+    # their own suffix precisely so this exclusion can be exact, and `vrmod
+    # dekey --revert` is what consumes them.
+    return sorted(set(out) - {d / patchset.SNAPSHOT}
+                  - {p for p in out if p.name.endswith(dekey.BACKUP_SUFFIX)})
 
 
 def check(data_dir: str | Path) -> Report:
@@ -852,6 +858,33 @@ def check(data_dir: str | Path) -> Report:
     add(Finding(OK, f"{len(active)} cars in the game",
                 f"Every .car in the Data folder loads."
                 + (f" {aside} set aside in Disabled/." if aside else "")))
+
+    # ---- the transparency marker -----------------------------------------
+    # Deliberately INFO, never WARN. Every other finding here is an objective
+    # fault: a wrong video mode is wrong on any machine. This one is not -- the
+    # texels are only a defect if the driver keys them, and the same install
+    # renders correctly on an AMD card and with see-through patches on an
+    # Nvidia one. Only the person looking at the screen can tell, so the finding
+    # describes the symptom and offers the fix rather than asserting a problem.
+    try:
+        marked = dekey.affected(data_dir)
+        if marked:
+            names = ", ".join(sorted(p.name for p in marked)[:4])
+            add(Finding(INFO,
+                        f"{len(marked)} shipped files carry the reserved transparency value",
+                        f"A .tex stores RGB565 and raw 0x0000 means \"transparent\". Some "
+                        f"drivers honour that in plain opaque textures too, which shows up as "
+                        f"see-through patches around the cockpit gauges, holes in dark signage, "
+                        f"and gaps on dark car panels -- the stock Viper cockpit is one of them. "
+                        f"Whether you see it depends on your graphics card, so this is only worth "
+                        f"acting on if you do. Affected: {names}"
+                        + (f" and {len(marked) - 4} more." if len(marked) > 4 else "."),
+                        "Nudge those texels to the next value up -- still black on screen, but "
+                        "no longer the marker. Only the files the game shipped with are touched; "
+                        "each is backed up first and the sweep is reversible.",
+                        action="dekey"))
+    except Exception as e:                                   # noqa: BLE001
+        add(Finding(WARN, "Could not scan the textures", f"{type(e).__name__}: {e}"))
 
     # ---- housekeeping ----------------------------------------------------
     junk = leftovers(data_dir)
