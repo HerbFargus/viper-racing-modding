@@ -228,6 +228,44 @@ def main() -> int:
         check("every LOD is a reduction of this body", not wrong,
               "; ".join(wrong[:2]) or f"{len(chain)} meshes in the chain")
 
+        # Brake lights. NOTHING here can be checked by looking: carshot renders
+        # <prefix>0.mod and the wheels, and never draws the brake mesh, so a
+        # render of a car with its lamps buried inside the bodywork looks
+        # perfect. The same blind spot as the backface and UV-wrap ones -- the
+        # only defence is to assert the geometry directly.
+        brake = bodies(car).get(f"{name[:-5]}b.mod") or bodies(car).get(
+            f"{name[:-5]}B.mod")
+        if brake is None:
+            check("the car has a brake mesh", False, "no <prefix>b.mod")
+        else:
+            bz = [v.z for v in brake.vertices]
+            bx = [v.x for v in brake.vertices]
+            by = [v.y for v in brake.vertices]
+            half = max(abs(v.x) for v in mesh.vertices)
+            # Proud of the body AT THE LAMPS' OWN HEIGHT. Measuring against the
+            # car's global rearmost point is what let a real defect through: the
+            # Airhawk's lamps cleared its tail by 12cm on that test while sitting
+            # 12cm INSIDE its bumper, which is where the bodywork actually is at
+            # that height -- brake lights under the bumper, in game.
+            band = [v.z for v in mesh.vertices
+                    if min(by) - 0.05 <= v.y <= max(by) + 0.05]
+            local_tail = min(band) if band else min(v.z for v in mesh.vertices)
+            gap = min(bz) - local_tail
+            check("brake lights sit proud of the body at their own height",
+                  -0.05 <= gap <= 0.02,
+                  f"{gap:+.2f} from the bodywork at lamp height "
+                  f"(donor meshes were -0.19 to +0.09; the first fit was +0.12)")
+            left = [v.x for v in brake.vertices if v.x < 0]
+            right = [v.x for v in brake.vertices if v.x >= 0]
+            check("a lamp on each side, both within the bodywork",
+                  bool(left) and bool(right) and max(abs(x) for x in bx) <= half * 1.05,
+                  f"x {min(bx):.2f}..{max(bx):.2f} against a half-width of {half:.2f}")
+            check("the pair is symmetric",
+                  bool(left) and bool(right)
+                  and abs(abs(min(left)) - max(right)) <= 0.12,
+                  f"outer edges |{min(left):.2f}| and {max(right):.2f}"
+                  if left and right else "one side missing")
+
     print(f"\n{PASS}/{PASS + FAIL} passed")
     return 1 if FAIL else 0
 
