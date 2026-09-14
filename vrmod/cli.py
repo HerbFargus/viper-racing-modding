@@ -12,7 +12,7 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from . import aifield, archive, aspectfix, bpp as bppmod, car, carshot, catalog as catalog_mod, cf, cockpit_tab, doctor, envelope, hornball, mapfile, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon, drawdistance, surface, writepaths, modassert, carlist
+from . import aifield, archive, aspectfix, bpp as bppmod, car, carshot, catalog as catalog_mod, cf, cockpit_tab, dekey, doctor, envelope, hornball, mapfile, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon, drawdistance, surface, writepaths, modassert, carlist
 
 COMMIT_PATH = "/__vrmod_commit__"
 
@@ -1216,6 +1216,23 @@ def main(argv: list[str] | None = None) -> int:
                           help="don't overwrite LOD meshes that already exist (only fill missing) "
                                "-- preserves hand-authored LODs")
 
+    p_dekey = sub.add_parser(
+        "dekey",
+        help="Lift opaque textures off the reserved transparency value (raw RGB565 0x0000), "
+             "which some drivers key even in textures not flagged colorkey -- the cause of "
+             "see-through patches on the cockpit gauges, dark signage and dark car panels. "
+             "Colorkey and alpha textures are left alone; the file is patched in place at "
+             "byte offsets, so nothing else changes",
+    )
+    p_dekey.add_argument("path", type=Path,
+                         help="an install directory, or a single .car/.trk/.res/.tex")
+    p_dekey.add_argument("--dry-run", action="store_true",
+                         help="report what would be lifted, write nothing")
+    p_dekey.add_argument("--no-backup", action="store_true",
+                         help="don't write <name>_original.<ext>.bak beside each changed file")
+    p_dekey.add_argument("--verbose", action="store_true",
+                         help="list every texture, including the ones left alone")
+
     p_modpatch = sub.add_parser(
         "modpatch",
         help="Swap one or more already-edited standalone .mod files into a .car archive by entry name",
@@ -2128,6 +2145,35 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {name}: {vc} verts")
         if not made:
             print("  (nothing generated -- all levels already present and --keep-existing set)")
+    elif args.command == "dekey":
+        reports = dekey.sweep_tree(args.path, dry_run=args.dry_run,
+                                   backup=not args.no_backup)
+        files = [r for r in reports if r.lifted]
+        for r in files:
+            print(f"{r.path.name}: {r.lifted:,} texel(s) in {len(r.changed)} texture(s)"
+                  + (f"  (backup {r.backup.name})" if r.backup else ""))
+            if args.verbose:
+                for t in r.textures:
+                    note = f"left alone -- {t.skipped}" if t.skipped else f"{t.lifted:,} lifted"
+                    print(f"    {t.name:16s} {note}")
+        left = {}
+        for r in reports:
+            for t in r.skipped:
+                left[t.skipped] = left.get(t.skipped, 0) + 1
+        scanned = len(reports)
+        total = sum(r.lifted for r in files)
+        print(f"\n{len(files)}/{scanned} file(s) {'would change' if args.dry_run else 'changed'}, "
+              f"{total:,} texel(s) lifted; left alone: "
+              + (", ".join(f"{n} {k}" for k, n in sorted(left.items())) or "none"))
+        # The count assertion. A sweep that reports success while leaving key
+        # texels behind is the failure mode worth catching, so the check reads
+        # the files back rather than trusting the tally above.
+        if not args.dry_run:
+            stubborn = sum(dekey.remaining_keys(r.path.read_bytes()) for r in reports)
+            print(f"key texels remaining in opaque textures: {stubborn}"
+                  + ("" if stubborn == 0 else "  -- FAILED, the sweep did not finish"))
+            if stubborn:
+                return 1
     elif args.command == "modpatch":
         entries = archive.read(args.car_file)
         edits = {}
