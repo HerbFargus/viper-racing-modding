@@ -51,6 +51,26 @@ sys.path.insert(0, str(ROOT))
 
 from vrmod import archive, cockpit_tab, envelope, mod, tex  # noqa: E402
 
+# The straight-ahead steering sprite for each class. SoSC pre-rendered seven
+# angles (-90 to +90 in 30-degree steps) and swaps them as you steer; Viper does
+# not need them. Its wheel is `Viperw.mod`, a single flat quad at the origin with
+# full-texture UVs that the game places at cockpit.tab's `wheel` point and
+# rotates itself -- structurally the same sprite, rotated smoothly instead of in
+# steps. So one frame is all that transfers.
+#
+# With one caveat that the seven frames exist to avoid: these sprites are
+# CROPPED wheels, cut off square at the bottom edge of the image. SoSC never
+# rotates one, so the crop never shows. Viper rotates the quad rigidly, so at
+# large steering angles that straight edge swings into view. Small inputs look
+# right; full lock will not. Nothing in the source art fixes this -- all seven
+# frames are cropped the same way, and the missing half of the rim was never
+# drawn.
+WHEELS = {
+    "strtrat": "COMP_0~1.BMP", "airhawk": "SED_0~1.BMP", "police": "SED_0~1.BMP",
+    "azzaroni": "SPORT_~1.BMP", "j57": "RACE_0~1.BMP", "hunter": "RACE_0~1.BMP",
+    "hmxvan": "UTIL_0~1.BMP",
+}
+
 PANELS = {
     "strtrat": "COMPF2.BMP", "airhawk": "SEDF2.BMP", "police": "SEDF2.BMP",
     "azzaroni": "SPORTF1.BMP", "j57": "RACEF2.BMP", "hunter": "RACEF2.BMP",
@@ -98,6 +118,49 @@ def tile_textures(im, prefix: str) -> list[tuple[str, bytes]]:
     return out
 
 
+def wheel_texture(im, prefix: str):
+    """The steering sprite as a colorkey .tex, cyan keyed out.
+
+    Colorkey rather than the flags=0x03 alpha the stock wheel uses: 0x03 is a
+    four-byte-per-pixel format, and writing ARGB4444 under it hands the game
+    half the data it expects and panics the loader. Hard-edged transparency is
+    what the source has anyway -- it is a colour key in SoSC too.
+    """
+    from PIL import Image
+    page = Image.new("RGB", (TILE_PX, TILE_PX), (0, 255, 255))
+    fitted = im.resize((TILE_PX, TILE_PX), Image.NEAREST)
+    page.paste(fitted, (0, 0))
+    rgba = bytearray()
+    for (r, g, b) in page.getdata():
+        a = 0 if (r < 60 and g > 200 and b > 200) else 255
+        rgba += bytes((r, g, b, a))
+    return f"{prefix}w.tex", tex.encode_to_tex(bytes(rgba), TILE_PX,
+                                               mode="colorkey", wrap=1)
+
+
+def build_wheel_mesh(name: str, src_w: int, src_h: int, version: int = 1) -> mod.Mesh:
+    """A quad at the ORIGIN, like the stock wheel -- the game moves and turns it.
+
+    Sized from the sprite's own proportions against the dash panel, so the wheel
+    keeps the size relationship it has in the original: a SED wheel is 392 of the
+    panel's 640 pixels wide, and the panel spans 1.50 units here, so the wheel is
+    0.92 units across. Guessing a size would be guessing the one thing the source
+    art actually tells us.
+    """
+    span = PANEL_X[1] - PANEL_X[0]
+    w = span * (src_w / 640.0)
+    h = span * (src_h / 640.0)
+    hw, hh = w / 2, h / 2
+    verts = [mod.Vertex(x=hw, y=hh, z=0.001, nx=0.0, ny=0.0, nz=-1.0, u=1.0, v=0.0),
+             mod.Vertex(x=-hw, y=hh, z=0.001, nx=0.0, ny=0.0, nz=-1.0, u=0.0, v=0.0),
+             mod.Vertex(x=-hw, y=-hh, z=0.001, nx=0.0, ny=0.0, nz=-1.0, u=0.0, v=1.0),
+             mod.Vertex(x=hw, y=-hh, z=0.001, nx=0.0, ny=0.0, nz=-1.0, u=1.0, v=1.0)]
+    faces = [(0, 1, 2), (0, 2, 3)]
+    return mod.Mesh(vertices=verts,
+                    materials=[mod.Material(name, 0, 4, 0, 2)],
+                    faces=faces, version=version)
+
+
 def build_panel_mesh(tiles, version: int = 1) -> mod.Mesh:
     """One quad per tile, side by side, facing the driver."""
     verts, faces, mats = [], [], []
@@ -139,9 +202,23 @@ def fit(car: Path, prefix: str, panels_dir: Path, base_car: Path) -> str:
     entries = archive.upsert_entry(entries, f"{prefix}c.mod", mod.build(mesh))
     for name, raw, _w, _h in tiles:
         entries = archive.upsert_entry(entries, name, raw)
+
+    # the steering wheel, if this class has one
+    wheel_note = ""
+    src = panels_dir.parent / "steer" / WHEELS.get(prefix, "")
+    if src.is_file():
+        wim = load_panel(src)
+        wname, wraw = wheel_texture(wim, prefix[:3])
+        wmesh = build_wheel_mesh(wname, wim.width, wim.height)
+        entries = archive.upsert_entry(entries, f"{prefix}w.mod", mod.build(wmesh))
+        entries = archive.upsert_entry(entries, wname, wraw)
+        span = PANEL_X[1] - PANEL_X[0]
+        wheel_note = (f", wheel {WHEELS[prefix]} "
+                      f"({wim.width}x{wim.height} -> {span*wim.width/640:.2f} wide)")
+
     archive.write(entries, car)
     return (f"{PANELS[prefix]} -> {TILES} tiles ({im.width}x{im.height}), "
-            f"panel at z {PANEL_Z}, y {PANEL_TOP:.2f} down")
+            f"panel at z {PANEL_Z}, y {PANEL_TOP:.2f} down{wheel_note}")
 
 
 def main() -> int:
