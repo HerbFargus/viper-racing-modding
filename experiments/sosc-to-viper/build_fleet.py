@@ -27,7 +27,7 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(ROOT))
 
 from build_car import build                        # noqa: E402
-from vrmod import car                              # noqa: E402
+from vrmod import archive, car                     # noqa: E402
 
 # model in SIM3D2.MAX, output prefix, short texture code, donor car, and the
 # real car it resembles
@@ -37,14 +37,27 @@ from vrmod import car                              # noqa: E402
 # The codes are distinct across the fleet, not just within each car: all seven
 # cars sit in the same Data/ directory, so two of them naming a texture the same
 # thing would be one overwriting the other.
+# The DISPLAY name is the car's name in Streets of SimCity, not the real car it
+# is modelled on: these are the badges that game gave them, and they are what
+# somebody who played it will recognise. Without setting it a converted car
+# wears its donor's name -- five of the seven showed up in the menu as "Exotic
+# Car" or "Sports Sedan". The field stores 32 characters and the car-select
+# menu shows about 24, so all of these fit comfortably.
 FLEET = [
-    ("STREETS_FERRARI", "azzaroni", "azz", "exotic.car", "Ferrari 250 GT"),
-    ("STREETS_GT40",    "j57",      "j57", "exotic.car", "1966 Ford GT40"),
-    ("STREETS_BUG",     "strtrat",  "str", "sedan.car",  "Volkswagen Beetle"),
-    ("STREETS_UTILITY", "hmxvan",   "hmx", "4x4cos.car", "1973 GMC C-Series"),
-    ("STREETS_JAVELIN", "airhawk",  "ahk", "exotic.car", "1969 Chevrolet Camaro"),
-    ("STREETS_HUNTER",  "hunter",   "hun", "4x4cos.car", "-"),
-    ("STREETSCAR6",     "police",   "pol", "sedan.car",  "1985 Oldsmobile Cutlass"),
+    ("STREETS_FERRARI", "azzaroni", "azz", "exotic.car", "Azzaroni",
+     "Ferrari 250 GT"),
+    ("STREETS_GT40",    "j57",      "j57", "exotic.car", "J57",
+     "1966 Ford GT40"),
+    ("STREETS_BUG",     "strtrat",  "str", "sedan.car",  "Street Rat",
+     "Volkswagen Beetle"),
+    ("STREETS_UTILITY", "hmxvan",   "hmx", "4x4cos.car", "HMX Utility Van",
+     "1973 GMC C-Series"),
+    ("STREETS_JAVELIN", "airhawk",  "ahk", "exotic.car", "Airhawk",
+     "1969 Chevrolet Camaro"),
+    ("STREETS_HUNTER",  "hunter",   "hun", "4x4cos.car", "Hunter",
+     "-"),
+    ("STREETSCAR6",     "police",   "pol", "sedan.car",  "Police Car",
+     "1985 Oldsmobile Cutlass"),
 ]
 
 
@@ -60,7 +73,7 @@ def main() -> int:
             raise SystemExit(f"missing {p}")
     out.mkdir(parents=True, exist_ok=True)
 
-    codes = [c for _, _, c, _, _ in FLEET]
+    codes = [c for _, _, c, _, _, _ in FLEET]
     if len(set(codes)) != len(codes):
         raise SystemExit(f"texture codes are not unique: {codes}")
 
