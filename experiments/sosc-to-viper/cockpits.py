@@ -92,8 +92,23 @@ TILE_PX = 256
 # 640x192 image in a 640x480 frame is exactly the bottom 40% of the screen.
 CAMERA = (-0.408, 0.906, -0.791)      # cockpit.tab's own camera record
 GAUGE_Z = -0.14                       # the plane the needle pivots sit on
-FOV_H = 77.0                          # degrees, derived from the stock dash
-SCREEN_ASPECT = 4 / 3
+
+# MEASURED from a screenshot rather than estimated. The 77-degree figure guessed
+# from the stock dash put the panel's top edge at 65% of the frame when it was
+# designed for 60%, and that discrepancy solves the camera exactly: a top edge
+# 6.7 degrees below the horizon landing 30% of a half-height down gives a
+# vertical half-FOV of 21.3 degrees.
+#
+# SCREEN_ASPECT was the bigger error. It was set to 4:3 because that is what the
+# GAME is, but the frame it renders into is whatever the install is patched to --
+# 1920x1080 here, so 16:9. Too small an aspect makes half_h too large, which
+# pushed 26% of the panel below the bottom of the screen: PRNDL21 sat on the
+# edge with dash still to come underneath.
+#
+# These two are display-dependent, not game-dependent. A 4:3 install wants
+# SCREEN_ASPECT = 4/3, and the horizontal FOV follows from it.
+FOV_V = 42.6                          # degrees, measured
+SCREEN_ASPECT = 16 / 9                # the frame, not the game
 PANEL_SCREEN_FRACTION = 0.40          # bottom 40%, as in SoSC
 
 
@@ -106,8 +121,8 @@ def panel_box(aspect: float):
     """
     import math
     d = GAUGE_Z - CAMERA[2]
-    half_w = math.tan(math.radians(FOV_H / 2)) * d
-    half_h = half_w / SCREEN_ASPECT
+    half_h = math.tan(math.radians(FOV_V / 2)) * d
+    half_w = half_h * SCREEN_ASPECT
     width = 2 * half_w
     height = width * aspect
     bottom = CAMERA[1] - half_h                      # the bottom of the screen
