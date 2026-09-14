@@ -235,8 +235,18 @@ def _place(lamp: Lamp, body) -> Lamp:
     mid = base + (b["y_lo"] + b["y_hi"]) / 2 * h
     t = b["min_h"] * h
     lo = mid - t
+
+    # Depth: sit proud of however far back the BODY reaches at the lamps' own
+    # height, not at the z the texels were found at. The Airhawk's lamp texels
+    # are at z -2.02 while its bumper reaches -2.14, so using the detected z put
+    # the quads 12cm inside the bodywork -- in game, brake lights under the
+    # bumper. Measuring at the lamp's height rather than globally matters too: a
+    # rear wing or a spare wheel is the rearmost point of some cars and would
+    # leave the lamps floating in mid-air behind the tail.
+    band = [v.z for v in body.vertices if lo - 0.05 <= v.y <= lo + 2 * t + 0.05]
+    z = (min(band) if band else min(v.z for v in body.vertices)) - PROUD
     return Lamp(min(sign * inner, sign * outer), max(sign * inner, sign * outer),
-                lo, lo + 2 * t, lamp.z)
+                lo, lo + 2 * t, z)
 
 
 def find_lamps(body, textures):
@@ -296,7 +306,12 @@ def fallback_lamps(body):
     y1 = min(ys) + b["y_hi"] * h
     mid = (y0 + y1) / 2
     t = b["min_h"] * h
-    z = min(zs)
+    # Same depth rule as a fitted lamp: proud of the body AT THIS HEIGHT, not at
+    # the car's rearmost point anywhere. The Hunter's tail reaches 12cm further
+    # back somewhere other than its lamp band, so the global minimum left its
+    # lights hanging in mid-air behind the truck.
+    band = [v.z for v in body.vertices if mid - t - 0.05 <= v.y <= mid + t + 0.05]
+    z = (min(band) if band else min(zs)) - PROUD
     return (Lamp(-half * b["x_out"], -half * b["x_in"], mid - t, mid + t, z),
             Lamp(half * b["x_in"], half * b["x_out"], mid - t, mid + t, z))
 

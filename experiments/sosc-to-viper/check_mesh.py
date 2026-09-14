@@ -240,14 +240,21 @@ def main() -> int:
         else:
             bz = [v.z for v in brake.vertices]
             bx = [v.x for v in brake.vertices]
-            body_tail = min(v.z for v in mesh.vertices)
+            by = [v.y for v in brake.vertices]
             half = max(abs(v.x) for v in mesh.vertices)
-            # On the tail, not inside it and not trailing in mid-air. The donor's
-            # unfitted mesh sat 19cm inside the Airhawk and 9cm behind the Beetle.
-            gap = min(bz) - body_tail
-            check("brake lights sit on the car's own tail", -0.02 <= gap <= 0.12,
-                  f"{gap:+.2f} from the body's rearmost point "
-                  f"(inherited donor meshes were -0.19 to +0.09 out)")
+            # Proud of the body AT THE LAMPS' OWN HEIGHT. Measuring against the
+            # car's global rearmost point is what let a real defect through: the
+            # Airhawk's lamps cleared its tail by 12cm on that test while sitting
+            # 12cm INSIDE its bumper, which is where the bodywork actually is at
+            # that height -- brake lights under the bumper, in game.
+            band = [v.z for v in mesh.vertices
+                    if min(by) - 0.05 <= v.y <= max(by) + 0.05]
+            local_tail = min(band) if band else min(v.z for v in mesh.vertices)
+            gap = min(bz) - local_tail
+            check("brake lights sit proud of the body at their own height",
+                  -0.05 <= gap <= 0.02,
+                  f"{gap:+.2f} from the bodywork at lamp height "
+                  f"(donor meshes were -0.19 to +0.09; the first fit was +0.12)")
             left = [v.x for v in brake.vertices if v.x < 0]
             right = [v.x for v in brake.vertices if v.x >= 0]
             check("a lamp on each side, both within the bodywork",
