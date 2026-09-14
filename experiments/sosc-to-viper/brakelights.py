@@ -171,23 +171,72 @@ def _mirror(lamp: Lamp) -> Lamp:
     return Lamp(-lamp.x1, -lamp.x0, lamp.y0, lamp.y1, lamp.z)
 
 
-def _expand(lamp: Lamp, body) -> Lamp:
-    """Give a found lamp a visible size, keeping the position the art gave it.
+# Where the five shipped cars put their lamps, as a fraction of their own body.
+# They agree closely, which is what makes this usable as a rule rather than as
+# one car's habit:
+#
+#     viper   height 40..74%   outboard 35..95%
+#     exotic  height 44..80%   outboard 32..86%
+#     sedan   height 39..70%   outboard 36..98%
+#     4x4cos  height 46..65%   outboard 42..79%
+#     sports  height 45..83%   outboard 36..98%
+# ...but the SoSC bodies do not wear them there. Rendering the brake mesh merged
+# into the body -- the only way to see it, since carshot never draws b.mod --
+# shows the painted lamps sitting LOW on these cars, just above the bumper:
+# roughly 45% of body height on the Airhawk, 20% on the Ferrari, 25% on the
+# Beetle. So the vertical band is taken from the converted cars themselves and
+# the horizontal one from the shipped cars, which agree closely enough to trust.
+LAMP_BAND = dict(y_lo=0.24, y_hi=0.58, x_in=0.34, x_out=0.95, min_w=0.28,
+                 min_h=0.12)
 
-    What the texels locate well is WHERE the lamp is; what they bound badly is
-    how big it is, because only the columns of the panel that happen to map to
-    the lamp show up -- the police car's came out 1cm wide. So the centre is
-    taken from the art and the extent from the proportions the shipped cars use.
+
+def _place(lamp: Lamp, body) -> Lamp:
+    """Fit a detected lamp into the envelope the shipped cars use.
+
+    The texels locate a lamp's HEIGHT well -- that is where the red is -- and
+    bound its width badly, because only the columns of panel that happen to map
+    to it show up: the police car's came out 1cm wide. Worse, a detection can be
+    confidently wrong about x. On the Airhawk the cluster ran from 19% to 69% of
+    the half-width, which put the inner edge of each lamp in the number-plate
+    recess, and that is exactly where they appeared in game.
+
+    So the detection is CONSTRAINED rather than trusted: it keeps whatever falls
+    inside the band above and is slid out to the band's edge where it does not.
+    A car whose art genuinely disagrees with every car the game shipped is more
+    likely a bad detection than a bad car.
     """
     xs = [v.x for v in body.vertices]
     ys = [v.y for v in body.vertices]
     half = max(abs(min(xs)), abs(max(xs)))
     h = max(ys) - min(ys)
-    cx = (lamp.x0 + lamp.x1) / 2
-    cy = (lamp.y0 + lamp.y1) / 2
-    w = max(lamp.width, 0.30 * half) / 2
-    t = max(lamp.height, 0.09 * h) / 2
-    return Lamp(cx - w, cx + w, cy - t, cy + t, lamp.z)
+    base = min(ys)
+    b = LAMP_BAND
+
+    # X comes from the band, NOT from the detection. The texels bound a lamp
+    # horizontally only as well as the panel's UV columns happen to line up with
+    # it, and on the Airhawk that produced an inner edge at 19% of the
+    # half-width -- lamps sitting on the number plate, which is exactly where
+    # they turned up in game. Constraining that to 32% still left them inboard
+    # of the real ones. Five shipped cars agree on 32-98%, so the proportion is
+    # better evidence than this detector's x has ever been.
+    #
+    # Height is the opposite case: the detector put the Airhawk's lamps at
+    # 64-76%, and rendering the brake mesh merged into the body (the only way to
+    # see it at all, since carshot never draws b.mod) confirms the painted lamps
+    # really are about two thirds up the panel. So height is kept.
+    inner = b["x_in"] * half
+    outer = b["x_out"] * half
+    sign = -1.0 if (lamp.x0 + lamp.x1) < 0 else 1.0
+
+    # Height is taken from the band as well. The detector put the Airhawk's
+    # lamps at 64-76% and the render says they are nearer 45%, so it is no more
+    # reliable vertically than horizontally -- what the detection is still good
+    # for is saying WHETHER a car has painted lamps at all.
+    mid = base + (b["y_lo"] + b["y_hi"]) / 2 * h
+    t = b["min_h"] * h
+    lo = mid - t
+    return Lamp(min(sign * inner, sign * outer), max(sign * inner, sign * outer),
+                lo, lo + 2 * t, lamp.z)
 
 
 def find_lamps(body, textures):
@@ -226,7 +275,7 @@ def find_lamps(body, textures):
     half = max(abs(min(xs)), abs(max(xs)))
     if min(cx_l, cx_r) < 0.25 * half:
         return None
-    return _expand(left, body), _expand(right, body)
+    return _place(left, body), _place(right, body)
 
 
 def fallback_lamps(body):
@@ -240,11 +289,16 @@ def fallback_lamps(body):
     zs = [v.z for v in body.vertices]
     half = max(abs(min(xs)), abs(max(xs)))
     h = max(ys) - min(ys)
-    y0 = min(ys) + 0.21 * h
-    y1 = min(ys) + 0.39 * h
+    b = LAMP_BAND
+    # The same envelope a detected lamp is held to, so a fallback and a fit
+    # differ in WHERE they came from, not in what shape they can be.
+    y0 = min(ys) + b["y_lo"] * h
+    y1 = min(ys) + b["y_hi"] * h
+    mid = (y0 + y1) / 2
+    t = b["min_h"] * h
     z = min(zs)
-    return (Lamp(-half * 1.00, -half * 0.40, y0, y1, z),
-            Lamp(half * 0.40, half * 1.00, y0, y1, z))
+    return (Lamp(-half * b["x_out"], -half * b["x_in"], mid - t, mid + t, z),
+            Lamp(half * b["x_in"], half * b["x_out"], mid - t, mid + t, z))
 
 
 def build_mesh(left: Lamp, right: Lamp, version: int = 1) -> mod.Mesh:
