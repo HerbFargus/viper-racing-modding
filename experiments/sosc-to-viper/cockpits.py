@@ -201,8 +201,14 @@ def build_panel_mesh(tiles, version: int = 1) -> mod.Mesh:
         base = len(verts)
         for (x, y, u, v) in ((cut, y1, 0.0, 0.0), (cut, y0, 0.0, v1),
                              (cut + span, y1, u1, 0.0), (cut + span, y0, u1, v1)):
+            # V grows DOWNWARD -- v=0 is the TOP of the texture. Checked
+            # against the stock brake lamp quad, whose top vertex (y 0.815)
+            # carries v 0.383 and whose bottom (y 0.442) carries v 0.480.
+            # Storing 1.0 - v instead, which is what this did first, turns every
+            # panel upside down: the black lower dash renders across the top of
+            # the quad and PRNDL21 reads mirrored along the bottom edge.
             verts.append(mod.Vertex(x=x, y=y, z=panel_z, nx=0.0, ny=0.0, nz=-1.0,
-                                    u=u, v=1.0 - v))
+                                    u=u, v=v))
         fstart = len(faces)
         faces += [(base + 2, base + 1, base), (base + 1, base + 2, base + 3)]
         mats.append(mod.Material(name, base, len(verts), fstart, len(faces)))

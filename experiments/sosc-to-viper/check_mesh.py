@@ -238,6 +238,25 @@ def main() -> int:
         check("the car has its own name in the menu",
               bool(shown) and shown not in donors,
               f"{shown!r}" + (" -- this is a donor's name" if shown in donors else ""))
+        # V grows DOWNWARD in this format: v=0 is the TOP of a texture. The
+        # stock brake lamp proves it -- its top vertex (y 0.815) carries v 0.383
+        # and its bottom (y 0.442) carries v 0.480. Getting it backwards renders
+        # a flat panel upside down: on the first cockpit build the black lower
+        # dash filled the top of the quad and PRNDL21 read mirrored along the
+        # bottom edge. Nothing local renders a cockpit, so this is the only way
+        # to catch it before somebody sits in the car.
+        flipped = []
+        for member, m in sorted(bodies(car).items()):
+            if len(m.faces) > 8:            # flat billboards only
+                continue
+            if len({round(v.y, 3) for v in m.vertices}) < 2:
+                continue
+            hi = max(m.vertices, key=lambda v: v.y)
+            lo = min(m.vertices, key=lambda v: v.y)
+            if hi.v > lo.v + 1e-6:
+                flipped.append(f"{member} (top v {hi.v:.2f} > bottom {lo.v:.2f})")
+        check("flat panels are not upside down", not flipped,
+              "; ".join(flipped[:2]) or "top vertices carry the smaller v")
 
         # Brake lights. NOTHING here can be checked by looking: carshot renders
         # <prefix>0.mod and the wheels, and never draws the brake mesh, so a
