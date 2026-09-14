@@ -1232,9 +1232,12 @@ def main(argv: list[str] | None = None) -> int:
                          help="include community cars and tracks, not just the assets the "
                               "game shipped with (naming a single file always sweeps it)")
     p_dekey.add_argument("--no-backup", action="store_true",
-                         help="don't write <name>_original.<ext>.bak beside each changed file")
+                         help=f"don't write <name>{dekey.BACKUP_SUFFIX} beside each changed file")
     p_dekey.add_argument("--verbose", action="store_true",
                          help="list every texture, including the ones left alone")
+    p_dekey.add_argument("--revert", action="store_true",
+                         help=f"restore every file from its {dekey.BACKUP_SUFFIX} and remove "
+                              f"the backups, undoing a previous sweep")
 
     p_modpatch = sub.add_parser(
         "modpatch",
@@ -2149,6 +2152,13 @@ def main(argv: list[str] | None = None) -> int:
         if not made:
             print("  (nothing generated -- all levels already present and --keep-existing set)")
     elif args.command == "dekey":
+        if args.revert:
+            restored = dekey.revert(args.path)
+            for target, _ in restored:
+                print(f"restored {target.name}")
+            print(f"\n{len(restored)} file(s) restored" if restored else
+                  f"nothing to restore -- no *{dekey.BACKUP_SUFFIX} under {args.path}")
+            return 0
         reports, out_of_scope = dekey.sweep_tree(
             args.path, dry_run=args.dry_run, backup=not args.no_backup,
             scope="all" if args.all else "stock")

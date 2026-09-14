@@ -52,6 +52,7 @@ from . import archive, envelope, tex
 KEY_RAW = 0x0000
 NUDGE_RAW = 0x0040          # decodes to (0, 8, 0): still black on screen
 RESERVED_HEAD = 0x3C        # of the pixel data; see module docstring
+BACKUP_SUFFIX = ".dekey-backup"
 
 # Where a .tex's pixel data starts inside a standalone file or an archive
 # payload: past the 0SER envelope, past the tex header, past the reserved block.
@@ -184,12 +185,16 @@ def sweep_file(path: Path, *, dry_run: bool = False,
         raise RuntimeError(f"{path.name}: size changed {len(data)} -> {len(out)}; "
                            "refusing to write")
     if backup:
-        # ".bak" so the backup is not itself a loadable game file: the engine
-        # scans Data/ and loads every *.car and *.trk, deriving member names
-        # from the filename, so a "viper_original.car" makes it hunt for
-        # "viper_original0.mod" and panic.
-        report.backup = _unique(path.with_name(
-            f"{path.stem}_original{path.suffix}.bak"))
+        # A suffix of its own, alongside .vram-backup / .sky-backup / .map-backup,
+        # for two reasons. It is not a loadable game file -- the engine scans
+        # Data/ and loads every *.car and *.trk, deriving member names from the
+        # filename, so a "viper_original.car" makes it hunt for
+        # "viper_original0.mod" and panic. And it is DISTINGUISHABLE: doctor's
+        # leftover check offers to delete "*.bak" and "*_original.*", which for
+        # a whole-install sweep would be an offer to delete the only undo, and
+        # revert() needs to know which backup belongs to which file without
+        # guessing.
+        report.backup = _unique(path.with_name(path.name + BACKUP_SUFFIX))
         shutil.copy2(path, report.backup)
     path.write_bytes(out)
     return report
@@ -231,15 +236,84 @@ def sweep_tree(root: Path, *, dry_run: bool = False, backup: bool = True,
     return out, skipped
 
 
+def has_keys(data: bytes) -> bool:
+    """Whether anything in this file would be swept -- stopping at the first hit.
+
+    Separate from remaining_keys() because the two answer different questions at
+    very different prices. A verification pass has to count every one. Doctor
+    only has to know IF, and it runs on every open of the app against a Data
+    folder that may hold hundreds of community cars and several gigabytes: an
+    affected file answers on its first texel, so the cost falls back to the
+    files that are already clean.
+    """
+    try:
+        spans = _tex_spans(data)
+    except ValueError:
+        return False
+    for _, off, size in spans:
+        if data[off] != 0x00:
+            continue
+        for i in range(off + PIXELS_AT, off + size - 1, 2):
+            if data[i] == 0 and data[i + 1] == 0:
+                return True
+    return False
+
+
+def affected(root: Path, scope: str = "stock") -> list[Path]:
+    """Files in scope that still carry key texels."""
+    root = Path(root)
+    out = []
+    for p in sorted(root.rglob("*")):
+        if (not p.is_file() or p.suffix.lower() not in SWEPT_SUFFIXES + (".tex",)
+                or p.name.endswith(BACKUP_SUFFIX)):
+            continue
+        if scope == "stock" and p.name.lower() not in RETAIL_ASSETS:
+            continue
+        try:
+            if has_keys(p.read_bytes()):
+                out.append(p)
+        except (ValueError, OSError):
+            continue
+    return out
+
+
+def backups(root: Path) -> list[Path]:
+    root = Path(root)
+    if root.is_file():
+        root = root.parent
+    return sorted(p for p in root.rglob("*" + BACKUP_SUFFIX) if p.is_file())
+
+
+def revert(root: Path) -> list[tuple[Path, Path]]:
+    """Restore every swept file from its backup. Returns [(restored, backup)].
+
+    The backup is removed once its contents are back in place: leaving it would
+    mean a second revert silently restoring a file that is already original, and
+    the whole point of the dedicated suffix is that what remains on disk says
+    truthfully whether there is anything to undo.
+    """
+    done = []
+    for b in backups(root):
+        target = b.with_name(b.name[:-len(BACKUP_SUFFIX)])
+        shutil.copy2(b, target)
+        b.unlink()
+        done.append((target, b))
+    return done
+
+
+def _tex_spans(data: bytes) -> list[tuple[str, int, int]]:
+    """Texture payload spans, whether `data` is an archive or a lone .tex."""
+    if data[0:4] == envelope.MAGIC:
+        return [("(standalone)", envelope.SIZE, len(data) - envelope.SIZE)]
+    return [s for s in payload_spans(data) if s[0].lower().endswith(".tex")]
+
+
 def remaining_keys(data: bytes) -> int:
     """Key texels still present in opaque textures -- the verification a sweep
     has to satisfy, counted from the file rather than from the sweep's own
     tally."""
     total = 0
-    spans = ([("(standalone)", envelope.SIZE, len(data) - envelope.SIZE)]
-             if data[0:4] == envelope.MAGIC
-             else [s for s in payload_spans(data) if s[0].lower().endswith(".tex")])
-    for _, off, size in spans:
+    for _, off, size in _tex_spans(data):
         if data[off] != 0x00:
             continue
         for i in range(off + PIXELS_AT, off + size - 1, 2):

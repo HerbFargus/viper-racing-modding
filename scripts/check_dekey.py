@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from vrmod import archive, dekey, envelope, tex  # noqa: E402
+from vrmod import archive, dekey, doctor, envelope, switcher_ui, tex  # noqa: E402
 
 PASS = FAIL = 0
 
@@ -190,6 +190,50 @@ def main() -> int:
         dekey.sweep_tree(fresh, backup=False, scope="stock")
         check("naming a non-stock file directly sweeps it anyway",
               fresh.read_bytes() != was, "scope is a default, not a restriction")
+
+    # --- doctor integration ---------------------------------------------------
+    with tempfile.TemporaryDirectory() as tmp:
+        work = Path(tmp)
+        for p in originals:
+            shutil.copy2(p, work / p.name)
+        pristine = {p.name: (work / p.name).read_bytes() for p in originals}
+
+        before = dekey.affected(work)
+        fired = [f for f in doctor.check(work).findings if f.action == "dekey"]
+        check("doctor raises the finding while texels are on the marker",
+              len(fired) == 1 and fired[0].level == doctor.INFO,
+              f"{len(before)} affected files, level "
+              f"{fired[0].level if fired else '-'}")
+        # INFO and not WARN on purpose: the texels are only a defect if the
+        # driver keys them, and the same install is correct on an AMD card.
+        # A warning would be a false alarm on every machine that is fine.
+        check("the finding offers a fix the UI can actually run",
+              bool(fired) and fired[0].action in switcher_ui.FIX_ACTIONS,
+              f"action={fired[0].action if fired else None!r}")
+
+        reports, _ = dekey.sweep_tree(work, scope="stock")
+        after = [f for f in doctor.check(work).findings if f.action == "dekey"]
+        check("and stops raising it once swept", not after,
+              f"{sum(r.lifted for r in reports):,} lifted, "
+              f"{len(dekey.affected(work))} affected afterwards")
+
+        # The conflict this naming exists to avoid: doctor's housekeeping
+        # finding offers to delete "*.bak" and "*_original.*", and a sweep
+        # leaves one backup per file. Offering to delete the only way back is
+        # worse than leaving them unmentioned.
+        baks = dekey.backups(work)
+        check("doctor does not offer to delete the sweep's backups",
+              len(baks) > 0 and not any(p in baks for p in doctor.leftovers(work)),
+              f"{len(baks)} backups on disk, "
+              f"{len(doctor.leftovers(work))} counted as leftovers")
+
+        restored = dekey.revert(work)
+        exact = sum(1 for p in originals
+                    if (work / p.name).read_bytes() == pristine[p.name])
+        check("revert puts every byte back", exact == len(originals),
+              f"{len(restored)} restored, {exact}/{len(originals)} byte-identical")
+        check("revert consumes the backups", not dekey.backups(work),
+              "nothing left to suggest an undo is still available")
 
     print(f"\n{PASS}/{PASS + FAIL} passed")
     return 1 if FAIL else 0
