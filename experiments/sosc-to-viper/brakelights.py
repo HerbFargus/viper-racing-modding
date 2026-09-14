@@ -228,13 +228,21 @@ def _place(lamp: Lamp, body) -> Lamp:
     outer = b["x_out"] * half
     sign = -1.0 if (lamp.x0 + lamp.x1) < 0 else 1.0
 
-    # Height is taken from the band as well. The detector put the Airhawk's
-    # lamps at 64-76% and the render says they are nearer 45%, so it is no more
-    # reliable vertically than horizontally -- what the detection is still good
-    # for is saying WHETHER a car has painted lamps at all.
-    mid = base + (b["y_lo"] + b["y_hi"]) / 2 * h
-    t = b["min_h"] * h
-    lo = mid - t
+    # Height DOES come from the detection. This flip-flopped once: the detector
+    # put the Airhawk's lamps at 64-76% of body height, a render was misread as
+    # saying 45%, the band was lowered to match, and in game the lights came out
+    # sitting on the bumper. The detector was right. Reading a small grey quad's
+    # height off a 240px render is simply less reliable than the texels, which
+    # are the art itself -- so the texels win, and the band only has to serve
+    # cars where no lamps were found at all.
+    #
+    # Heights genuinely differ per car: the Airhawk carries its lamps high on a
+    # fastback tail, the Beetle and Ferrari low. One band cannot serve both,
+    # which is why the band is the fallback and not the rule.
+    cy = (lamp.y0 + lamp.y1) / 2
+    t = max(lamp.height, b["min_h"] * h) / 2
+    cy = min(max(cy, base + 0.18 * h), base + 0.88 * h)
+    lo = cy - t
 
     # Depth: sit proud of however far back the BODY reaches at the lamps' own
     # height, not at the z the texels were found at. The Airhawk's lamp texels
