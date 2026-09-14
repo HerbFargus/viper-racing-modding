@@ -35,7 +35,7 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(ROOT))
 
 from max2obj import models, read_model            # noqa: E402
-from vrmod import archive, envelope, mod          # noqa: E402
+from vrmod import archive, envelope, mod, tex     # noqa: E402
 
 USAGE = ("build_car.py <MAX> <MODEL> <SIM3D.BMP> <donor.car> <out_dir> "
          "<prefix> [code]")
@@ -263,7 +263,7 @@ def tga_solid(rgb, size: int = 8) -> bytes:
     something to sample. Eight pixels square is the smallest that still survives
     mipmapping without drawing attention to itself.
     """
-    r, g, b = rgb
+    r, g, b = unkey(rgb)
     header = bytes([0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0]) + \
         struct.pack("<HHBB", size, size, 24, 0)
     return header + bytes([b, g, r]) * (size * size)
@@ -299,13 +299,83 @@ def atlas(bmp: Path):
     return out
 
 
+def unkey(rgb):
+    """Lift a pixel off the transparency marker.
+
+    A .tex stores RGB565, and raw value 0x0000 is reserved: it means "this
+    pixel is transparent". Any colour whose three channels all quantise to
+    zero -- not just literal black, anything under (8, 8, 8) -- lands on it.
+    `mktex.exe` nudges such a pixel to 0x0040, the green field's low bit, which
+    is the smallest perturbation that misses the marker; vrmod's encoder does
+    the same but only for textures flagged colorkey, so an opaque skin keeps
+    its zeros.
+
+    This matters because the marker is honoured whether or not the flag says
+    so. It shows on a stock Viper cockpit as speckled see-through patches
+    around the gauges, so it is the engine's behaviour rather than anything
+    this conversion introduced -- but a converted car has no reason to hand it
+    the trigger. 12-14% of the drawn faces on these cars sample a texel this
+    dark.
+    """
+    r, g, b = rgb
+    return (r, 8, b) if (r < 8 and g < 8 and b < 8) else rgb
+
+
+def sanitise_textures(unpacked: Path) -> int:
+    """Lift every opaque texture in the car off the transparency marker.
+
+    The generated skins are handled at source by `unkey`, but a forked car also
+    inherits the donor's own textures -- `Exotic.tex` alone carries 5,817 texels
+    at raw 0x0000 -- and those are drawn too. Re-encoding rebuilds the whole mip
+    chain, so a level that averaged down onto the marker is fixed as well.
+
+    Only `flags == 0x00` textures are touched. In an alpha texture (0x02/0x03)
+    the same bytes are ARGB4444, where an all-zero pixel is a legitimately
+    transparent one, and "fixing" it would make the donor's tinted glass solid.
+    """
+    lifted = 0
+    for path in sorted(unpacked.glob("*.tex")):
+        blob = path.read_bytes()
+        try:
+            info = tex.parse(blob)
+        except Exception:
+            continue
+        if info.flags != 0x00:
+            continue
+        px = bytearray(tex.decode_base_level(info))
+        hits = 0
+        for i in range(0, len(px), 3):
+            if px[i] < 8 and px[i + 1] < 8 and px[i + 2] < 8:
+                px[i + 1] = 8
+                hits += 1
+        if not hits:
+            continue
+        out = bytearray(tex.encode_to_tex(bytes(px), info.size, mode="opaque",
+                                          wrap=info.wrap,
+                                          on_geometry=bool(blob[20 + 1])))
+        # Encoding rebuilds the mip chain by averaging, and averaging two dark
+        # texels lands back on the marker: the donor's own skins come out with
+        # 91-267 fresh zeros in the middle levels even after the base is clean.
+        # So sweep the encoded chain too. The first 0x3C bytes are the reserved
+        # block and the padded 2x2 slot, which are MEANT to be zero -- those are
+        # skipped, and stock textures carry the same 26 apiece.
+        start = 20 + tex.HEADER_SIZE + 0x3C
+        for i in range(start, len(out) - 1, 2):
+            if out[i] == 0 and out[i + 1] == 0:
+                out[i] = 0x40              # little-endian 0x0040: decodes (0,8,0)
+                hits += 1
+        path.write_bytes(bytes(out))
+        lifted += hits
+    return lifted
+
+
 def tga_from_indexed(w: int, h: int, px: bytes, pal) -> bytes:
     """Indexed pixels + palette -> 24-bit TGA, bottom-up as TGA expects."""
     rows = []
     for y in range(h - 1, -1, -1):
         row = bytearray()
         for x in range(w):
-            r, g, bl = pal[px[y * w + x]]
+            r, g, bl = unkey(pal[px[y * w + x]])
             row += bytes((bl, g, r))
         rows.append(bytes(row))
     header = bytes([0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0]) + \
@@ -438,6 +508,10 @@ def build(max_path: Path, model: str, skin: Path, donor: Path,
     added = [n for n in tex_files if n not in lines]
     man.write_text("\n".join(lines + added) + "\n", encoding="utf-8")
     print(f"  wrote {len(tex_files)} texture(s); added {len(added)} to the manifest")
+
+    lifted = sanitise_textures(unpacked)
+    if lifted:
+        print(f"  lifted {lifted:,} texel(s) off the transparency marker")
 
     subprocess.run(run + ["pack", str(unpacked), str(forked)],
                    cwd=cwd, check=True, capture_output=True)

@@ -36,7 +36,8 @@ drawn, and in game that is a hole you can see the track through.
 
 **2. `wrap=1`.** The UVs are not confined to the unit square, so a
 decal-clamped texture smears at the seams instead of repeating. (See the UV
-section below — this turned out to be treating a symptom.)
+section below — this turned out to be treating a symptom, and `wrap` was ruled
+out as a cause of the flank defect by a control car.)
 
 **3. V is measured from the other end.** Unflipped, the Airhawk's yellow roof
 surround renders along the bottom bumper and its tail lights sit mid-panel.
@@ -110,9 +111,33 @@ asked it to. `unit_uvs()` now shifts each face back as a unit — per face, not
 per vertex, or a face straddling the boundary tears — and squeezes the handful
 that span more than a full repeat. All seven cars now match stock exactly.
 
-The black-as-colour-key theory that this replaced was tested and is wrong:
-stock opaque textures carry 0x0000 pixels freely (`Sedan.tex` 9.3%,
-`Exotic.tex` 8.9%) and those cars render solid.
+**Black IS the colour key, and I argued against it from the wrong statistic.**
+A `.tex` stores RGB565 and raw `0x0000` is reserved to mean "transparent". I
+claimed this could not be the flank defect because stock opaque textures carry
+plenty of black — `Sedan.tex` 9.3%, `Exotic.tex` 8.9% — and those cars render
+solid. That measured whether a texture CONTAINS black, not whether a drawn face
+SAMPLES it, and it does not establish what it was offered for.
+
+Two controls settled it, both azzaroni's exact geometry with one factor changed:
+a car with every texture replaced by flat magenta (no texel anywhere near black)
+came up **solid**, and a car with the real textures at `wrap=2` was still
+**banded**. Content, not wrap.
+
+The marker is honoured whether or not the colorkey flag is set. It is visible on
+a STOCK Viper cockpit as speckled see-through patches around the gauges, so this
+is the engine's behaviour and not something the conversion introduced — but a
+converted car has no reason to hand it the trigger. `mktex.exe` nudges an opaque
+pixel that would land on `0x0000` to `0x0040`; vrmod's encoder does the same,
+but only for colorkey-flagged textures, so opaque skins keep their zeros.
+
+`unkey()` applies that at source, and `sanitise_textures()` sweeps the whole
+packed car afterwards — including the donor's inherited skins, which carry
+thousands of their own, and including the mip chain, where averaging two dark
+texels lands back on the marker (the donor's skins pick up 91–267 fresh zeros in
+the middle levels even after the base is clean). The reserved block and padded
+2x2 slot in the first 0x3C bytes are meant to be zero and are left alone; stock
+textures carry the same 26 apiece. All seven cars now ship with zero key texels
+in anything the sampler reads.
 
 ## Files
 
