@@ -1,11 +1,22 @@
 """Lift opaque textures off the transparency marker.
 
-A `.tex` stores RGB565, and raw value `0x0000` is reserved: it means "this pixel
-is transparent". `mktex.exe` nudged any opaque pixel that would land there to
-`0x0040` -- the green field's low bit, still black to look at -- so real black
-could never be mistaken for the marker. It only did so for textures it was
-encoding as colorkey, which leaves every plain opaque texture in the game free
-to contain genuine `0x0000`, and plenty do.
+A `.tex` stores RGB565, and a pixel that decodes to black is reserved: it means
+"this pixel is transparent". `mktex.exe` nudged any opaque pixel that would land
+there to `0x0040` -- the green field's low bit, still black to look at -- so real
+black could never be mistaken for the marker. It only did so for textures it was
+encoding as colorkey, which leaves every plain opaque texture in the game free to
+contain genuine black, and plenty do.
+
+TWO raw values decode to black, which is easy to miss and was missed here. Green
+sits in a 6-bit field whose low bit is not significant -- the decoder masks it
+off -- so `0x0000` and `0x0020` both come out RGB (0, 0, 0). Sweeping only
+`0x0000` left 75,839 texels of the other kind behind across a full install.
+
+The file-format reference had this as `R5 == 0 && B5 == 0`, from three
+solid-colour samples in 2026-09-07. That predicate is too wide: `0x0040` also has
+red and blue at zero, and 1,092,129 texels were moved there and confirmed solid
+in game. The rule that fits every observation is **the decoded colour is exactly
+black** -- raw `0x0000` or `0x0020`, and nothing else.
 
 Whether that matters is the driver's decision, and drivers disagree. Running the
 game on an AMD card and an Nvidia card renders blacks differently from identical
@@ -49,8 +60,17 @@ from pathlib import Path
 
 from . import archive, envelope, tex
 
-KEY_RAW = 0x0000
-NUDGE_RAW = 0x0040          # decodes to (0, 8, 0): still black on screen
+# TWO raw values decode to black, not one. Green occupies a 6-bit field but only
+# its top 5 bits are significant -- the decoder masks the low bit off -- so
+# 0x0000 and 0x0020 both come out RGB (0, 0, 0) and both read as the marker.
+# Sweeping only 0x0000 left 75,839 of the other kind behind in a full install.
+#
+# The nudge target is 0x0040, the next green step up: RGB (0, 8, 0), which is
+# black to look at and is NOT the marker. That it survives is the evidence for
+# where the real boundary lies -- see the docstring.
+KEY_RAWS = (0x0000, 0x0020)
+KEY_LOW_BYTES = frozenset(v & 0xFF for v in KEY_RAWS)   # high byte is 0 for both
+NUDGE_RAW = 0x0040
 RESERVED_HEAD = 0x3C        # of the pixel data; see module docstring
 BACKUP_SUFFIX = ".dekey-backup"
 
@@ -150,7 +170,7 @@ def sweep_payload(buf: bytearray, start: int, size: int) -> tuple[int, str]:
         return 0, {0x01: "colorkey", 0x02: "alpha", 0x03: "alpha+colorkey"}[flags]
     lifted = 0
     for i in range(start + PIXELS_AT, start + size - 1, 2):
-        if buf[i] == 0x00 and buf[i + 1] == 0x00:
+        if buf[i + 1] == 0x00 and buf[i] in KEY_LOW_BYTES:
             buf[i] = NUDGE_RAW & 0xFF      # little-endian: 0x0040
             lifted += 1
     return lifted, ""
@@ -254,7 +274,7 @@ def has_keys(data: bytes) -> bool:
         if data[off] != 0x00:
             continue
         for i in range(off + PIXELS_AT, off + size - 1, 2):
-            if data[i] == 0 and data[i + 1] == 0:
+            if data[i + 1] == 0 and data[i] in KEY_LOW_BYTES:
                 return True
     return False
 
@@ -317,7 +337,7 @@ def remaining_keys(data: bytes) -> int:
         if data[off] != 0x00:
             continue
         for i in range(off + PIXELS_AT, off + size - 1, 2):
-            if data[i] == 0 and data[i + 1] == 0:
+            if data[i + 1] == 0 and data[i] in KEY_LOW_BYTES:
                 total += 1
     return total
 

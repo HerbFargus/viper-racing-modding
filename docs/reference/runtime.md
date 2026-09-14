@@ -629,3 +629,45 @@ per tier, 112 of them, and the release build has no such block at all.
 This is independent of the string-table and canary evidence above, and it points the
 same way: the `race.bin` sitting unused on the v1.0 disc is the **finished** build,
 and the one the disc actually runs is the unfinished one.
+
+---
+
+## 7. Black renders as transparent, and it depends on the graphics card ✅ CONFIRMED IN GAME
+
+The symptom is the same wherever it appears: **holes where black should be.** Speckled see-through
+patches around the stock Viper's cockpit gauges. A black direction arrow that reads as a gap in its
+sign on Sunset Mesa. See-through bands along the dark flank of a car. Nothing about it looks like a
+texture problem — it looks like missing geometry, which is what sent a long stretch of this project
+chasing winding order and backface culling before the cause turned up.
+
+**The cause is the transparency marker being honoured in textures that never asked for it.** A `.tex`
+stores RGB565, and a texel whose decoded colour is exactly black means "transparent". That is a real,
+intended feature for `flags=0x01` colorkey textures — it is what makes Sunset Mesa's `cactus.tex`
+cactus-shaped instead of a rectangle. The defect is that it applies to `flags=0x00` **opaque** textures
+as well, where the flag says nothing should be keyed and the artists put ordinary black.
+
+Exactly two raw values decode to black — `0x0000` and `0x0020`, because green's 6-bit field has an
+insignificant low bit. The full rule, the evidence for it, and the correction to an earlier
+over-wide version are in the format reference:
+[§4.5 `.tex` — modding gotcha](file-formats.md#45-tex---tex-texture---confirmed-opaque-colorkey-mip-chain-layout-full-alpha--well-supported).
+
+**Why it is a runtime note and not just a format one:** the same bytes render differently on AMD and
+Nvidia hardware. Reported from running the game on both cards. So the file alone does not determine
+what you see, and two people can disagree about whether an install is broken while looking at
+identical data. Colour-key transparency was a Direct3D *render state* in 1998 that modern drivers
+only emulate, and vendors emulate it differently — but whether the fault sits in the driver keying
+black unconditionally, or in the game leaving that render state enabled, is **not resolved**.
+
+**It is still fixable in data.** The driver decides whether black is keyed; the file decides whether
+any texel is black for it to key. `vrmod dekey <install>` lifts every such texel to `0x0040` — RGB
+`(0, 8, 0)`, indistinguishable from black on screen and not the marker — across an install:
+
+- **1,162,454 texels in 21 of the 26 shipped assets** on a retail `Data` folder.
+- Colorkey (`0x01`) and alpha (`0x02`/`0x03`) textures are left byte-identical; keying is the point in
+  those, and sweeping `cactus.tex` would turn every cactus into a solid rectangle.
+- Files are patched in place at byte offsets, never re-serialised, so nothing but a lifted texel moves.
+- Reversible via `--revert`; `doctor` reports it at INFO (not a warning — it is only a defect if your
+  card keys it) and offers the sweep as a fix action.
+
+**Untested prediction:** on an AMD card the sweep should be a *visual* no-op, because nothing was being
+keyed there to begin with. If it changes anything visible on AMD, the model above is wrong.
