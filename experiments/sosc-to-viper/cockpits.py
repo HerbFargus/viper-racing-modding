@@ -79,15 +79,40 @@ PANELS = {
 TILES = 3
 TILE_PX = 256
 
-# Where the panel sits in car space. The cockpit camera is at
-# (-0.408, 0.906, -0.791) and the instrument faces are at z -0.14, y ~0.70, so
-# the panel goes just forward of the needles and below the eye line. The width
-# matches the stock dash mesh's own span (x -0.96..0.54), and the height follows
-# from the panel's aspect ratio rather than being chosen -- a 640x192 image in a
-# 1.50-wide quad is 0.45 tall, and squashing it would be visible on every dial.
-PANEL_X = (-0.96, 0.54)
-PANEL_Z = -0.10
-PANEL_TOP = 0.82
+# The panel is COMPUTED from the camera rather than hardcoded, because the first
+# hardcoded guess was 95 degrees wide and filled the screen with a magnified
+# corner of the dash.
+#
+# The anchor is the stock cockpit. Viperc.mod spans x -0.96..0.52 -- 1.48 units
+# -- but sits further forward than the guess did, out to z +0.38, so at its own
+# depth it subtends about 77 degrees. That is the game's cockpit field of view,
+# near enough to work from; the same 1.48 at the guess's distance was 95.
+#
+# Everything else follows from wanting the panel to sit where SoSC puts it: a
+# 640x192 image in a 640x480 frame is exactly the bottom 40% of the screen.
+CAMERA = (-0.408, 0.906, -0.791)      # cockpit.tab's own camera record
+GAUGE_Z = -0.14                       # the plane the needle pivots sit on
+FOV_H = 77.0                          # degrees, derived from the stock dash
+SCREEN_ASPECT = 4 / 3
+PANEL_SCREEN_FRACTION = 0.40          # bottom 40%, as in SoSC
+
+
+def panel_box(aspect: float):
+    """(x0, x1, top, bottom, z) for a panel of the given height/width ratio.
+
+    Placed at the gauge plane, centred on the camera's own x so it fills the
+    frame symmetrically -- the camera sits at x -0.408, not at zero, and a panel
+    centred on the car's centreline would hang off to one side.
+    """
+    import math
+    d = GAUGE_Z - CAMERA[2]
+    half_w = math.tan(math.radians(FOV_H / 2)) * d
+    half_h = half_w / SCREEN_ASPECT
+    width = 2 * half_w
+    height = width * aspect
+    bottom = CAMERA[1] - half_h                      # the bottom of the screen
+    top = bottom + height
+    return (CAMERA[0] - half_w, CAMERA[0] + half_w, top, bottom, GAUGE_Z)
 
 
 def load_panel(path: Path):
@@ -147,7 +172,8 @@ def build_wheel_mesh(name: str, src_w: int, src_h: int, version: int = 1) -> mod
     0.92 units across. Guessing a size would be guessing the one thing the source
     art actually tells us.
     """
-    span = PANEL_X[1] - PANEL_X[0]
+    x0, x1, _t, _b, _z = panel_box(1.0)
+    span = x1 - x0
     w = span * (src_w / 640.0)
     h = span * (src_h / 640.0)
     hw, hh = w / 2, h / 2
@@ -164,11 +190,9 @@ def build_wheel_mesh(name: str, src_w: int, src_h: int, version: int = 1) -> mod
 def build_panel_mesh(tiles, version: int = 1) -> mod.Mesh:
     """One quad per tile, side by side, facing the driver."""
     verts, faces, mats = [], [], []
-    x0, x1 = PANEL_X
     total = sum(t[2] for t in tiles)
     aspect = tiles[0][3] / total          # height / full width, in pixels
-    height = (x1 - x0) * aspect
-    y1, y0 = PANEL_TOP, PANEL_TOP - height
+    x0, x1, y1, y0, panel_z = panel_box(aspect)
     cut = x0
     for name, _raw, w, h in tiles:
         span = (x1 - x0) * (w / total)
@@ -177,7 +201,7 @@ def build_panel_mesh(tiles, version: int = 1) -> mod.Mesh:
         base = len(verts)
         for (x, y, u, v) in ((cut, y1, 0.0, 0.0), (cut, y0, 0.0, v1),
                              (cut + span, y1, u1, 0.0), (cut + span, y0, u1, v1)):
-            verts.append(mod.Vertex(x=x, y=y, z=PANEL_Z, nx=0.0, ny=0.0, nz=-1.0,
+            verts.append(mod.Vertex(x=x, y=y, z=panel_z, nx=0.0, ny=0.0, nz=-1.0,
                                     u=u, v=1.0 - v))
         fstart = len(faces)
         faces += [(base + 2, base + 1, base), (base + 1, base + 2, base + 3)]
@@ -212,13 +236,16 @@ def fit(car: Path, prefix: str, panels_dir: Path, base_car: Path) -> str:
         wmesh = build_wheel_mesh(wname, wim.width, wim.height)
         entries = archive.upsert_entry(entries, f"{prefix}w.mod", mod.build(wmesh))
         entries = archive.upsert_entry(entries, wname, wraw)
-        span = PANEL_X[1] - PANEL_X[0]
+        bx0, bx1, _t, _b, _z = panel_box(1.0)
+        span = bx1 - bx0
         wheel_note = (f", wheel {WHEELS[prefix]} "
                       f"({wim.width}x{wim.height} -> {span*wim.width/640:.2f} wide)")
 
     archive.write(entries, car)
+    bx0, bx1, btop, bbot, bz = panel_box(im.height / im.width)
     return (f"{PANELS[prefix]} -> {TILES} tiles ({im.width}x{im.height}), "
-            f"panel at z {PANEL_Z}, y {PANEL_TOP:.2f} down{wheel_note}")
+            f"panel x {bx0:.2f}..{bx1:.2f} y {bbot:.2f}..{btop:.2f} z {bz:.2f}"
+            f"{wheel_note}")
 
 
 def main() -> int:
