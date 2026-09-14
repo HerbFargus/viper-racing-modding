@@ -78,7 +78,10 @@ def main() -> int:
             for i in range(len(old)):
                 if old[i] != new[i]:
                     diffs += 1
-                    if not (old[i] == 0x00 and new[i] == 0x40):
+                    # Two source values, one destination: 0x0000 and 0x0020 both
+                    # decode to black, so both are the marker, and both go to
+                    # 0x0040. Only the low byte ever changes.
+                    if not (old[i] in dekey.KEY_LOW_BYTES and new[i] == 0x40):
                         unexpected += 1
         check("no file changes size", grew == 0, f"{len(originals)} files")
         # The strongest statement available: the sweep's own tally and an
@@ -158,6 +161,26 @@ def main() -> int:
         # marker at all.
         check("no pixel moves further than the nudge", worst <= 8,
               f"largest channel delta {worst} (the nudge itself is 8)")
+
+        # Both values that decode to black have to be swept, not just 0x0000.
+        # Green's 6-bit field has an insignificant low bit, so 0x0020 decodes to
+        # black too -- sweeping only 0x0000 left 75,839 of them behind across a
+        # real install, and every one is a texel the marker still catches.
+        assert all(tex._decode_pixel_rgb(v) == (0, 0, 0) for v in dekey.KEY_RAWS)
+        assert tex._decode_pixel_rgb(dekey.NUDGE_RAW) != (0, 0, 0)
+        stragglers = 0
+        for p in originals:
+            data = (work / p.name).read_bytes()
+            for _, off, size in dekey._tex_spans(data):
+                if data[off] != 0x00:
+                    continue
+                for i in range(off + dekey.PIXELS_AT, off + size - 1, 2):
+                    if data[i + 1] == 0 and data[i] in dekey.KEY_LOW_BYTES:
+                        stragglers += 1
+        check("every raw value that decodes to black is swept, not just 0x0000",
+              stragglers == 0,
+              f"{', '.join(hex(v) for v in dekey.KEY_RAWS)} all decode to "
+              f"{tex._decode_pixel_rgb(0)}; {stragglers} left")
 
     # --- scope: somebody else's car is not swept unless asked -----------------
     with tempfile.TemporaryDirectory() as tmp:

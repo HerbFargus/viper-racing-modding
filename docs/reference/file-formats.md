@@ -971,18 +971,41 @@ transparency marker.
 > (`3ter.tex` alone is used by 191 chunks of one track). **Read the colorkey from 0x18 and treat both it
 > and `0x0000` as transparent.**
 
-> **Modding gotcha — near-black reads as transparent *in game even in an opaque texture* (flags `0x00`).**
-> Confirmed in game (2026-09-07): a pixel is keyed transparent whenever its **5-bit red AND 5-bit blue
-> are both zero** — not just literal `0x0000`. Both `0x0000` (RGB `0,0,0`) and `0x0020` (RGB `7,7,7`)
-> render **invisible**, while `0x0841` (RGB `8,8,8`) is solid — so a non-zero *green* does **not** save it.
-> This happens even when the texture is opaque with no colorkey bit set, so the behavior is **not** gated
-> on the colorkey flag. (Observed across three solid-color materials; the exact predicate may be `R5==0 &&
-> B5==0` or a low-value threshold — either way, lifting red and blue clears it.) Two consequences for tools
-> and modders:
-> - **Hazard:** a dark region whose red and blue both quantize to 0 will vanish unless you *want* a hole —
->   lift red and blue to at least `8` (e.g. RGB `8,8,8` → `0x0841`, an imperceptibly-dark but still-visible
->   black). `vrmod` does this automatically when it synthesizes a flat color from an OBJ material's `Kd`
->   (a near-black `Kd` would otherwise import as an invisible part).
+> **Modding gotcha — black reads as transparent *in game even in an opaque texture* (flags `0x00`).**
+> Confirmed in game (2026-09-07), and the behaviour is **not** gated on the colorkey flag. Both `0x0000`
+> (source RGB `0,0,0`) and `0x0020` (source RGB `7,7,7`) render **invisible**, while `0x0841` (RGB
+> `8,8,8`) is solid.
+>
+> **Predicate narrowed (2026-09-13).** This section originally read the rule as *"5-bit red AND 5-bit
+> blue are both zero — a non-zero green does not save it"*, from three solid-colour samples. That is too
+> wide. `0x0040` also has red and blue at zero, and **1,162,454 texels across a full install were moved
+> to `0x0040` and confirmed solid in game** — cockpit gauges, dark car panels and dark signage all
+> rendering correctly afterwards. The rule that fits every observation is simply:
+>
+> > **A texel is keyed when its DECODED colour is exactly black.** Green occupies a 6-bit field whose
+> > low bit is not significant (the decoder masks it off, see above), so exactly two raw values qualify:
+> > `0x0000` and `0x0020`. `0x0040` — the next green step, RGB `(0, 8, 0)` — is not black and is not keyed.
+>
+> This matters for anything that tries to fix it: sweeping only `0x0000` leaves **75,839** texels of the
+> other kind behind in a full install, every one of which the marker still catches.
+>
+> **Whether you see it at all depends on the graphics card.** The same files render blacks differently on
+> AMD and Nvidia — reported from running the game on both. The bytes are identical either way, so the
+> divergence is downstream of the file: either the driver keying black unconditionally, or the game
+> leaving a legacy Direct3D colour-key render state enabled and the two vendors emulating it differently.
+> Not resolved which. The practical consequence is that this is **not** a data fault you can find by
+> reading files, *and equally* **not** something to write off as unfixable in data — the driver decides
+> whether black is keyed, the file decides whether any texel is black for it to key. See
+> [runtime §7](runtime.md#7-black-renders-as-transparent-and-it-depends-on-the-graphics-card--confirmed-in-game)
+> for the in-game symptoms and `vrmod dekey`, which lifts every such texel to `0x0040` across an
+> install, leaves colorkey and alpha textures alone, and is reversible.
+>
+> Two consequences for tools and modders:
+> - **Hazard:** a region that quantizes to black will vanish unless you *want* a hole. Lifting any one
+>   channel off zero is enough — RGB `(0, 8, 0)` → `0x0040` is the minimum and is what `dekey` uses;
+>   RGB `8,8,8` → `0x0841` is the safer, equally invisible choice if you would rather not depend on the
+>   green field's masking. `vrmod` does this automatically when it synthesizes a flat color from an OBJ
+>   material's `Kd` (a near-black `Kd` would otherwise import as an invisible part).
 > - **Intentional use:** conversely, painting a region pure `0x0000` black is a valid, flag-independent
 >   way to punch a transparent hole through a piece — the same effect shipped content gets via the header
 >   colorkey, but available with no mode/flag change. Importing a texture keeps its real pixels, so this
