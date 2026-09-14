@@ -56,7 +56,9 @@ def main() -> int:
             shutil.copy2(p, work / p.name)
 
         before = {p.name: flags_of(work / p.name) for p in originals}
-        reports = dekey.sweep_tree(work, backup=False)
+        # scope="all" here: the checks below are about what the sweep DOES to a
+        # file it touches, and scoping is tested separately.
+        reports, _ = dekey.sweep_tree(work, backup=False, scope="all")
         lifted = sum(r.lifted for r in reports)
 
         # --- the sweep did what it said --------------------------------------
@@ -133,7 +135,7 @@ def main() -> int:
             print("  --    no cactus.tex in this install (Sunset Mesa not installed)")
 
         # --- running it twice ------------------------------------------------
-        again = dekey.sweep_tree(work, backup=False)
+        again, _ = dekey.sweep_tree(work, backup=False, scope="all")
         check("a second sweep is a no-op", sum(r.lifted for r in again) == 0,
               "idempotent")
 
@@ -156,6 +158,38 @@ def main() -> int:
         # marker at all.
         check("no pixel moves further than the nudge", worst <= 8,
               f"largest channel delta {worst} (the nudge itself is 8)")
+
+    # --- scope: somebody else's car is not swept unless asked -----------------
+    with tempfile.TemporaryDirectory() as tmp:
+        work = Path(tmp)
+        for p in originals:
+            shutil.copy2(p, work / p.name)
+        # a stand-in for a community car: a stock one under a name the game
+        # never shipped. Content is irrelevant -- the scope rule is by name.
+        intruder = work / "somebodyscar.car"
+        shutil.copy2(originals[0], intruder)
+        before = intruder.read_bytes()
+
+        swept, skipped = dekey.sweep_tree(work, backup=False, scope="stock")
+        check("a file the game never shipped is left alone by default",
+              intruder.read_bytes() == before and intruder in skipped,
+              f"{len(swept)} in scope, {len(skipped)} skipped")
+        check("the stock scope still covers the shipped assets",
+              len(swept) == len(originals),
+              f"{len(swept)} of {len(originals)} retail files swept")
+
+        swept_all, skipped_all = dekey.sweep_tree(work, backup=False, scope="all")
+        check("--all reaches it", intruder.read_bytes() != before and not skipped_all,
+              f"{len(swept_all)} files in scope with --all")
+
+        # Naming a file directly is not a bulk operation and is not scoped:
+        # the user pointed at it.
+        fresh = work / "anotherone.car"
+        shutil.copy2(originals[0], fresh)
+        was = fresh.read_bytes()
+        dekey.sweep_tree(fresh, backup=False, scope="stock")
+        check("naming a non-stock file directly sweeps it anyway",
+              fresh.read_bytes() != was, "scope is a default, not a restriction")
 
     print(f"\n{PASS}/{PASS + FAIL} passed")
     return 1 if FAIL else 0

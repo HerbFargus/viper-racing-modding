@@ -58,6 +58,27 @@ RESERVED_HEAD = 0x3C        # of the pixel data; see module docstring
 PIXELS_AT = tex.HEADER_SIZE + RESERVED_HEAD
 SWEPT_SUFFIXES = (".car", ".trk", ".res")
 
+# The assets the game shipped with -- the default scope. Everything else in a
+# Data folder was put there by somebody, and rewriting somebody else's work in
+# bulk is not a default worth having: not because a mod is likely to rely on the
+# marker (one that did would already look broken on an AMD card, so nobody could
+# have shipped it deliberately), but because it is their file. Sweeping it should
+# be something a person asks for, with `--all` or by naming the file.
+#
+# Matched by FILENAME, not by hash, which was the first attempt. Hashes do not
+# survive ordinary use: of the 26 retail assets in a real install, 21 had already
+# drifted from the disc -- community patches, retextures, earlier tool runs, and
+# this sweep itself. A hash gate refuses to touch a file the moment anything else
+# has, which is exactly backwards. The cost of the filename rule is that a
+# community RETEXTURE occupying a stock slot (a replacement viper.car) is treated
+# as stock; it is backed up like anything else.
+RETAIL_ASSETS = frozenset("""
+    bemidji.trk career1.res career2.res career3.res career4.res common.res
+    drivers.res dundas.trk easy.res exotic.car hard.res hastings.trk heaven.trk
+    kenyon.trk limbo.trk medium.res nfield.trk paintkit.res plane.car
+    postrace.res race.res sedan.car sports.car ui.res uptown.trk viper.car
+""".split())
+
 
 @dataclass
 class TextureReport:
@@ -174,23 +195,40 @@ def sweep_file(path: Path, *, dry_run: bool = False,
     return report
 
 
-def sweep_tree(root: Path, *, dry_run: bool = False,
-               backup: bool = True) -> list[FileReport]:
-    """Sweep every archive and loose texture under a directory."""
+def sweep_tree(root: Path, *, dry_run: bool = False, backup: bool = True,
+               scope: str = "stock") -> tuple[list[FileReport], list[Path]]:
+    """Sweep archives and loose textures under a directory.
+
+    Returns (reports, skipped) -- the files left out of scope are RETURNED
+    rather than silently dropped, so a caller can say how many and offer
+    `--all`. A scoped tool that does not report its own scope is how "it did
+    nothing" gets mistaken for "there was nothing to do".
+
+    Naming a single file always sweeps it: the scope is a default for bulk
+    operations, not a restriction on what the user can point at.
+    """
     root = Path(root)
     if root.is_file():
-        return [sweep_file(root, dry_run=dry_run, backup=backup)]
-    targets = sorted(p for p in root.rglob("*")
-                     if p.is_file()
-                     and p.suffix.lower() in SWEPT_SUFFIXES + (".tex",)
-                     and not p.name.lower().endswith(".bak"))
+        return [sweep_file(root, dry_run=dry_run, backup=backup)], []
+    if scope not in ("stock", "all"):
+        raise ValueError(f"scope must be 'stock' or 'all', not {scope!r}")
+    found = sorted(p for p in root.rglob("*")
+                   if p.is_file()
+                   and p.suffix.lower() in SWEPT_SUFFIXES + (".tex",)
+                   and not p.name.lower().endswith(".bak"))
+    targets, skipped = [], []
+    for p in found:
+        if scope == "all" or p.name.lower() in RETAIL_ASSETS:
+            targets.append(p)
+        else:
+            skipped.append(p)
     out = []
     for p in targets:
         try:
             out.append(sweep_file(p, dry_run=dry_run, backup=backup))
         except ValueError:
             continue                   # not an archive this reader handles
-    return out
+    return out, skipped
 
 
 def remaining_keys(data: bytes) -> int:

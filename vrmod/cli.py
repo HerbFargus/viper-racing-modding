@@ -1228,6 +1228,9 @@ def main(argv: list[str] | None = None) -> int:
                          help="an install directory, or a single .car/.trk/.res/.tex")
     p_dekey.add_argument("--dry-run", action="store_true",
                          help="report what would be lifted, write nothing")
+    p_dekey.add_argument("--all", action="store_true",
+                         help="include community cars and tracks, not just the assets the "
+                              "game shipped with (naming a single file always sweeps it)")
     p_dekey.add_argument("--no-backup", action="store_true",
                          help="don't write <name>_original.<ext>.bak beside each changed file")
     p_dekey.add_argument("--verbose", action="store_true",
@@ -2146,8 +2149,9 @@ def main(argv: list[str] | None = None) -> int:
         if not made:
             print("  (nothing generated -- all levels already present and --keep-existing set)")
     elif args.command == "dekey":
-        reports = dekey.sweep_tree(args.path, dry_run=args.dry_run,
-                                   backup=not args.no_backup)
+        reports, out_of_scope = dekey.sweep_tree(
+            args.path, dry_run=args.dry_run, backup=not args.no_backup,
+            scope="all" if args.all else "stock")
         files = [r for r in reports if r.lifted]
         for r in files:
             print(f"{r.path.name}: {r.lifted:,} texel(s) in {len(r.changed)} texture(s)"
@@ -2163,8 +2167,11 @@ def main(argv: list[str] | None = None) -> int:
         scanned = len(reports)
         total = sum(r.lifted for r in files)
         print(f"\n{len(files)}/{scanned} file(s) {'would change' if args.dry_run else 'changed'}, "
-              f"{total:,} texel(s) lifted; left alone: "
+              f"{total:,} texel(s) lifted; textures left alone: "
               + (", ".join(f"{n} {k}" for k, n in sorted(left.items())) or "none"))
+        if out_of_scope:
+            print(f"{len(out_of_scope)} file(s) the game did not ship with were left "
+                  f"untouched -- pass --all to include them, or name one directly")
         # The count assertion. A sweep that reports success while leaving key
         # texels behind is the failure mode worth catching, so the check reads
         # the files back rather than trusting the tally above.
