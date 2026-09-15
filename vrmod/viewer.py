@@ -251,7 +251,8 @@ window.addEventListener("load", main);
 """
 
 _SECTIONS = [
-    ("Dimensions", ["mass", "width", "height", "wheelbase", "ftrack", "rtrack", "weight_distribution"]),
+    ("Dimensions", ["mass", "width", "height", "wheelbase", "ftrack", "rtrack",
+                    "fground_clearance1", "rground_clearance1", "weight_distribution"]),
     ("Engine", ["power_max", "power_rpm", "torque_max", "torque_rpm", "redline", "idle_speed"]),
     ("Drivetrain", ["num_gears", "rear_end_ratio1", "rear_end_ratio2"]),
     ("Chassis (front/rear)", [
@@ -1138,7 +1139,7 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
 </aside>
 <aside id="sound-drawer" class="drawer">
   <h2>Sound</h2>
-  <div class="hint">Every real .sfx file in this car's own archive -- engine RPM-sweep loops, idle, horn, shift, etc. Rows marked "(shared default)" aren't owned by this car -- they're race.res's fallback horn/shift/squeal sound, used unless the car ships its own. ADPCM-encoded entries are listed but can't be played yet (see sfx.py); everything else here is real PCM audio, decoded and playable directly. "Import WAV" replaces any row -- 16-bit mono PCM only -- and commits as a real per-car .sfx, creating a new override if it was a shared default.</div>
+  <div class="hint">Every real .sfx file in this car's own archive -- engine RPM-sweep loops, idle, horn, shift, etc. Rows marked "(shared default)" aren't owned by this car -- they're race.res's fallback horn/shift/squeal sound, used unless the car ships its own. ADPCM-encoded entries are listed but can't be played yet (see sfx.py); everything else here is real PCM audio, decoded and playable directly. "Import" replaces any row. A <strong>.sfx</strong> goes in untouched, byte for byte -- it is already the game's format, so nothing is decoded or re-encoded and nothing is normalised. Any other audio (WAV, MP3, OGG, ...) is converted to the mono 16-bit PCM the game needs. Either way it commits as a real per-car .sfx, creating a new override if it was a shared default.</div>
   <div id="sound-list"></div>
 </aside>
 <script>
@@ -1224,7 +1225,8 @@ const INCH_TO_M = 0.0254;  // matches car.py's INCH_TO_M -- .cf dimensions are i
 // The only .cf fields that actually move geometry in this tool -- see car.py's
 // assemble_car()/assemble_car_live(): wheelbase sets front/rear Z spacing, ftrack/
 // rtrack set left/right spacing per axle. Every other stat is physics-only here.
-const LIVE_GEOMETRY_FIELDS = new Set(["wheelbase", "ftrack", "rtrack"]);
+const LIVE_GEOMETRY_FIELDS = new Set(["wheelbase", "ftrack", "rtrack",
+                                      "fground_clearance1", "rground_clearance1"]);
 // Every real .mod entry in the car's OWN archive, individually -- {entryName:
 // objText | null (failed to parse)}. Deliberately NOT the same thing as PARTS: the
 // 3D tabs merge several real files together for a cleaner view (the Car tab's
@@ -1862,7 +1864,25 @@ async function commitChanges() {
     // Package members went in verbatim; the car owns them now. No baseline to
     // advance here the way pendingPartEdits has one -- the 3D view rebuilds from
     // the reloaded car, which is what the import status line promises.
+    // A verbatim .sfx is the car's own sound now. Roll it into SFX_PARTS the way
+    // a converted one is, so the redrawn row reads as saved rather than pending.
+    for (const name of Object.keys(pendingSfxRaw)) {
+      const prev = SFX_PARTS[name] || {};
+      const raw = pendingSfxRaw[name];
+      SFX_PARTS[name] = Object.assign({}, prev, {
+        wav_b64: raw.wav_b64, is_pcm: !!raw.info.isPcm, shared: false,
+        sample_rate: raw.info.rate, bits_per_sample: raw.info.bits,
+        duration: raw.info.seconds.toFixed(2),
+      });
+      delete pendingSfxRaw[name];
+    }
+    // Only a MESH or TEXTURE changes what the 3D view shows. A verbatim sound
+    // does not, and one of those can be 15 MB -- reloading the page over a horn
+    // swap would be a long wait for a picture that cannot have changed.
+    const visualMembers = Object.keys(pendingMemberEdits)
+      .filter(n => /[.](mod|tex)$/i.test(n));
     for (const name of Object.keys(pendingMemberEdits)) delete pendingMemberEdits[name];
+    packagePreview.meshes.clear(); packagePreview.addedTextures.clear();
     for (const mat of Object.keys(pendingTextureEdits)) {
       delete originalTextures[mat];              // current TEXTURES[mat] is now the baseline
       delete pendingTextureEdits[mat];
@@ -1881,7 +1901,13 @@ async function commitChanges() {
     buildSoundDrawer();                          // sounds: redraw from the rolled-forward SFX_PARTS
     if (payload.car_name !== undefined) CAR_NAME = payload.car_name;   // name: new baseline, no snap-back
     updateCommitStatus();
-    hostSaved();                                 // we changed the file; that is not "changed under you"
+    // A package's members went in as raw bytes, so unlike an OBJ import there is
+    // no client-side geometry to swap into the scene -- the page holds bytes it
+    // never parsed. The only way to show them is to rebuild from the car that is
+    // now on disk, which is what asking the host to reload the frame does. Same
+    // path as the stale banner's "Reload it", minus the confirm: we just saved,
+    // so there is nothing staged left to lose.
+    hostSaved(visualMembers.length > 0);         // we changed the file; that is not "changed under you"
 
     // Stats/cockpit fields are deliberately left as-is: STATS still holds the
     // ORIGINAL pre-edit values (the page never re-fetches what it wrote), so
@@ -1908,11 +1934,14 @@ function hostRefresh(selectKey) {
 // the host watches for to warn "this changed on disk since you opened it". Left
 // unsaid, every successful save would raise that alarm about itself. So say it
 // was us, and let the host re-baseline instead of warning.
-function hostSaved() {
+function hostSaved(reload) {
   try {
     const h = (window.self !== window.top) ? window.parent.vrmodHost : null;
-    if (h && h.saved) h.saved();
-  } catch (e) { /* not embedded -- nobody is watching the file */ }
+    if (h && h.saved) { h.saved(!!reload); return; }
+  } catch (e) { /* not embedded -- fall through */ }
+  // Opened standalone, with no host to ask: reload ourselves, since the point
+  // is to see the part that was just written.
+  if (reload) setTimeout(() => window.location.reload(), 400);
 }
 
 // The desktop bridge, or null in a plain browser. Injected into the TOP window
@@ -2464,6 +2493,53 @@ async function decodeAudioToMonoWav(bytes, targetRate) {
 }
 
 // Minimal mono 16-bit PCM WAV (44-byte header) from float samples in [-1, 1].
+// A .sfx is the game's own sound format, and the Sound drawer now takes one as-is.
+// Layout, from sfx.py: a 20-byte 0SER envelope, then a 20-byte fmt-shaped header
+// (data_size i32, format i16, channels i16, rate i32, byte_rate i32, block_align
+// i16, bits i16), then 2 bytes that are usually "da" and are NOT validated --
+// real files disagree about them -- then the samples. So data starts at 42.
+const SFX_ENVELOPE = 20, SFX_HEADER = 20, SFX_MARKER = 2;
+
+function readSfx(bytes) {
+  if (bytes.length < SFX_ENVELOPE + SFX_HEADER + SFX_MARKER) return null;
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const h = SFX_ENVELOPE;
+  const info = {
+    dataSize: dv.getInt32(h, true),
+    format: dv.getInt16(h + 4, true),
+    channels: dv.getInt16(h + 6, true),
+    rate: dv.getInt32(h + 8, true),
+    byteRate: dv.getInt32(h + 12, true),
+    blockAlign: dv.getInt16(h + 16, true),
+    bits: dv.getInt16(h + 18, true),
+  };
+  const start = SFX_ENVELOPE + SFX_HEADER + SFX_MARKER;
+  info.pcm = bytes.subarray(start, start + info.dataSize);
+  info.isPcm = info.format === 1;
+  info.seconds = info.byteRate ? info.pcm.length / info.byteRate : 0;
+  return info;
+}
+
+// Wrap sample bytes in a WAV header WITHOUT touching them. Deliberately not
+// encodeWavMono16: that takes floats and forces mono 16-bit, which is exactly
+// the normalisation a verbatim import must not do.
+function wavAroundPcm(pcm, rate, channels, bits) {
+  const align = channels * (bits / 8);
+  const out = new DataView(new ArrayBuffer(44 + pcm.length));
+  const str = (o, t) => { for (let i = 0; i < t.length; i++) out.setUint8(o + i, t.charCodeAt(i)); };
+  str(0, "RIFF"); out.setUint32(4, 36 + pcm.length, true); str(8, "WAVE");
+  str(12, "fmt "); out.setUint32(16, 16, true); out.setUint16(20, 1, true);
+  out.setUint16(22, channels, true);
+  out.setUint32(24, rate, true);
+  out.setUint32(28, rate * align, true);
+  out.setUint16(32, align, true);
+  out.setUint16(34, bits, true);
+  str(36, "data"); out.setUint32(40, pcm.length, true);
+  const bytes = new Uint8Array(out.buffer);
+  bytes.set(pcm, 44);
+  return bytes;
+}
+
 function encodeWavMono16(samples, rate) {
   const n = samples.length;
   const out = new DataView(new ArrayBuffer(44 + n * 2));
@@ -2655,8 +2731,18 @@ const pendingPartEdits = {};     // {realFilename: objText}
 // Separate from pendingPartEdits because those hold OBJ text the server
 // converts; these are already .mod/.tex/.sfx and must not be touched.
 const pendingMemberEdits = {};
+// What a staged PACKAGE put on screen before Save: the meshes it swapped in live,
+// and the texture names it added to TEXTURES that were not there before. Discard
+// uses this to put the car's own parts back; Save just forgets it, because the
+// view reloads from the written car anyway.
+const packagePreview = {meshes: new Set(), addedTextures: new Set()};
 const pendingTextureEdits = {};  // {materialName: decoded TGA base64}
 const pendingSfxEdits = {};      // {realFilename: raw uploaded WAV bytes, base64}
+// Sounds staged VERBATIM as .sfx. The bytes themselves live in
+// pendingMemberEdits, which already commits members byte-for-byte; this holds
+// only what the row needs to draw itself -- a preview WAV (PCM only) and the
+// header figures -- so there is one copy of the payload, not two.
+const pendingSfxRaw = {};       // {realFilename: {wav_b64|null, info}}
 // Support for discarding a staged part edit and rolling baselines forward on Save.
 const originalTextures = {};        // material -> its pre-import TEXTURES value (undefined if it had none)
 const importedTexturesByPart = {};  // partName -> [materials its OBJ import staged], so Discard drops exactly those
@@ -3229,10 +3315,42 @@ function buildPartsDrawer(applyLiveReimport, removeLivePart, highlightPart) {
         }
         updateCommitStatus();
         const ignored = names.length - staged;
-        status.textContent = `Staged ${staged} member(s) from ${f.name}: `
+        const summary = `Staged ${staged} member(s) from ${f.name}: `
           + Object.keys(pendingMemberEdits).join(", ")
-          + (ignored ? ` (${ignored} ignored - not .mod/.tex/.sfx)` : "")
-          + ". Save to apply; the 3D view updates when the car reloads.";
+          + (ignored ? ` (${ignored} ignored - not .mod/.tex/.sfx)` : "");
+        status.textContent = summary + ". Preparing a preview...";
+        // Show it now. Only meshes and textures go to the server -- a sound
+        // cannot change the picture and can be 15 MB.
+        const visual = {};
+        for (const [n, b64] of Object.entries(pendingMemberEdits)) {
+          if (/[.](mod|tex)$/i.test(n)) visual[n] = b64;
+        }
+        let previewed = false;
+        try {
+          const resp = await fetch(COMMIT_ROUTE, {
+            method: "POST", headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({car_path: CAR_PATH, action: "previewmembers", members: visual}),
+          });
+          const result = await resp.json();
+          if (result.ok && result.data) {
+            // Textures first: a mesh resolves its materials against TEXTURES by
+            // name as it is built, so they must be there before it is.
+            for (const [n, uri] of Object.entries(result.data.textures || {})) {
+              for (const key of new Set([n, n.toLowerCase()])) {
+                if (!(key in TEXTURES)) packagePreview.addedTextures.add(key);
+                TEXTURES[key] = uri;
+              }
+            }
+            for (const [n, objText] of Object.entries(result.data.objs || {})) {
+              if (applyLiveReimport(n, objText)) { packagePreview.meshes.add(n); previewed = true; }
+            }
+            if (typeof rebuildTextureDrawer === "function" && rebuildTextureDrawer) rebuildTextureDrawer();
+          }
+        } catch (err) { /* no preview is not a failed import -- Save still works */ }
+        status.textContent = summary + (previewed
+          ? ". Previewing it now -- press Save to write it to the car, or Discard to undo."
+          : ". Not applied yet -- press Save. It could not be previewed, but it will "
+            + "show once it is written.");
       } catch (err) {
         status.textContent = "Could not read that package: " + (err && err.message || err);
       }
@@ -3307,17 +3425,38 @@ function buildSoundDrawer() {
   names.forEach(name => {
     const info = SFX_PARTS[name];
     const pendingB64 = pendingSfxEdits[name];        // a staged replacement (mono 16-bit WAV), if any
+    const pendingRaw = pendingSfxRaw[name];         // ...or a .sfx staged untouched
+    const staged = pendingB64 || pendingRaw;
     const row = document.createElement("div");
-    row.className = "sound-row" + (pendingB64 ? " pending" : "");
+    row.className = "sound-row" + (staged ? " pending" : "");
     const label = document.createElement("div");
     label.className = "sound-name";
-    label.textContent = name + (pendingB64 ? " (pending)" : (info && info.shared ? " (shared default)" : ""));
+    label.textContent = name + (staged ? " (pending)" : (info && info.shared ? " (shared default)" : ""));
     addScopeBadge(label, name);
     row.appendChild(label);
 
     // Body: a pending replacement previews the CONVERTED wav (what actually gets
     // committed); otherwise the original entry, playable if PCM.
-    if (pendingB64) {
+    if (pendingRaw) {
+      const d = pendingRaw.info;
+      const meta = document.createElement("div");
+      meta.className = "sound-meta";
+      meta.textContent = `staged verbatim — ${d.rate} Hz, ${d.bits}-bit `
+        + `${d.channels === 2 ? "stereo" : "mono"} ${d.isPcm ? "PCM" : "ADPCM"}, `
+        + `${d.seconds.toFixed(2)}s; commits byte-for-byte`;
+      row.appendChild(meta);
+      if (pendingRaw.wav_b64) {
+        const audio = document.createElement("audio");
+        audio.controls = true;
+        audio.src = "data:audio/wav;base64," + pendingRaw.wav_b64;
+        row.appendChild(audio);
+      } else {
+        const note = document.createElement("div");
+        note.className = "sound-meta";
+        note.textContent = "ADPCM — stored as given, but not playable here yet (see sfx.py)";
+        row.appendChild(note);
+      }
+    } else if (pendingB64) {
       const meta = document.createElement("div");
       meta.className = "sound-meta";
       meta.textContent = "staged replacement — mono 16-bit, commits on Save";
@@ -3360,21 +3499,45 @@ function buildSoundDrawer() {
     const importLabel = document.createElement("label");
     importLabel.className = "sound-import";
     importLabel.textContent = pendingB64 ? "Replace" : "Import";
-    importLabel.title = "Import a sound (WAV, MP3, OGG, …) -- converted to the mono 16-bit .sfx the game needs";
+    importLabel.title = "Import a sound. A .sfx goes in untouched; WAV/MP3/OGG/… "
+      + "are converted to the mono 16-bit .sfx the game needs";
     const importInput = document.createElement("input");
     importInput.type = "file";
-    importInput.accept = ".wav,.mp3,.ogg,.m4a,.aac,.flac,.opus";
+    importInput.accept = ".sfx,.wav,.mp3,.ogg,.m4a,.aac,.flac,.opus";
     importInput.addEventListener("change", async e => {
       const file = e.target.files[0];
       e.target.value = "";
       if (!file) return;
       statusEl.textContent = "Decoding…";
       try {
-        // .sfx must be mono 16-bit (sfx.from_wav_bytes rejects otherwise), so decode
-        // and re-encode to that shape at the original entry's sample rate. Handles
-        // MP3/OGG/etc AND normalises a stereo/24-bit WAV that would otherwise fail.
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        if (/[.]sfx$/i.test(file.name)) {
+          // ALREADY the game's format: in it goes, byte for byte. No decode and
+          // no re-encode -- those can only lose something, and normalising here
+          // would silently rewrite a file its author already tested. If the game
+          // will not take a stereo or ADPCM .sfx, that is the game's answer to
+          // give, not ours.
+          const sfx = readSfx(bytes);
+          if (!sfx) throw new Error("not a .sfx (too short to hold a header)");
+          delete pendingSfxEdits[name];
+          pendingMemberEdits[name] = bytesToBase64(bytes);
+          pendingSfxRaw[name] = {
+            info: sfx,
+            wav_b64: sfx.isPcm
+              ? bytesToBase64(wavAroundPcm(sfx.pcm, sfx.rate, sfx.channels || 1, sfx.bits || 16))
+              : null,       // ADPCM: staged fine, just not previewable (see sfx.py)
+          };
+          updateCommitStatus();
+          buildSoundDrawer();
+          return;
+        }
+        // Anything else has to become mono 16-bit at the entry's own rate --
+        // sfx.from_wav_bytes rejects otherwise. Handles MP3/OGG/etc AND
+        // normalises a stereo/24-bit WAV that would fail.
         const rate = (info && info.sample_rate) || 22050;
-        const wav = await decodeAudioToMonoWav(new Uint8Array(await file.arrayBuffer()), rate);
+        const wav = await decodeAudioToMonoWav(bytes, rate);
+        delete pendingSfxRaw[name];
+        delete pendingMemberEdits[name];
         pendingSfxEdits[name] = bytesToBase64(wav);
         updateCommitStatus();
         buildSoundDrawer();                          // redraw: this row now shows the staged preview + ↺
@@ -3385,13 +3548,15 @@ function buildSoundDrawer() {
     importLabel.appendChild(importInput);
     actions.appendChild(importLabel);
 
-    if (pendingB64) {
+    if (staged) {
       const rev = document.createElement("button");
       rev.className = "sound-revert";
       rev.textContent = "↺";
       rev.title = "Discard this staged sound and restore the original";
       rev.addEventListener("click", () => {
         delete pendingSfxEdits[name];
+        delete pendingSfxRaw[name];
+        delete pendingMemberEdits[name];             // the verbatim bytes live here
         updateCommitStatus();
         buildSoundDrawer();                          // redraw: back to the original row
       });
@@ -3480,10 +3645,23 @@ function main() {
     // themselves at the wrong end). car.py's assemble_car is unaffected: it works
     // in native space and gets negated with everything else.
     const frontZ = -wheelbaseM / 2, rearZ = wheelbaseM / 2;
-    wheelObjs.front_left.position.set(-ftrackM / 2, wheelBaseY.front_left, frontZ);
-    wheelObjs.front_right.position.set(ftrackM / 2, wheelBaseY.front_right, frontZ);
-    wheelObjs.rear_left.position.set(-rtrackM / 2, wheelBaseY.rear_left, rearZ);
-    wheelObjs.rear_right.position.set(rtrackM / 2, wheelBaseY.rear_right, rearZ);
+    // RIDE HEIGHT. wheelBaseY puts a wheel's bottom on the body's own datum,
+    // which is what you get if the car has no suspension: the sills sit on the
+    // road and the wheels are swallowed by the arches. The .cf has the missing
+    // number -- fground_clearance1/rground_clearance1, 4-5 inches on the stock
+    // cars -- so the wheel drops by it and the body rides that far above the
+    // contact patch. Front and rear are separate fields, which is also rake:
+    // a Beetle sits nose-up and can now say so.
+    //
+    // NOT CONFIRMED IN GAME. The names and the stock magnitudes both fit, but
+    // nothing has been driven to check the engine reads them this way. This is
+    // the viewer showing an interpretation, not a measurement.
+    const fdrop = getStat("fground_clearance1") * INCH_TO_M;
+    const rdrop = getStat("rground_clearance1") * INCH_TO_M;
+    wheelObjs.front_left.position.set(-ftrackM / 2, wheelBaseY.front_left - fdrop, frontZ);
+    wheelObjs.front_right.position.set(ftrackM / 2, wheelBaseY.front_right - fdrop, frontZ);
+    wheelObjs.rear_left.position.set(-rtrackM / 2, wheelBaseY.rear_left - rdrop, rearZ);
+    wheelObjs.rear_right.position.set(rtrackM / 2, wheelBaseY.rear_right - rdrop, rearZ);
   }
   updateWheelPositions();
   document.getElementById("sections").addEventListener("input", updateWheelPositions);
@@ -4130,6 +4308,10 @@ function main() {
     for (const m of Array.from(pendingPartRemovals)) applyLiveReimport(m, MOD_PARTS[m]);  // put removed parts back
     pendingPartRemovals.clear();
     for (const m of Object.keys(pendingMemberEdits)) delete pendingMemberEdits[m];  // staged package, never written
+    for (const key of packagePreview.addedTextures) delete TEXTURES[key];
+    for (const m of packagePreview.meshes) if (m in MOD_PARTS) applyLiveReimport(m, MOD_PARTS[m]);
+    packagePreview.meshes.clear(); packagePreview.addedTextures.clear();
+    for (const m of Object.keys(pendingSfxRaw)) delete pendingSfxRaw[m];           // ...and verbatim sounds
     for (const k of Object.keys(importedTexturesByPart)) delete importedTexturesByPart[k];
     // Textures: restore each staged material's pre-import value and re-apply to
     // every built tab's meshes that use it.
@@ -5164,7 +5346,7 @@ async function commitChanges() {
     // changing under us -- see hostSaved there.
     try {
       const h = (window.self !== window.top) ? window.parent.vrmodHost : null;
-      if (h && h.saved) h.saved();
+      if (h && h.saved) h.saved(false);          // textures only: no reload needed
     } catch (e) { /* not embedded */ }
     const warn = result.warnings || [];
     if (warn.length) {

@@ -721,12 +721,25 @@ window.vrmodHost = {
   // stamp instead of reporting the change -- it was not a change "under" the
   // editor, it WAS the editor. Clearing the stamp first makes checkFrameStale
   // skip its comparison for this one pass.
-  saved: async () => {
+  saved: async (reload) => {
     FRAME_STAMP = null;
     await refresh();
     const i = findSelected();
     FRAME_STAMP = (i && i.stamp) || null;
     showFrameBanner('');
+    // The editor wrote a mesh or a texture it could not render itself -- a
+    // package's members go in as raw bytes -- so the view is showing the car as
+    // it was before the save. Rebuild it from disk. No okToDropFrame here: the
+    // save is what just cleared everything staged, so there is nothing to lose.
+    // Deferred so the editor's own call stack unwinds before its page is torn
+    // out from under it.
+    if (reload) setTimeout(() => {
+      const f = el$('frame');
+      if (!f) return;
+      FRAME_STAMP = (findSelected() || {}).stamp || null;
+      try { f.contentWindow.location.reload(); }
+      catch (e) { f.src = f.dataset.src + '?t=' + Date.now(); }
+    }, 50);
   },
 };
 

@@ -231,6 +231,31 @@ def _apply_commit(body: dict) -> tuple[Path, Path]:
                 [f"{len(want)} member(s): " + ", ".join(want)],
                 warnings, base64.b64encode(buf.getvalue()).decode())
 
+    if body.get("action") == "previewmembers":
+        # A package's members, converted for DISPLAY and nothing else. The page
+        # has no reader for .mod or .tex -- everything it draws arrives as OBJ
+        # text and image data URIs made here -- so without this a staged package
+        # is bytes it cannot show until Save writes them and the view reloads.
+        #
+        # Deliberately a conversion on the server rather than a second .mod/.tex
+        # reader in JavaScript: one implementation of each format, so the preview
+        # cannot drift from what the rest of the tool does with the same file.
+        # Writes nothing. What Save commits is still the members byte for byte;
+        # this only decides what is on screen until then.
+        objs, textures = {}, {}
+        for name, raw_b64 in (body.get("members") or {}).items():
+            low = name.lower()
+            raw = base64.b64decode(raw_b64)
+            if low.endswith(".mod"):
+                obj_text, _mtl = mod.to_obj(mod.parse(raw), Path(name).stem + ".mtl")
+                objs[name] = obj_text
+            elif low.endswith(".tex"):
+                textures[name] = ("data:image/png;base64,"
+                                  + base64.b64encode(tex.tex_to_png_bytes(raw)).decode())
+        return (Path("preview"), None,
+                [f"previewed {len(objs)} mesh(es), {len(textures)} texture(s)"], [],
+                {"objs": objs, "textures": textures})
+
     if body.get("action") == "genlods":
         car_path = Path(body["car_path"])
         entries = archive.read(car_path)
