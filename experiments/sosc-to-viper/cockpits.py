@@ -307,6 +307,16 @@ def tile_textures(im, prefix: str, tiles: int = TILES,
             k = min(usable / crop.width, usable / crop.height)
             crop = crop.resize((max(1, round(crop.width * k)),
                                 max(1, round(crop.height * k))), Image.LANCZOS)
+            # ...and then re-key it, because the resample just blended the
+            # transparency marker into the art. Transparency here is a COLOUR,
+            # not a channel, so LANCZOS happily averages cyan with the pixels
+            # beside it -- and its ringing darkens the result, so the halo comes
+            # out at (8,192,192) rather than (0,255,255) and the exact-match
+            # colorkey no longer removes it. In game that is a dotted cyan line
+            # down the A-pillar edge. Only the frame pieces are big enough to
+            # need scaling (SEDF0 is 100x289, UTILF1/F2 are 280-287 tall), which
+            # is exactly where the artefact showed and why the dash never did.
+            crop, _halo = defringe(crop)
         # Pad into a square power-of-two page: the .tex format is square and
         # power-of-two only, and padding beats scaling because the UVs can
         # simply address the used corner.
