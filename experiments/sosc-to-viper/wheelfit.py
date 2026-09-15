@@ -92,7 +92,8 @@ ARCHES = {
     "azzaroni": (0.21, 0.82),
     "j57":      (0.19, 0.77),
     "strtrat":  (0.22, 0.81),
-    "hmxvan":   (0.20, 0.82),
+    "hmxvan":   (0.232, 0.852),   # re-read against the drawn axles: both
+                                 # wells sit ~3% further forward than first taken
     "airhawk":  (0.23, 0.77),
     "police":   (0.224, 0.787),
 }
@@ -145,11 +146,17 @@ def track_fit(m, z: float, half_w: float, radius: float = 0.330,
     same either way, so this costs nothing where it is not needed.
     """
     base = min(v.y for v in m.vertices)
-    xs = [abs(v.x) for v in m.vertices
-          if abs(v.z - z) < span and v.y <= base + 2 * radius]
+    xs = sorted(abs(v.x) for v in m.vertices
+                if abs(v.z - z) < span and v.y <= base + 2 * radius)
     if not xs:
         return None
-    half = max(xs) - half_w - WHEEL_INSET
+    # The 75th percentile, not the maximum: a fin or a flared arch lip is a few
+    # vertices wide and should not set the track for the whole axle. The Hunter
+    # and the Police are why -- their noses flare 89 mm and 85 mm past the body
+    # beside them, which stood both front wheels out at the widest point. On the
+    # five cars without a flare the two figures agree to within 3 inches, so
+    # this only bites where something is actually sticking out.
+    half = xs[int(0.75 * (len(xs) - 1))] - half_w - WHEEL_INSET
     return max(half, 0.20) * 2 / INCH_TO_M
 
 
