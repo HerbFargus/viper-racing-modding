@@ -256,7 +256,40 @@ def _fit_axis(vals):
     return off, span
 
 
-def tga_solid(rgb, size: int = 8) -> bytes:
+RAMP = 16          # the palette is 16 shades per hue: runs 80..95, 96..111, ...
+RAMP_LIT = 9       # how far up a ramp counts as "lit"; see shade_of()
+
+
+def reserved_indices(pal):
+    """Palette slots that hold a sentinel rather than a colour.
+
+    The first ten and last ten entries of the 256 are the Windows system-colour
+    reservations and come back as pure green. A face pointing at one is not a
+    green face -- it is geometry with no colour stored, which in practice is
+    SoSC's shadow casters. They are dropped rather than drawn.
+    """
+    return {i for i, c in enumerate(pal) if c == (0, 255, 0)}
+
+
+def shade_of(pal, idx: int, ftype: int) -> tuple[int, int, int]:
+    """The colour a face of this type actually shows.
+
+    Smooth-shaded faces (type 19) store the BASE of a ramp -- its darkest entry --
+    and let the renderer pick the shade from the lighting. Taking the base
+    literally paints them near-black: the missile's fins are ramp 96, whose base
+    is RGB(12,33,15) but whose middle is RGB(211,19,19), and the fins are red in
+    game. Measured across all three .MAX files, 92% of type-19 faces sit at
+    position 0 of their ramp, against type 11 which sits at position 9-11 in 80%
+    of cases -- so position 0 means "ramp", and a lit position is what to draw.
+
+    Flat-colour faces already name the shade they want and are taken as they are.
+    """
+    if ftype == 19 and idx % RAMP == 0:
+        idx = min(255, idx + RAMP_LIT)
+    return pal[idx]
+
+
+def tga_solid(rgb, size: int = 32) -> bytes:
     """A tiny uncompressed 24-bit TGA of one colour.
 
     Viper materials are textures, not colours, so a flat-shaded SoSC face needs
