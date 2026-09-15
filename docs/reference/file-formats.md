@@ -3137,6 +3137,12 @@ runtime question beyond the file formats, and is not traced here.
   ties between identically-valued fields were broken by declaration order and surrounding contiguous
   offsets. Not every byte is named: several stretches (notably right after `fuel_capacity`, and a short run
   before `cm_height`) remain unidentified and must be preserved untouched when rebuilding.
+- **Tyre sizes, 0x1A0–0x1B4 — ✅ identified later, bringing the count to 91.** Six `float32`s after
+  `wheel_lock`, as printed on a sidewall: `ftyre_width` (mm), `ftyre_aspect`, `ftyre_rim` (inches), then the
+  same three for the rear. Pinned against `viper.cf`, which reads **275/40 R17 front and 335/35 R17 rear — the
+  real 1996 Viper GTS's tyres**. The other stock cars agree with that reading: exotic 280/35 R18 on 330/40 R18,
+  sedan 245/35 R18 all round, sports identical to the Viper, plane 225/50 R15 front on 225/50 R10 rear. What
+  the physics does with them is not yet tested; the Car Configs editor does not show them.
 
 ### 5.5 The remaining loose files in `Data/`
 
