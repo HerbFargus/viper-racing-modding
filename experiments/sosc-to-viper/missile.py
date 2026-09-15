@@ -323,9 +323,17 @@ def per_surface(faces, pal, atl):
     # A flat page does not care, but the banded one does, so every surface is
     # treated the same way rather than only the one that shows it.
     for f in faces:
-        if textured(f):
-            # a cell's UVs are relative to the cell, which is now the whole page
+        if f["type"] == 13:
             f["uv"] = [(u, 1.0 - v) for u, v in f["uv"]]
+        elif f["type"] == 18:
+            # NOT flipped. A cell's UVs come out of read_model already the right
+            # way up for the cell once unit_uvs has shifted them into 0..1 --
+            # flipping them as well put the mine's red light off the model
+            # entirely: 0 red samples flipped, 84 unflipped. Type 13 and type 18
+            # disagree here, and each was settled by sampling the exported mesh
+            # against its exported texture, the check that has predicted the
+            # game correctly both times it mattered.
+            pass
         else:
             f["uv"] = [(0.5, 0.5) for _ in f["uv"]]
     return pages, mats
