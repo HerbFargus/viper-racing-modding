@@ -3489,12 +3489,41 @@ function main() {
     piece.group.setRotationFromAxisAngle(axis, THREE.MathUtils.degToRad(angleDeg));
   }
   function updateCockpitNeedleLive() {
+    syncGaugeSliderRanges();
     if (!built.cockpit || !built.cockpit.pieces.needle_rpm) return;
     orientNeedle(built.cockpit.pieces.needle_rpm, getCockpitRecordValues("rpm pt"),
                  getCockpitRecordValues("rpm dat"), needleRpmValue);
     orientNeedle(built.cockpit.pieces.needle_mph, getCockpitRecordValues("mph pt"),
                  getCockpitRecordValues("mph dat"), needleMphValue);
     if (activeKey === "cockpit") refitAndRefresh("cockpit");
+  }
+
+  // The sweep sliders' ceilings come from the dat records' third field (max rpm /
+  // max mph), which is itself an editable value -- so raising a car's max mph
+  // from 89 to 120 has to raise the slider with it. Read once at panel-build
+  // time, the slider stayed pinned at the old maximum and there was no way to
+  // sweep the needle over the part of the dial you had just made reachable.
+  //
+  // Read from the live inputs rather than COCKPIT_RECORDS: that holds the values
+  // as loaded from the file, and an edit is not written back to it until commit.
+  function syncGaugeSliderRanges() {
+    [["sweep-rpm", "rpm dat", 8000], ["sweep-mph", "mph dat", 200]].forEach(
+      ([id, record, fallback]) => {
+        const slider = document.getElementById(id);
+        if (!slider) return;
+        const max = getCockpitRecordValues(record)[2] || fallback;
+        if (Number(slider.max) === max) return;
+        slider.max = max;
+        // Lowering the ceiling under the handle would otherwise leave the slider
+        // showing a value it can no longer reach, and the needle parked past the
+        // end of its own sweep.
+        if (Number(slider.value) > max) {
+          slider.value = max;
+          const readout = document.getElementById(id + "-val");
+          if (readout) readout.textContent = max;
+          if (id === "sweep-rpm") needleRpmValue = max; else needleMphValue = max;
+        }
+      });
   }
 
   // "Focus gauges": drive the driver's-eye view to look straight at the midpoint
