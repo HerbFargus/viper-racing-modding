@@ -178,69 +178,65 @@ def tga_from_image(im) -> bytes:
             + bytes(body))
 
 
-def consolidate(faces, pal, atl):
-    """Fold every surface into ONE texture and rewrite the UVs to suit.
+def per_surface(faces, pal, atl):
+    """One texture per surface, and the UVs left pointing at a whole page.
 
-    Viper does not require this -- only 36% of stock meshes use a single
-    texture, and a car body uses four. But a stock body's other three are
-    UCAR/WHEELS/EFFECTS, which already ship in race.res, so they cost the author
-    nothing. Everything a horn ball names is new and has to travel with it, so
-    the number that matters for a shareable bundle is new FILES, not textures
-    per mesh.
+    This is the format the bundle standard argues for and the one the missile
+    should have shipped in. A flat colour alone on its own page makes the FILE
+    the part -- mis061.tex IS the body -- so recolouring the missile is swapping
+    one small image, which is the mapping a colour picker in the editor would
+    drive. An atlas throws that away: every surface becomes a rectangle inside
+    one image that only the UVs can explain.
 
-    This missile is the easy case: three of its four surfaces are flat colours
-    sitting alone on a 32x32 page to say one thing. Only the checker band holds
-    real image data. So they pack into one grid, and the remap divides into two
-    kinds:
+    It also deletes a class of bug outright. A 2x2 atlas has a row order, and
+    getting it upside down sampled red where white was meant -- which is exactly
+    what happened. A single-colour page reads the same either way up.
 
-      flat colour   every vertex points at the middle of its own cell. A single
-                    point cannot be filtered across a cell boundary, so no
-                    inset, no gutter, no bleed.
-      real image    the existing 0..1 UVs scale into its cell, inset half a
-                    texel so filtering cannot reach the neighbouring cell.
+    The cost is four files instead of one, about 4KB on 77.
 
-    Returns (image, {(type, index): None}) -- the mesh ends up with one material.
+    Returns ({name: PIL image}, {(type, index): name}).
     """
     from PIL import Image
+    FLAT = 16                       # smallest sane square for one colour
     surfaces = []
     for f in faces:
         key = (f["type"], f["tex"])
         if key not in [s[0] for s in surfaces]:
             surfaces.append((key, f["type"] == 13))
-    cols = 2 if len(surfaces) <= 4 else 3
-    rows = (len(surfaces) + cols - 1) // cols
-    page = Image.new("RGB", (cols * CELL, rows * CELL), (0, 0, 0))
-    where = {}
-    for i, (key, is_image) in enumerate(surfaces):
-        ox, oy = (i % cols) * CELL, (i // cols) * CELL
+
+    pages, mats, used = {}, {}, set()
+    for key, is_image in surfaces:
+        idx = RECOLOUR.get(key[1], key[1])
+        stem = "mis{:03d}".format(idx)
+        while stem + ".tex" in used:            # two surfaces, one palette slot
+            stem = stem + "b"
+        name = stem + ".tex"
+        if len(name) > NAME_LIMIT:
+            raise SystemExit(name + " is over " + str(NAME_LIMIT) + " characters")
+        used.add(name)
         if is_image:
             w, h, px = atl[key[1]]
             cell = Image.new("RGB", (w, h))
             cell.putdata([pal[b] for b in px])
-            page.paste(cell.resize((CELL, CELL), Image.LANCZOS), (ox, oy))
+            side = 1
+            while side < max(w, h):
+                side *= 2
+            pages[name] = cell.resize((side, side), Image.LANCZOS)
         else:
-            idx = RECOLOUR.get(key[1], key[1])
-            page.paste(Image.new("RGB", (CELL, CELL), shade_of(pal, idx, key[0])),
-                       (ox, oy))
-        where[key] = (ox, oy, is_image)
-    W, H = page.size
-    half = 0.5
-    # V IS MEASURED FROM THE OTHER END. PIL's origin is top-left and the cell
-    # rows are laid out downward from it, but Viper reads v from the bottom --
-    # the same convention that flips a converted car's roof onto its bumper
-    # (README, convention 3). Written top-down, the missile samples the row
-    # below the one it means: the body came out RED, off the bottom-right cell,
-    # where the white it wants sits top-right. Confirmed in game, not inferred
-    # -- it renders red there too, so this was never a viewer artefact.
+            pages[name] = Image.new("RGB", (FLAT, FLAT),
+                                    shade_of(pal, idx, key[0]))
+        mats[key] = name
+
+    # V IS MEASURED FROM THE OTHER END -- see the atlas note in the history.
+    # A flat page does not care, but the banded one does, so every surface is
+    # treated the same way rather than only the one that shows it.
     for f in faces:
-        ox, oy, is_image = where[(f["type"], f["tex"])]
-        if is_image:
-            f["uv"] = [(((ox + half) + u * (CELL - 1)) / W,
-                        1.0 - ((oy + half) + v * (CELL - 1)) / H) for u, v in f["uv"]]
+        key = (f["type"], f["tex"])
+        if f["type"] == 13:
+            f["uv"] = [(u, 1.0 - v) for u, v in f["uv"]]
         else:
-            c = ((ox + CELL / 2) / W, 1.0 - (oy + CELL / 2) / H)
-            f["uv"] = [c for _ in f["uv"]]
-    return page, where
+            f["uv"] = [(0.5, 0.5) for _ in f["uv"]]
+    return pages, mats
 
 
 def build(max_path: Path, skin: Path, install: Path, length: float):
@@ -309,12 +305,9 @@ def build(max_path: Path, skin: Path, install: Path, length: float):
     for src, dst in sorted(RECOLOUR.items()):
         print(f"  recolour: {src} RGB{pal[src]} -> {dst} RGB{pal[dst]}")
 
-    page, where = consolidate(faces, pal, atl)
-    if len(ATLAS_NAME) > NAME_LIMIT:
-        raise SystemExit(f"{ATLAS_NAME} is over {NAME_LIMIT} characters")
-    mats = {k: ATLAS_NAME for k in where}
-    print(f"  consolidated {len(where)} surface(s) into one "
-          f"{page.width}x{page.height} texture, {ATLAS_NAME}")
+    pages, mats = per_surface(faces, pal, atl)
+    print(f"  {len(pages)} surface(s), one texture each: "
+          + ", ".join(f"{n} {im.width}x{im.height}" for n, im in sorted(pages.items())))
 
     obj = [f"# {MODEL} as the horn ball"]
     for x, y, z in fitted:
@@ -345,17 +338,20 @@ def build(max_path: Path, skin: Path, install: Path, length: float):
     if r.returncode:
         raise SystemExit(f"obj2mod failed: {r.stderr[-400:]}")
 
-    png = work / "atlas.png"
-    page.save(png)
-    dest = work / ATLAS_NAME
-    subprocess.run(run + ["img2tex", str(png), str(dest), "--wrap", "1"],
-                   cwd=str(ROOT), capture_output=True)
-    if not dest.is_file():                       # no img2tex: go via TGA
-        tga = work / "atlas.tga"
-        tga.write_bytes(tga_from_image(page))
-        subprocess.run(run + ["tga2tex", str(tga), str(dest), "--wrap", "1"],
-                       cwd=str(ROOT), check=True, capture_output=True)
-    return out_mod.read_bytes(), {ATLAS_NAME: dest.read_bytes()}
+    out_tex = {}
+    for name, im in sorted(pages.items()):
+        png = work / (name[:-4] + ".png")
+        im.save(png)
+        dest = work / name
+        subprocess.run(run + ["img2tex", str(png), str(dest), "--wrap", "1"],
+                       cwd=str(ROOT), capture_output=True)
+        if not dest.is_file():                   # no img2tex: go via TGA
+            tga = work / (name[:-4] + ".tga")
+            tga.write_bytes(tga_from_image(im))
+            subprocess.run(run + ["tga2tex", str(tga), str(dest), "--wrap", "1"],
+                           cwd=str(ROOT), check=True, capture_output=True)
+        out_tex[name] = dest.read_bytes()
+    return out_mod.read_bytes(), out_tex
 
 
 def install_into(car: Path, ball_bytes: bytes, textures: dict) -> str:
