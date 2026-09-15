@@ -53,6 +53,11 @@ from vrmod import archive, cf, envelope, mod as mod_mod  # noqa: E402
 
 INCH_TO_M = 0.0254
 
+# The z shift moves the body, so running it twice over the same car doubles it.
+# A fresh pipeline run wants it applied (False); set True only to re-run the
+# track and lift passes over cars that have already been shifted once.
+SHIFT_DONE = False
+
 # Published overall length, inches. Not in SPECS because nothing needed it until
 # now, and it is the same class of judgement as the figures already there: a
 # nominal catalogue number for the model the artwork resembles, not a
@@ -105,6 +110,57 @@ def arch_fit(m, stem: str):
     return (front - rear) / INCH_TO_M, (front + rear) / 2
 
 
+# The shared Viper wheel is 0.380 m across. The SoSC cars are narrow, so a track
+# taken from a catalogue stands the tyre proud of the bodywork -- measured before
+# this ran, every car did it, from 18 mm on the Police front to 359 mm on the
+# Hunter's rear, where the body necks in to 0.53 m and the wheel hangs in open
+# air. The real cars tuck their wheels under; these have to as well.
+#
+# So the track is measured, not scaled: put the tyre's OUTER face just inside the
+# body at that axle's own station. The station matters -- a van is not the same
+# width at the front axle as the rear, and neither is the Hunter.
+WHEEL_INSET = 0.012            # metres of daylight between tyre and bodywork
+
+
+def _wheel_half_width(car_path: Path) -> float:
+    """Half the shared front wheel's width, from the mesh the game draws."""
+    try:
+        raw = car.find_shared(car_path, archive.read(car_path), "fwheel_1.mod")
+        if raw:
+            return max(abs(v.x) for v in mod_mod.parse(raw).vertices)
+    except Exception:
+        pass
+    return 0.190                # measured on the stock wheel, as a fallback
+
+
+def track_fit(m, z: float, half_w: float, span: float = 0.25) -> float | None:
+    """Track in inches that tucks the tyre inside the body at station z."""
+    xs = [abs(v.x) for v in m.vertices if abs(v.z - z) < span]
+    if not xs:
+        return None
+    half = max(xs) - half_w - WHEEL_INSET
+    return max(half, 0.20) * 2 / INCH_TO_M
+
+
+# HOW HIGH the wells sit, measured the same way: with the arch x pinned by
+# ARCHES, the dark well in that column band has a readable vertical centre. The
+# wheel's own centre is fixed at its radius above the ground (0.330 m), so the
+# body lifts by the difference and the tyre drops into the well.
+#
+# Small numbers, and they agree across the three sports cars, which is the
+# reassuring part -- the Ferrari, the GT40 and the Beetle all want 4-5 cm. The
+# van and the Camaro already sit right. The Police reads +0.119, far outside the
+# others; its wells are the hardest to see in that skin, so it is left out until
+# someone looks at it properly rather than trusted because a number appeared.
+LIFT = {
+    "azzaroni": 0.042,
+    "j57":      0.044,
+    "strtrat":  0.048,
+    "hmxvan":   0.002,
+    "airhawk":  0.000,
+}
+
+
 def body_mesh(entries, stem: str):
     """LOD 0, which is the only mesh at full size."""
     want = f"{stem}0.mod"
@@ -149,8 +205,20 @@ def fit(car_path: Path) -> dict | None:
         # there -- so the body moves instead, by the arch midpoint, and the
         # axle pair lands on the wells.
         new["wheelbase"], centre = measured
-        shift = -centre
+        shift = 0.0 if SHIFT_DONE else -centre
         source = "measured"
+
+    # Track last: it depends on the wheelbase, since the station to measure the
+    # body at is where the axle ends up.
+    half_w = _wheel_half_width(car_path)
+    if "wheelbase" in new:
+        half_wb = new["wheelbase"] * INCH_TO_M / 2
+        ft = track_fit(m, half_wb + shift, half_w)
+        rt = track_fit(m, -half_wb + shift, half_w)
+        if ft:
+            new["ftrack"] = ft
+        if rt:
+            new["rtrack"] = rt
 
     # Only the named fields are written; every other byte of the .cf carries
     # over untouched, same as realstats does it.
@@ -162,17 +230,18 @@ def fit(car_path: Path) -> dict | None:
     # The shift moves the CAR, not just the body: every mesh the car owns (the
     # LOD chain, the brake lights) and the cockpit records, which are positions
     # in the same car space. Miss one and it detaches from the rest.
+    lift = LIFT.get(stem, 0.0)
     moved = 0
-    if abs(shift) > 1e-4:
-        out = [_shift_mesh(x, shift, stem) if _is_own_mesh(x, stem) else x
+    if abs(shift) > 1e-4 or abs(lift) > 1e-4:
+        out = [_shift_mesh(x, shift, stem, lift) if _is_own_mesh(x, stem) else x
                for x in out]
         moved = sum(1 for x in out if _is_own_mesh(x, stem))
     archive.write(out, car_path)
-    if abs(shift) > 1e-4:
-        _shift_cockpit(car_path, shift)
+    if abs(shift) > 1e-4 or abs(lift) > 1e-4:
+        _shift_cockpit(car_path, shift, lift)
     return {"stem": stem, "length": body_len, "before": before, "after": new,
             "scaled": bool(spec and length_real), "source": source,
-            "shift": shift, "moved": moved}
+            "shift": shift, "lift": lift, "moved": moved}
 
 
 
@@ -181,9 +250,9 @@ def _is_own_mesh(entry, stem: str) -> bool:
     return n.endswith(".mod") and n.startswith(stem)
 
 
-def _shift_mesh(entry, dz: float, stem: str):
+def _shift_mesh(entry, dz: float, stem: str, dy: float = 0.0):
     m = mod_mod.parse(envelope.build(entry.tag, entry.version, entry.payload))
-    verts = [mod_mod.Vertex(v.x, v.y, v.z + dz, v.nx, v.ny, v.nz, v.u, v.v)
+    verts = [mod_mod.Vertex(v.x, v.y + dy, v.z + dz, v.nx, v.ny, v.nz, v.u, v.v)
              for v in m.vertices]
     blob = mod_mod.build(mod_mod.Mesh(vertices=verts, materials=list(m.materials),
                                       faces=list(m.faces), version=m.version))
@@ -191,7 +260,7 @@ def _shift_mesh(entry, dz: float, stem: str):
                                 version=entry.version, payload=blob[20:])
 
 
-def _shift_cockpit(car_path: Path, dz: float) -> None:
+def _shift_cockpit(car_path: Path, dz: float, dy: float = 0.0) -> None:
     """Move the cockpit POSITIONS by the same dz -- they are in the same space.
 
     Only the positions. "rpm dat"/"mph dat" are three-number records too, but
@@ -206,7 +275,7 @@ def _shift_cockpit(car_path: Path, dz: float) -> None:
     from vrmod import cockpit_tab
     raw = envelope.build(e.tag, e.version, e.payload)
     recs = cockpit_tab.parse(raw)
-    moved = {k: ((v[0], v[1], v[2] + dz) if k.strip().lower() in POSITIONS else v)
+    moved = {k: ((v[0], v[1] + dy, v[2] + dz) if k.strip().lower() in POSITIONS else v)
              for k, v in recs.items()}
     blob = cockpit_tab.build(raw, moved)
     out = [archive.ArchiveEntry(name=x.name, tag=x.tag, version=x.version,
