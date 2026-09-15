@@ -184,7 +184,14 @@ def main() -> int:
     elif scale != 1.0:
         print(f"  power and torque scaled x{scale} -- relative differences kept, "
               f"absolute figures lifted so the slowest car can race\n")
-    for car in sorted(fleet.glob("*.car")):
+    # rglob, like brakelights/enginesounds/cockpits: build_fleet writes
+    # <out>/<prefix>/<prefix>.car, so a flat glob matched nothing and this
+    # script exited 0 having silently done nothing -- the cars kept their
+    # donors' figures and looked built.
+    cars = sorted(fleet.rglob("*.car")) if fleet.is_dir() else [fleet]
+    if not cars:
+        raise SystemExit(f"no .car under {fleet}")
+    for car in cars:
         spec = SPECS.get(car.stem)
         if not spec:
             print(f"  {car.stem:9s} no real-world twin identified, left as the donor")

@@ -78,10 +78,18 @@ def main() -> int:
         raise SystemExit(f"texture codes are not unique: {codes}")
 
     built = []
-    for model, prefix, code, donor, real in FLEET:
+    for model, prefix, code, donor, display, real in FLEET:
         print(f"\n{prefix}  ({model}, from {donor} -- {real})")
-        built.append(build(max_path, model, skin, install / donor,
-                           out / prefix, prefix, code))
+        path = build(max_path, model, skin, install / donor,
+                     out / prefix, prefix, code)
+        # The display name has to be written AFTER the fork: carfork copies the
+        # donor's name along with everything else, so without this a converted
+        # car wears the donor's badge -- five of the seven showed up in the
+        # car-select menu as "Exotic Car" or "Sports Sedan". check_mesh.py's
+        # "the car has its own name in the menu" is the assertion that catches
+        # it, and it was catching it because nothing ever set the name.
+        archive.write(car.set_car_name(archive.read(path), display), path)
+        built.append(path)
 
     # --- LODs, which a single conversion does not touch --------------------
     print()
