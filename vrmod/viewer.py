@@ -1876,6 +1876,11 @@ async function commitChanges() {
       });
       delete pendingSfxRaw[name];
     }
+    // Only a MESH or TEXTURE changes what the 3D view shows. A verbatim sound
+    // does not, and one of those can be 15 MB -- reloading the page over a horn
+    // swap would be a long wait for a picture that cannot have changed.
+    const visualMembers = Object.keys(pendingMemberEdits)
+      .filter(n => /[.](mod|tex)$/i.test(n));
     for (const name of Object.keys(pendingMemberEdits)) delete pendingMemberEdits[name];
     for (const mat of Object.keys(pendingTextureEdits)) {
       delete originalTextures[mat];              // current TEXTURES[mat] is now the baseline
@@ -1895,7 +1900,13 @@ async function commitChanges() {
     buildSoundDrawer();                          // sounds: redraw from the rolled-forward SFX_PARTS
     if (payload.car_name !== undefined) CAR_NAME = payload.car_name;   // name: new baseline, no snap-back
     updateCommitStatus();
-    hostSaved();                                 // we changed the file; that is not "changed under you"
+    // A package's members went in as raw bytes, so unlike an OBJ import there is
+    // no client-side geometry to swap into the scene -- the page holds bytes it
+    // never parsed. The only way to show them is to rebuild from the car that is
+    // now on disk, which is what asking the host to reload the frame does. Same
+    // path as the stale banner's "Reload it", minus the confirm: we just saved,
+    // so there is nothing staged left to lose.
+    hostSaved(visualMembers.length > 0);         // we changed the file; that is not "changed under you"
 
     // Stats/cockpit fields are deliberately left as-is: STATS still holds the
     // ORIGINAL pre-edit values (the page never re-fetches what it wrote), so
@@ -1922,11 +1933,14 @@ function hostRefresh(selectKey) {
 // the host watches for to warn "this changed on disk since you opened it". Left
 // unsaid, every successful save would raise that alarm about itself. So say it
 // was us, and let the host re-baseline instead of warning.
-function hostSaved() {
+function hostSaved(reload) {
   try {
     const h = (window.self !== window.top) ? window.parent.vrmodHost : null;
-    if (h && h.saved) h.saved();
-  } catch (e) { /* not embedded -- nobody is watching the file */ }
+    if (h && h.saved) { h.saved(!!reload); return; }
+  } catch (e) { /* not embedded -- fall through */ }
+  // Opened standalone, with no host to ask: reload ourselves, since the point
+  // is to see the part that was just written.
+  if (reload) setTimeout(() => window.location.reload(), 400);
 }
 
 // The desktop bridge, or null in a plain browser. Injected into the TOP window
@@ -5291,7 +5305,7 @@ async function commitChanges() {
     // changing under us -- see hostSaved there.
     try {
       const h = (window.self !== window.top) ? window.parent.vrmodHost : null;
-      if (h && h.saved) h.saved();
+      if (h && h.saved) h.saved(false);          // textures only: no reload needed
     } catch (e) { /* not embedded */ }
     const warn = result.warnings || [];
     if (warn.length) {
