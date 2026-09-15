@@ -1721,6 +1721,7 @@ function hasPendingEdits() {
     || Object.keys(pendingPartEdits).length > 0
     || pendingPartRemovals.size > 0
     || Object.keys(pendingTextureEdits).length > 0
+    || Object.keys(pendingMemberEdits).length > 0
     || Object.keys(pendingSfxEdits).length > 0;
 }
 
@@ -1759,6 +1760,7 @@ function buildEditPayload() {
   const payload = {
     car_path: CAR_PATH, stats, cockpit, parts: pendingPartEdits, textures: pendingTextureEdits,
     sounds: pendingSfxEdits, remove: Array.from(pendingPartRemovals),
+    members: pendingMemberEdits,
   };
   if (carNameChanged()) payload.car_name = document.getElementById("car-name-input").value.trim();
   return payload;
@@ -1814,6 +1816,10 @@ async function commitChanges() {
     }
     for (const name of pendingPartRemovals) delete MOD_PARTS[name];  // removed members are gone
     pendingPartRemovals.clear();
+    // Package members went in verbatim; the car owns them now. No baseline to
+    // advance here the way pendingPartEdits has one -- the 3D view rebuilds from
+    // the reloaded car, which is what the import status line promises.
+    for (const name of Object.keys(pendingMemberEdits)) delete pendingMemberEdits[name];
     for (const mat of Object.keys(pendingTextureEdits)) {
       delete originalTextures[mat];              // current TEXTURES[mat] is now the baseline
       delete pendingTextureEdits[mat];
@@ -2589,6 +2595,10 @@ let selectedPartName = null;  // which Parts-drawer row is selected, for the imp
 // a live destination to preview against (see applyLiveReimport's docstring: "no
 // live preview" is a viewport limitation, not a reason to drop the edit).
 const pendingPartEdits = {};     // {realFilename: objText}
+// Bundle members, staged VERBATIM: {memberName: base64 of the raw file}.
+// Separate from pendingPartEdits because those hold OBJ text the server
+// converts; these are already .mod/.tex/.sfx and must not be touched.
+const pendingMemberEdits = {};
 const pendingTextureEdits = {};  // {materialName: decoded TGA base64}
 const pendingSfxEdits = {};      // {realFilename: raw uploaded WAV bytes, base64}
 // Support for discarding a staged part edit and rolling baselines forward on Save.
@@ -3111,6 +3121,106 @@ function buildPartsDrawer(applyLiveReimport, removeLivePart, highlightPart) {
                view: s.view || "", importable: true, removable: false, sharedNote: "shared default"});
     }
   }
+
+  // --- the horn ball as a PACKAGE -----------------------------------------
+  // Deliberately its own control rather than a branch inside the part rows'
+  // Import button. The two operations have different blast radii: an OBJ import
+  // touches one member, a package touches a mesh, its textures and a sound, and
+  // sweeps the outgoing textures on the way. Hiding that behind the same button
+  // would make what it does depend on which file you happened to pick.
+  //
+  // The OBJ import/export on each row stays exactly as it was -- that is for
+  // editing a part in a modelling tool. This is for moving a finished one
+  // between cars and between people.
+  (function(){
+    const box = document.createElement("div");
+    box.className = "part-bundle";
+    box.dataset.view = "hornball";
+    box.style.cssText = "margin:10px 0 4px;padding:9px 11px;border:1px solid #2d4a7a;"
+      + "border-radius:7px;background:#121b2c";
+    const head = document.createElement("div");
+    head.style.cssText = "font-size:12px;color:#9fb6da;margin-bottom:7px";
+    head.textContent = "Horn ball package - the mesh, its textures and the horn sound as one file";
+    box.appendChild(head);
+
+    const imp = document.createElement("label");
+    imp.className = "part-import";
+    imp.textContent = "Import package";
+    imp.title = "A .zip of game-format members (ball.mod, its .tex files, horn.sfx). "
+      + "They are written as they are, with no conversion. Textures belonging to the "
+      + "horn ball being replaced are removed so they do not pile up.";
+    const inp = document.createElement("input");
+    inp.type = "file"; inp.accept = ".zip";
+    imp.appendChild(inp);
+    inp.addEventListener("change", async e => {
+      const f = e.target.files && e.target.files[0];
+      e.target.value = "";
+      if (!f) return;
+      status.textContent = "Reading package...";
+      try {
+        const bag = await unzipFlat(new Uint8Array(await f.arrayBuffer()));
+        const names = Object.keys(bag);
+        if (!names.some(n => /\.mod$/i.test(n))) {
+          status.textContent = "That zip has no .mod in it - not a package.";
+          return;
+        }
+        let staged = 0;
+        for (const [name, bytes] of Object.entries(bag)) {
+          if (!/\.(mod|tex|sfx)$/i.test(name)) continue;
+          pendingMemberEdits[name] = bytesToBase64(bytes);
+          staged++;
+        }
+        updateCommitStatus();
+        const ignored = names.length - staged;
+        status.textContent = `Staged ${staged} member(s) from ${f.name}: `
+          + Object.keys(pendingMemberEdits).join(", ")
+          + (ignored ? ` (${ignored} ignored - not .mod/.tex/.sfx)` : "")
+          + ". Save to apply; the 3D view updates when the car reloads.";
+      } catch (err) {
+        status.textContent = "Could not read that package: " + (err && err.message || err);
+      }
+    });
+    box.appendChild(imp);
+
+    const exp = document.createElement("button");
+    exp.className = "part-export";
+    exp.textContent = "Export package";
+    exp.title = "Zip this car's ball.mod, the textures it names and horn.sfx, named "
+      + "<author>_<part>.zip. Stock shared textures are left out - every install "
+      + "already has them.";
+    exp.addEventListener("click", async () => {
+      let author = "";
+      try { author = window.localStorage.getItem("vrmod-author") || ""; } catch (e) {}
+      author = window.prompt("Your name, for the package filename:", author || "");
+      if (author === null) return;
+      author = author.trim();
+      try { window.localStorage.setItem("vrmod-author", author); } catch (e) {}
+      const part = (window.prompt("Name for this horn ball:", "horn-ball") || "").trim();
+      if (!part) return;
+      exp.disabled = true;
+      status.textContent = "Building package...";
+      try {
+        const resp = await fetch(COMMIT_ROUTE, {
+          method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({car_path: CAR_PATH, action: "exportbundle",
+                                member: "ball.mod", sound: "horn.sfx",
+                                author: author, part: part}),
+        });
+        const result = await resp.json();
+        if (!result.ok) { status.textContent = "Export failed: " + result.error; return; }
+        const bytes = Uint8Array.from(atob(result.data), c => c.charCodeAt(0));
+        downloadBytes(new Blob([bytes], {type: "application/zip"}), result.filename);
+        status.textContent = `${result.filename} - ` + (result.resized || []).join("; ")
+          + ((result.warnings || []).length ? "  " + result.warnings.join(" ") : "");
+      } catch (err) {
+        status.textContent = "Export failed: " + (err && err.message || err);
+      } finally {
+        exp.disabled = false;
+      }
+    });
+    box.appendChild(exp);
+    root.appendChild(box);
+  })();
 
   // --- anything owned but unrecognised: raw "Other parts" (always in use, never
   //     hidden) so nothing a car actually carries can disappear ---
@@ -3961,6 +4071,7 @@ function main() {
     }
     for (const m of Array.from(pendingPartRemovals)) applyLiveReimport(m, MOD_PARTS[m]);  // put removed parts back
     pendingPartRemovals.clear();
+    for (const m of Object.keys(pendingMemberEdits)) delete pendingMemberEdits[m];  // staged package, never written
     for (const k of Object.keys(importedTexturesByPart)) delete importedTexturesByPart[k];
     // Textures: restore each staged material's pre-import value and re-apply to
     // every built tab's meshes that use it.
