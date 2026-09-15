@@ -277,6 +277,79 @@ EVEN_TRACK = {
 }
 
 
+# THE COCKPITS, SET BY CALIBRATING IN GAME. cockpits.py copies viper.car's
+# cockpit.tab, which knows nothing about a SoSC dash, and the body shift above
+# then moves its positions. These are the six records as calibrated by eye in the
+# mod manager and checked in game -- needle pivots, sweeps, wheel, camera -- and
+# they are FINAL, in the shifted frame, so they are written after the shift
+# rather than shifted again. Same "the driven result has the last word" rule as
+# HAND_TUNED.
+#
+# Notes that matter if you touch these:
+#   - "mph dat"'s third number is METRES PER SECOND (see vrmod/cockpit_tab.py).
+#   - The needle pivots sit a few mm in front of their dash: at the dash face
+#     the game hides the needle. They were pulled forward ALONG THE LINE OF SIGHT
+#     (the mod manager's "Toward eye"), so x and y moved with z.
+#   - Two dashes are shared, and the pairs were calibrated once and copied with
+#     the dash offset: airhawk -> police, hunter -> j57.
+#   - A flat SoSC dash is a painted picture, and a strip speedometer (airhawk,
+#     police) cannot be tracked exactly by a rotating needle. Close is the ceiling.
+COCKPIT_TUNED = {
+    "airhawk": {
+        "camera": (-0.408, 0.906, -0.791), "wheel": (-0.491, 0.625, -0.15),
+        "rpm pt": (-0.668, 0.632, -0.148), "mph pt": (-0.423, 0.655, -0.14),
+        "rpm dat": (-90.0, 90.0, 7000.0), "mph dat": (-79.0, 79.0, 53.6),
+    },
+    "azzaroni": {
+        "camera": (-0.408, 0.948, -0.855), "wheel": (-0.491, 0.709, -0.278),
+        "rpm pt": (-0.785, 0.742, -0.22), "mph pt": (-0.506, 0.738, -0.22),
+        "rpm dat": (-180.0, 180.0, 7000.0), "mph dat": (-141.0, 180.0, 89.0),
+    },
+    "j57": {
+        "camera": (-0.408, 0.95, -0.705), "wheel": (-0.491, 0.669, -0.088),
+        "rpm pt": (-0.692, 0.77, -0.064), "mph pt": (-0.124, 0.777, -0.064),
+        "rpm dat": (-130.0, 130.0, 8000.0), "mph dat": (-145.0, 130.0, 94.0),
+    },
+    "strtrat": {
+        "camera": (-0.408, 0.954, -0.856), "wheel": (-0.491, 0.721, -0.28),
+        "rpm pt": (-0.819, 0.746, -0.22), "mph pt": (-0.522, 0.706, -0.215),
+        "rpm dat": (-77.0, 90.0, 5000.0), "mph dat": (-133.0, 130.0, 40.2),
+    },
+    "hmxvan": {
+        "camera": (-0.408, 0.908, -0.953), "wheel": (-0.491, 0.629, -0.474),
+        "rpm pt": (-0.41, 0.749, -0.302), "mph pt": (-0.676, 0.757, -0.312),
+        "rpm dat": (-139.0, 139.0, 7000.0), "mph dat": (-142.0, 142.0, 71.5),
+    },
+    "police": {
+        "camera": (-0.408, 1.025, -0.886), "wheel": (-0.491, 0.744, -0.245),
+        "rpm pt": (-0.668, 0.751, -0.243), "mph pt": (-0.423, 0.774, -0.235),
+        "rpm dat": (-90.0, 90.0, 7000.0), "mph dat": (-79.0, 79.0, 53.6),
+    },
+    "hunter": {
+        "camera": (-0.408, 0.906, -0.791), "wheel": (-0.491, 0.625, -0.174),
+        "rpm pt": (-0.692, 0.726, -0.15), "mph pt": (-0.124, 0.733, -0.15),
+        "rpm dat": (-130.0, 130.0, 8000.0), "mph dat": (-145.0, 130.0, 94.0),
+    },
+}
+
+
+def _apply_cockpit_tuned(car_path: Path, stem: str) -> bool:
+    """Write COCKPIT_TUNED's records over the car's cockpit.tab. False if none."""
+    records = COCKPIT_TUNED.get(stem)
+    if not records:
+        return False
+    from vrmod import cockpit_tab
+    entries = archive.read(car_path)
+    e = next((x for x in entries if x.name.lower() == "cockpit.tab"), None)
+    if e is None:
+        return False
+    blob = cockpit_tab.build(envelope.build(e.tag, e.version, e.payload), records)
+    archive.write([archive.ArchiveEntry(name=x.name, tag=x.tag, version=x.version,
+                                        payload=blob[20:]) if x is e else x
+                   for x in entries], car_path)
+    return True
+
+
 def load_chassis(car_path: Path) -> bytes:
     """The .cf of a car, whole, as the base every chassis car is built on."""
     e = next(x for x in archive.read(car_path) if x.name.lower().endswith(".cf"))
@@ -390,6 +463,9 @@ def fit(car_path: Path, chassis: bytes | None = None) -> dict | None:
     archive.write(out, car_path)
     if abs(shift) > 1e-4 or abs(lift) > 1e-4:
         _shift_cockpit(car_path, shift, lift)
+    # the calibrated cockpit has the last word -- see COCKPIT_TUNED
+    if _apply_cockpit_tuned(car_path, stem):
+        source += ", calibrated cockpit"
     return {"stem": stem, "length": body_len, "before": before, "after": new,
             "scaled": bool(spec and length_real), "source": source,
             "shift": shift, "lift": lift, "moved": moved}
@@ -397,8 +473,17 @@ def fit(car_path: Path, chassis: bytes | None = None) -> dict | None:
 
 
 def _is_own_mesh(entry, stem: str) -> bool:
+    """A mesh that lives in car space and must move with the body.
+
+    NOT the steering wheel (<stem>w.mod). It is placed by cockpit.tab's "wheel"
+    record, which _shift_cockpit already moves -- shifting its vertices too moved
+    it twice, and worse, left the hub off the model's own origin, which is the
+    point the game turns it about. The Police's wheel swung around a point
+    11.9 cm below its hub. The stock wheels are centred on their origin; this
+    keeps the generated ones that way.
+    """
     n = entry.name.lower()
-    return n.endswith(".mod") and n.startswith(stem)
+    return n.endswith(".mod") and n.startswith(stem) and n != f"{stem}w.mod"
 
 
 def _shift_mesh(entry, dz: float, stem: str, dy: float = 0.0):
