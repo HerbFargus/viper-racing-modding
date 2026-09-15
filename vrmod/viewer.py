@@ -1900,6 +1900,17 @@ async function commitChanges() {
     if (rebuildPartsDrawer) rebuildPartsDrawer();  // parts: redraw with fresh present/empty states
     buildSoundDrawer();                          // sounds: redraw from the rolled-forward SFX_PARTS
     if (payload.car_name !== undefined) CAR_NAME = payload.car_name;   // name: new baseline, no snap-back
+    // Stats and cockpit records roll forward the same way. They used to stay
+    // flagged after a save, because STATS / COCKPIT_RECORDS still held the
+    // pre-edit numbers -- so the library warned "You have unsaved changes" about
+    // a file that had just been written, and Discard would have reverted past the
+    // save. What was written IS the baseline now: advance it, then clear the flags.
+    // (Advancing is what makes clearing safe -- the focus/blur and Reset paths
+    // read the baseline back into the inputs.)
+    for (const field of Object.keys(payload.stats)) STATS[field] = payload.stats[field];
+    dirtyFields.clear();
+    for (const name of Object.keys(payload.cockpit)) COCKPIT_RECORDS[name] = payload.cockpit[name].slice();
+    cockpitDirtyRecords.clear();
     updateCommitStatus();
     // A package's members went in as raw bytes, so unlike an OBJ import there is
     // no client-side geometry to swap into the scene -- the page holds bytes it
@@ -1908,12 +1919,6 @@ async function commitChanges() {
     // path as the stale banner's "Reload it", minus the confirm: we just saved,
     // so there is nothing staged left to lose.
     hostSaved(visualMembers.length > 0);         // we changed the file; that is not "changed under you"
-
-    // Stats/cockpit fields are deliberately left as-is: STATS still holds the
-    // ORIGINAL pre-edit values (the page never re-fetches what it wrote), so
-    // clearing dirtyFields would snap the displayed numbers back on the next
-    // Mod-mode toggle. The numeric inputs already show what you typed, so this
-    // reads far less like "unsaved" than a part row's amber marker did.
   } else {
     statusEl.className = "error";
     statusEl.textContent = `Save failed: ${result.error}`;
