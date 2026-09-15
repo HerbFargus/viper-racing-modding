@@ -39,37 +39,58 @@ from build_car import (atlas, models, palette, read_model,    # noqa: E402
                        reserved_indices, shade_of, tga_from_indexed,
                        tga_solid, unit_uvs, wind_outward, NAME_LIMIT)
 
-MODEL = "MISSILE"
-# Length as a multiple of the stock ball's own length (0.644). 1.5x -- a missile
-# the size of the thing it replaces -- read as comically small in game: the ball
-# is a ball and reads at its own size, whereas a rocket the same length reads as
-# a dart. 7.5x is five times that, which is what it took to look like a weapon.
-# Override from the command line to try another.
-LENGTH_VS_BALL = 7.5
+# ---------------------------------------------------------------------------
+# THE PROPS. Everything the disc throws at you is a model in the same file, and
+# converting one is the same job each time: fit it to the ball, drop the shadow
+# faces, give each surface a flat texture. So the per-object parts live in a
+# table and the pipeline below reads from it.
+#
+# scale is a multiple of the stock ball's own length (0.644). It is not one
+# number for everything: a compact object reads at its own size, while a long
+# thin one reads as a dart unless it is much bigger (see LENGTH_VS_BALL).
+#
+# recolour is {index in the model: index to draw instead}, always staying inside
+# SoSC's own 256 rather than inventing colours -- these objects are being seen in
+# a different game, under a different sky, against different ground.
+PROPS = {
+    "missile": dict(
+        model="MISSILE", code="mis", scale=7.5,
+        recolour={43: 226, 61: 63}, body_index=61),
+    "mine": dict(
+        model="MINE", code="min", scale=2.0,
+        # 15 is RGB(10,37,58) and is the DARK end of the ramp 12..15, which runs
+        # (48,79,96) down to it. On SoSC's streets that reads as a dark object on
+        # pale concrete; on Viper's asphalt it disappears. 12 is the light end of
+        # the same ramp, so this is the brightest the mine can be without leaving
+        # the shade family the model chose -- the same move as the missile's
+        # 61 -> 63, and for the same reason.
+        recolour={15: 12}, body_index=15),
+}
 
-# Palette substitutions, {index in the model: index to draw instead}. Both stay
-# inside SoSC's own 256 rather than inventing colours, and both exist because
-# this object is being seen in a different game than it was drawn for.
-#
-#   43 -> 226   the exhaust flame. Index 43 is the 24-face group that sits
-#               entirely BEYOND the fins on the tail side (z -10.99..-6.94
-#               against the fins' -7.85..-4.23), so it is the plume and not a
-#               nose cone, which its shape resembles. SoSC draws it
-#               RGB(137,149,238), a pale blue-white that works as a
-#               half-transparent flame over that game's sky. Viper has no
-#               transparency here and throws it at ground level, where pale blue
-#               just reads as more missile. 226 is SoSC's own bright orange.
-#
-#   61 -> 63    the body. 61 is RGB(213,213,213), which disappears against
-#               Viper's grey asphalt and its overcast sky. 63 is RGB(255,255,255)
-#               and is the TOP OF THE SAME RAMP -- 48..63 runs black to white --
-#               so this is the brightest the body can be without leaving the
-#               shade family the model already chose.
+
+MODEL = "MISSILE"          # rebound by main() from PROPS; see select()
+LENGTH_VS_BALL = 7.5
 RECOLOUR = {43: 226, 61: 63}
-BODY_INDEX = 61      # what the uncoloured tail cap is painted as
-CODE = "mis"                       # -> mist061.tex, 11 chars, inside NAME_LIMIT
+BODY_INDEX = 61
+CODE = "mis"
+
 BALL = "ball.mod"
 
+
+def select(prop: str) -> dict:
+    """Point the module's constants at one prop. The pipeline reads globals --
+    they were written for a single object -- so this rebinds them rather than
+    threading a parameter through every function that wants one."""
+    spec = PROPS.get(prop)
+    if spec is None:
+        raise SystemExit(f"unknown prop {prop!r}; have {', '.join(sorted(PROPS))}")
+    global MODEL, LENGTH_VS_BALL, RECOLOUR, BODY_INDEX, CODE
+    MODEL = spec["model"]
+    LENGTH_VS_BALL = spec["scale"]
+    RECOLOUR = dict(spec["recolour"])
+    BODY_INDEX = spec["body_index"]
+    CODE = spec["code"]
+    return spec
 
 def stock_ball(install: Path):
     """(length, size) of the ball we are replacing, from race.res."""
@@ -226,7 +247,11 @@ def per_surface(faces, pal, atl):
     pages, mats, used = {}, {}, set()
     for key, is_image in surfaces:
         idx = RECOLOUR.get(key[1], key[1])
-        stem = "mis{:03d}".format(idx)
+        # CODE, not a hardcoded "mis": two props in one race share a texture
+        # namespace, and a mine whose texture is called mis012.tex both lies
+        # about what it is and collides with any missile that happens to use
+        # index 12 (see bundle.py's KNOWN, NOT GUARDED note).
+        stem = "{}{:03d}".format(CODE, idx)
         while stem + ".tex" in used:            # two surfaces, one palette slot
             stem = stem + "b"
         name = stem + ".tex"
@@ -387,10 +412,17 @@ def install_into(car: Path, ball_bytes: bytes, textures: dict) -> str:
 
 
 def main(argv):
+    prop = "missile"
+    for a in list(argv):
+        if a.startswith("--prop="):
+            prop = a.split("=", 1)[1].lower()
+            argv.remove(a)
+    select(prop)
     if len(argv) not in (4, 5):
         raise SystemExit(__doc__.strip().splitlines()[2])
     max_path, skin, install, cars = (Path(a) for a in argv[:4])
     scale = float(argv[4]) if len(argv) > 4 else LENGTH_VS_BALL
+    print(f"  prop: {prop} ({MODEL})")
     length, size = stock_ball(install)
     print(f"  stock {BALL}: {size[0]:.3f} x {size[1]:.3f} x {size[2]:.3f}")
     target = length * scale
