@@ -49,8 +49,11 @@ space as the car's own .mod meshes):
     rpm dat  -- INFERRED, not independently confirmed the way `wheel` was:
                 (angle_at_0rpm_deg, angle_at_max_deg, max_rpm) -- the needle's
                 rotation range mapped onto a 0..max_rpm reading.
-    mph dat  -- same shape as rpm dat: (angle_at_0mph_deg, angle_at_max_deg,
-                max_mph).
+    mph dat  -- same shape as rpm dat: (angle_at_0_deg, angle_at_max_deg,
+                max_speed) -- but max_speed is METRES PER SECOND, not mph.
+                The stock Viper reads -152/142/89 against a dial painted
+                0-200 mph, and 89 m/s is 199 mph; in game, a car at 104 mph
+                on a max of 120 sits at 39% of its sweep (46.5 m/s), not 87%.
 """
 from __future__ import annotations
 
@@ -77,7 +80,7 @@ RECORD_INFO: dict[str, str] = {
     "rpm pt": "tachometer needle pivot point (x y z)",
     "mph pt": "speedometer needle pivot point (x y z)",
     "rpm dat": "tach calibration (inferred): angle_at_0rpm_deg angle_at_max_deg max_rpm",
-    "mph dat": "speedo calibration (inferred): angle_at_0mph_deg angle_at_max_deg max_mph",
+    "mph dat": "speedo calibration: angle_at_0_deg angle_at_max_deg max_speed_in_metres_per_second (mph x 0.447)",
 }
 
 

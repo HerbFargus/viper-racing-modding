@@ -251,7 +251,8 @@ window.addEventListener("load", main);
 """
 
 _SECTIONS = [
-    ("Dimensions", ["mass", "width", "height", "wheelbase", "ftrack", "rtrack", "weight_distribution"]),
+    ("Dimensions", ["mass", "width", "height", "wheelbase", "ftrack", "rtrack",
+                    "fground_clearance1", "rground_clearance1", "weight_distribution"]),
     ("Engine", ["power_max", "power_rpm", "torque_max", "torque_rpm", "redline", "idle_speed"]),
     ("Drivetrain", ["num_gears", "rear_end_ratio1", "rear_end_ratio2"]),
     ("Chassis (front/rear)", [
@@ -608,10 +609,26 @@ def _car_mod_parts(car_path: str | Path) -> dict[str, tuple[str, set[str]] | Non
 # cleft/cright (spotter voice cues). horn.sfx/shift1.sfx/squeal.sfx are the
 # exception -- confirmed per-car overridable in practice (bowser.car ships its
 # own horn.sfx AND squeal.sfx, distinct from race.res's), consistent with the
-# mksfx guide treating horn/shift as per-car files. Only these three get shown
-# as a car's shared-default fallback; the rest stay out of the Sound drawer
-# entirely to avoid burying real per-car sounds under generic game audio.
-SHARED_SFX_ROLES = ("horn.sfx", "shift1.sfx", "squeal.sfx")
+# mksfx guide treating horn/shift as per-car files.
+#
+# road1.sfx is here on a DIRECT TEST rather than on that precedent, because no
+# precedent existed: across 188 community car archives not one ships a road
+# sound, and the format reference listed road1/2 among the shared defaults
+# without ever confirming they resolve per-car. Confirmed 2026-09-14 by putting
+# four seconds of alternating 440/880 Hz beeps into one car's own road1.sfx
+# while race.res's copy held a long music track: that car beeped, a second
+# untouched car played the music. Both halves matter -- the control is what
+# proves the test was actually running.
+#
+# It is worth exposing because it is the only shared sound that plays
+# CONTINUOUSLY while driving, which makes a car-length soundtrack possible. It
+# pitch-shifts with road speed, which is either the drawback or the entire point
+# depending on the mod. road2.sfx rides along as the second surface layer.
+#
+# The rest of race.res's shared audio (crash1-3, scrape, splash, go/ready, the
+# spotter cues) stays out: untested for per-car resolution, and one-shot cues
+# would bury a car's real sounds under generic game audio for little gain.
+SHARED_SFX_ROLES = ("horn.sfx", "shift1.sfx", "squeal.sfx", "road1.sfx", "road2.sfx")
 
 
 def _car_sfx_parts(car_path: str | Path) -> dict[str, dict | None]:
@@ -921,7 +938,17 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   .part-row.empty .dot{background:transparent;border:1px dashed #5a5f6e;width:6px;height:6px;flex:0 0 6px}
   .part-row.shared-default .dot{background:transparent;border:1px solid #4a5570}
   #parts-list.show-all .part-row.rendered .dot{background:#8ecfff}
-  .part-row.filter-hidden,.part-grp.filter-hidden,.part-detail-box.filter-hidden{display:none!important}
+  /* Anything applyPartsFilter hides, stays hidden. This used to name the
+     three classes it knew about, so the Generate/Regenerate LOD button --
+     a .part-genlods, added later -- took the class and ignored it, and sat
+     there on the Horn Ball and Cockpit tabs offering to decimate the car
+     body. Matching on the class itself means the next element added to the
+     drawer is filtered without anyone remembering to list it. */
+  .filter-hidden{display:none!important}
+  .scope-badge{display:inline-block;margin-left:7px;padding:1px 6px;border-radius:9px;
+    font-size:.62rem;letter-spacing:.02em;vertical-align:middle;cursor:help}
+  .scope-global{background:#4a1d1d;border:1px solid #8a3b3b;color:#ffb4b4}
+  .scope-unknown{background:#3a3320;border:1px solid #6d5f34;color:#e8d9a0}
   #parts-drawer h2{display:flex;align-items:center;gap:6px}
   .filter-btn{margin-left:auto;background:transparent;border:1px solid #3a3f4e;border-radius:4px;
               color:#7f8598;cursor:pointer;padding:4px 6px;line-height:0}
@@ -1074,8 +1101,8 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
 <div id="canvas-wrap"></div>
 <div id="fatal-error"></div>
 <div id="cam-readout"></div>
-<div id="hint">Drag to orbit -- scroll to zoom</div>
-<div id="eye-mode-bar">Driver's-eye view -- drag to look around, scroll to zoom <button id="exit-eye-mode">Back to free orbit</button></div>
+<div id="hint">Drag to orbit -- right-drag (or shift-drag) to pan -- scroll to zoom</div>
+<div id="eye-mode-bar">Driver's-eye view -- drag to look around, right-drag to slide the view, scroll to zoom <button id="exit-eye-mode">Back to free orbit</button></div>
 <aside id="stats-drawer" class="drawer">
   <h2>Car Configs</h2>
   <div class="car-name-row"><label for="car-name-input">Name</label><input id="car-name-input" type="text" maxlength="24" spellcheck="false" autocomplete="off" placeholder="(car display name)" title="In-game display name. The car-select menu shows up to 24 characters; longer names are truncated there."></div>
@@ -1112,7 +1139,7 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
 </aside>
 <aside id="sound-drawer" class="drawer">
   <h2>Sound</h2>
-  <div class="hint">Every real .sfx file in this car's own archive -- engine RPM-sweep loops, idle, horn, shift, etc. Rows marked "(shared default)" aren't owned by this car -- they're race.res's fallback horn/shift/squeal sound, used unless the car ships its own. ADPCM-encoded entries are listed but can't be played yet (see sfx.py); everything else here is real PCM audio, decoded and playable directly. "Import WAV" replaces any row -- 16-bit mono PCM only -- and commits as a real per-car .sfx, creating a new override if it was a shared default.</div>
+  <div class="hint">Every real .sfx file in this car's own archive -- engine RPM-sweep loops, idle, horn, shift, etc. Rows marked "(shared default)" aren't owned by this car -- they're race.res's fallback horn/shift/squeal sound, used unless the car ships its own. ADPCM-encoded entries are listed but can't be played yet (see sfx.py); everything else here is real PCM audio, decoded and playable directly. "Import" replaces any row. A <strong>.sfx</strong> goes in untouched, byte for byte -- it is already the game's format, so nothing is decoded or re-encoded and nothing is normalised. Any other audio (WAV, MP3, OGG, ...) is converted to the mono 16-bit PCM the game needs. Either way it commits as a real per-car .sfx, creating a new override if it was a shared default.</div>
   <div id="sound-list"></div>
 </aside>
 <script>
@@ -1135,6 +1162,36 @@ const CAR_WHEELS = __CAR_WHEELS_JSON__;  // {front_left/front_right/rear_left/re
 // one still works, it just creates a new per-car override on save instead of
 // patching an existing entry (archive.upsert_entry, see cli.py's _apply_commit).
 const SHARED_PART_NAMES = new Set(__SHARED_PART_NAMES_JSON__);
+// {assetName: "per-car" | "global" | "unknown"} -- how far overriding a shared
+// asset reaches. See car.SHARED_ASSET_SCOPE; measured, not assumed.
+const SHARED_SCOPE = __SHARED_SCOPE_JSON__;
+const SCOPE_NOTE = {
+  "global": ["affects ALL cars",
+             "Measured: overriding this changes it for every car in the race, not "
+             + "just this one -- and it applies even if nothing in this car uses the "
+             + "asset. Treat it as editing the install, not the car."],
+  "unknown": ["reach untested",
+              "Overriding this works, but whether it affects other cars as well was "
+              + "never tested. It may behave like your car's own copy, or like the "
+              + "suspension arms, which apply to the whole field."],
+};
+
+// A shared asset whose override reaches beyond this car says so on its row, in
+// the Parts and Sound drawers alike, before anyone clicks Import. Only for
+// assets actually measured global or never tested -- road1.sfx is per-car with a
+// control behind it and gets no badge, because a blanket "shared assets affect
+// other cars" would be false there and would train people to ignore the ones
+// that matter. A member the car owns outright isn't in the map at all.
+function addScopeBadge(host, member) {
+  const scope = SHARED_SCOPE[String(member || "").toLowerCase()];
+  const note = SCOPE_NOTE[scope];
+  if (!note) return;
+  const b = document.createElement("span");
+  b.className = "scope-badge scope-" + scope;
+  b.textContent = note[0];
+  b.title = note[1];
+  host.appendChild(b);
+}
 // One material->dataUri map for the WHOLE page (every tab, every wheel, every
 // Parts-drawer entry) -- see build_shell_html's docstring for why this is a single
 // shared lookup instead of each part embedding its own resolved copy.
@@ -1168,7 +1225,8 @@ const INCH_TO_M = 0.0254;  // matches car.py's INCH_TO_M -- .cf dimensions are i
 // The only .cf fields that actually move geometry in this tool -- see car.py's
 // assemble_car()/assemble_car_live(): wheelbase sets front/rear Z spacing, ftrack/
 // rtrack set left/right spacing per axle. Every other stat is physics-only here.
-const LIVE_GEOMETRY_FIELDS = new Set(["wheelbase", "ftrack", "rtrack"]);
+const LIVE_GEOMETRY_FIELDS = new Set(["wheelbase", "ftrack", "rtrack",
+                                      "fground_clearance1", "rground_clearance1"]);
 // Every real .mod entry in the car's OWN archive, individually -- {entryName:
 // objText | null (failed to parse)}. Deliberately NOT the same thing as PARTS: the
 // 3D tabs merge several real files together for a cleaner view (the Car tab's
@@ -1193,7 +1251,7 @@ const SFX_PARTS = __SFX_PARTS_JSON__;
 const COCKPIT_RECORDS = __COCKPIT_RECORDS_JSON__;
 const COCKPIT_FIELD_LABELS = {
   camera: ["x", "y", "z"], wheel: ["x", "y", "z"], "rpm pt": ["x", "y", "z"], "mph pt": ["x", "y", "z"],
-  "rpm dat": ["angle @ 0", "angle @ max", "max rpm"], "mph dat": ["angle @ 0", "angle @ max", "max mph"],
+  "rpm dat": ["angle @ 0", "angle @ max", "max rpm"], "mph dat": ["angle @ 0", "angle @ max", "max m/s"],
 };
 const POSITION_RECORDS = new Set(["camera", "wheel", "rpm pt", "mph pt"]);
 // "wheel" moves the actual steering wheel mesh (same position
@@ -1215,7 +1273,7 @@ const COCKPIT_LIVE_TITLES = {
   "rpm pt": "Moves the tachometer needle's pivot live",
   "mph pt": "Moves the speedometer needle's pivot live",
   "rpm dat": "Calibrates the tach needle sweep live (use the RPM slider to test)",
-  "mph dat": "Calibrates the speedo needle sweep live (use the MPH slider to test)",
+  "mph dat": "Calibrates the speedo needle sweep live (use the MPH slider to test). Max is in METRES PER SECOND: mph x 0.447, so a 120 mph dial is 53.6 (the stock Viper's 89 is its 200 mph dial)",
 };
 
 function parseObj(text) {
@@ -1588,6 +1646,10 @@ function buildTextureDrawer(meshesByMaterial) {
       badge.title = PROV_META[bucket].title;
       label.appendChild(badge);
     }
+    // Provenance says where the texture came FROM; scope says how far replacing
+    // it reaches. A stock shared texture is both borrowed and, for ucar.tex,
+    // measured to repaint the entire field.
+    addScopeBadge(label, name);
     el.appendChild(label);
     if (dataUri) {
       const actions = document.createElement("div");
@@ -1695,8 +1757,18 @@ function hasPendingEdits() {
     || Object.keys(pendingPartEdits).length > 0
     || pendingPartRemovals.size > 0
     || Object.keys(pendingTextureEdits).length > 0
+    || Object.keys(pendingMemberEdits).length > 0
     || Object.keys(pendingSfxEdits).length > 0;
 }
+
+// The library embeds this page in a same-origin iframe and will not throw it
+// away without asking. It cannot reason about staged edits itself -- they live
+// entirely in this page -- so it asks here. Exposed rather than left to the host
+// to sniff, because the answer is a real function with seven sources and the
+// host reading half of them would drift the moment an eighth appears.
+window.vrmodShell = {
+  hasPendingEdits: () => { try { return !!hasPendingEdits(); } catch (e) { return false; } },
+};
 
 function updateCommitStatus() {
   const btn = document.getElementById("commit-btn");
@@ -1733,6 +1805,7 @@ function buildEditPayload() {
   const payload = {
     car_path: CAR_PATH, stats, cockpit, parts: pendingPartEdits, textures: pendingTextureEdits,
     sounds: pendingSfxEdits, remove: Array.from(pendingPartRemovals),
+    members: pendingMemberEdits,
   };
   if (carNameChanged()) payload.car_name = document.getElementById("car-name-input").value.trim();
   return payload;
@@ -1788,6 +1861,28 @@ async function commitChanges() {
     }
     for (const name of pendingPartRemovals) delete MOD_PARTS[name];  // removed members are gone
     pendingPartRemovals.clear();
+    // Package members went in verbatim; the car owns them now. No baseline to
+    // advance here the way pendingPartEdits has one -- the 3D view rebuilds from
+    // the reloaded car, which is what the import status line promises.
+    // A verbatim .sfx is the car's own sound now. Roll it into SFX_PARTS the way
+    // a converted one is, so the redrawn row reads as saved rather than pending.
+    for (const name of Object.keys(pendingSfxRaw)) {
+      const prev = SFX_PARTS[name] || {};
+      const raw = pendingSfxRaw[name];
+      SFX_PARTS[name] = Object.assign({}, prev, {
+        wav_b64: raw.wav_b64, is_pcm: !!raw.info.isPcm, shared: false,
+        sample_rate: raw.info.rate, bits_per_sample: raw.info.bits,
+        duration: raw.info.seconds.toFixed(2),
+      });
+      delete pendingSfxRaw[name];
+    }
+    // Only a MESH or TEXTURE changes what the 3D view shows. A verbatim sound
+    // does not, and one of those can be 15 MB -- reloading the page over a horn
+    // swap would be a long wait for a picture that cannot have changed.
+    const visualMembers = Object.keys(pendingMemberEdits)
+      .filter(n => /[.](mod|tex)$/i.test(n));
+    for (const name of Object.keys(pendingMemberEdits)) delete pendingMemberEdits[name];
+    packagePreview.meshes.clear(); packagePreview.addedTextures.clear();
     for (const mat of Object.keys(pendingTextureEdits)) {
       delete originalTextures[mat];              // current TEXTURES[mat] is now the baseline
       delete pendingTextureEdits[mat];
@@ -1805,12 +1900,25 @@ async function commitChanges() {
     if (rebuildPartsDrawer) rebuildPartsDrawer();  // parts: redraw with fresh present/empty states
     buildSoundDrawer();                          // sounds: redraw from the rolled-forward SFX_PARTS
     if (payload.car_name !== undefined) CAR_NAME = payload.car_name;   // name: new baseline, no snap-back
+    // Stats and cockpit records roll forward the same way. They used to stay
+    // flagged after a save, because STATS / COCKPIT_RECORDS still held the
+    // pre-edit numbers -- so the library warned "You have unsaved changes" about
+    // a file that had just been written, and Discard would have reverted past the
+    // save. What was written IS the baseline now: advance it, then clear the flags.
+    // (Advancing is what makes clearing safe -- the focus/blur and Reset paths
+    // read the baseline back into the inputs.)
+    for (const field of Object.keys(payload.stats)) STATS[field] = payload.stats[field];
+    dirtyFields.clear();
+    for (const name of Object.keys(payload.cockpit)) COCKPIT_RECORDS[name] = payload.cockpit[name].slice();
+    cockpitDirtyRecords.clear();
     updateCommitStatus();
-    // Stats/cockpit fields are deliberately left as-is: STATS still holds the
-    // ORIGINAL pre-edit values (the page never re-fetches what it wrote), so
-    // clearing dirtyFields would snap the displayed numbers back on the next
-    // Mod-mode toggle. The numeric inputs already show what you typed, so this
-    // reads far less like "unsaved" than a part row's amber marker did.
+    // A package's members went in as raw bytes, so unlike an OBJ import there is
+    // no client-side geometry to swap into the scene -- the page holds bytes it
+    // never parsed. The only way to show them is to rebuild from the car that is
+    // now on disk, which is what asking the host to reload the frame does. Same
+    // path as the stale banner's "Reload it", minus the confirm: we just saved,
+    // so there is nothing staged left to lose.
+    hostSaved(visualMembers.length > 0);         // we changed the file; that is not "changed under you"
   } else {
     statusEl.className = "error";
     statusEl.textContent = `Save failed: ${result.error}`;
@@ -1825,6 +1933,20 @@ function hostRefresh(selectKey) {
     const h = (window.self !== window.top) ? window.parent.vrmodHost : null;
     if (h && h.refresh) h.refresh(selectKey);
   } catch (e) { /* not embedded, or cross-origin -- nothing to tell */ }
+}
+
+// Our own Save changes the file's size and mtime, which is exactly the signature
+// the host watches for to warn "this changed on disk since you opened it". Left
+// unsaid, every successful save would raise that alarm about itself. So say it
+// was us, and let the host re-baseline instead of warning.
+function hostSaved(reload) {
+  try {
+    const h = (window.self !== window.top) ? window.parent.vrmodHost : null;
+    if (h && h.saved) { h.saved(!!reload); return; }
+  } catch (e) { /* not embedded -- fall through */ }
+  // Opened standalone, with no host to ask: reload ourselves, since the point
+  // is to see the part that was just written.
+  if (reload) setTimeout(() => window.location.reload(), 400);
 }
 
 // The desktop bridge, or null in a plain browser. Injected into the TOP window
@@ -2376,6 +2498,53 @@ async function decodeAudioToMonoWav(bytes, targetRate) {
 }
 
 // Minimal mono 16-bit PCM WAV (44-byte header) from float samples in [-1, 1].
+// A .sfx is the game's own sound format, and the Sound drawer now takes one as-is.
+// Layout, from sfx.py: a 20-byte 0SER envelope, then a 20-byte fmt-shaped header
+// (data_size i32, format i16, channels i16, rate i32, byte_rate i32, block_align
+// i16, bits i16), then 2 bytes that are usually "da" and are NOT validated --
+// real files disagree about them -- then the samples. So data starts at 42.
+const SFX_ENVELOPE = 20, SFX_HEADER = 20, SFX_MARKER = 2;
+
+function readSfx(bytes) {
+  if (bytes.length < SFX_ENVELOPE + SFX_HEADER + SFX_MARKER) return null;
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const h = SFX_ENVELOPE;
+  const info = {
+    dataSize: dv.getInt32(h, true),
+    format: dv.getInt16(h + 4, true),
+    channels: dv.getInt16(h + 6, true),
+    rate: dv.getInt32(h + 8, true),
+    byteRate: dv.getInt32(h + 12, true),
+    blockAlign: dv.getInt16(h + 16, true),
+    bits: dv.getInt16(h + 18, true),
+  };
+  const start = SFX_ENVELOPE + SFX_HEADER + SFX_MARKER;
+  info.pcm = bytes.subarray(start, start + info.dataSize);
+  info.isPcm = info.format === 1;
+  info.seconds = info.byteRate ? info.pcm.length / info.byteRate : 0;
+  return info;
+}
+
+// Wrap sample bytes in a WAV header WITHOUT touching them. Deliberately not
+// encodeWavMono16: that takes floats and forces mono 16-bit, which is exactly
+// the normalisation a verbatim import must not do.
+function wavAroundPcm(pcm, rate, channels, bits) {
+  const align = channels * (bits / 8);
+  const out = new DataView(new ArrayBuffer(44 + pcm.length));
+  const str = (o, t) => { for (let i = 0; i < t.length; i++) out.setUint8(o + i, t.charCodeAt(i)); };
+  str(0, "RIFF"); out.setUint32(4, 36 + pcm.length, true); str(8, "WAVE");
+  str(12, "fmt "); out.setUint32(16, 16, true); out.setUint16(20, 1, true);
+  out.setUint16(22, channels, true);
+  out.setUint32(24, rate, true);
+  out.setUint32(28, rate * align, true);
+  out.setUint16(32, align, true);
+  out.setUint16(34, bits, true);
+  str(36, "data"); out.setUint32(40, pcm.length, true);
+  const bytes = new Uint8Array(out.buffer);
+  bytes.set(pcm, 44);
+  return bytes;
+}
+
 function encodeWavMono16(samples, rate) {
   const n = samples.length;
   const out = new DataView(new ArrayBuffer(44 + n * 2));
@@ -2563,8 +2732,22 @@ let selectedPartName = null;  // which Parts-drawer row is selected, for the imp
 // a live destination to preview against (see applyLiveReimport's docstring: "no
 // live preview" is a viewport limitation, not a reason to drop the edit).
 const pendingPartEdits = {};     // {realFilename: objText}
+// Bundle members, staged VERBATIM: {memberName: base64 of the raw file}.
+// Separate from pendingPartEdits because those hold OBJ text the server
+// converts; these are already .mod/.tex/.sfx and must not be touched.
+const pendingMemberEdits = {};
+// What a staged PACKAGE put on screen before Save: the meshes it swapped in live,
+// and the texture names it added to TEXTURES that were not there before. Discard
+// uses this to put the car's own parts back; Save just forgets it, because the
+// view reloads from the written car anyway.
+const packagePreview = {meshes: new Set(), addedTextures: new Set()};
 const pendingTextureEdits = {};  // {materialName: decoded TGA base64}
 const pendingSfxEdits = {};      // {realFilename: raw uploaded WAV bytes, base64}
+// Sounds staged VERBATIM as .sfx. The bytes themselves live in
+// pendingMemberEdits, which already commits members byte-for-byte; this holds
+// only what the row needs to draw itself -- a preview WAV (PCM only) and the
+// header figures -- so there is one copy of the payload, not two.
+const pendingSfxRaw = {};       // {realFilename: {wav_b64|null, info}}
 // Support for discarding a staged part edit and rolling baselines forward on Save.
 const originalTextures = {};        // material -> its pre-import TEXTURES value (undefined if it had none)
 const importedTexturesByPart = {};  // partName -> [materials its OBJ import staged], so Discard drops exactly those
@@ -2889,6 +3072,7 @@ function buildPartsDrawer(applyLiveReimport, removeLivePart, highlightPart) {
       if (cfg.sharedNote) { const n = document.createElement("span"); n.className = "note"; n.textContent = (sub.textContent ? " · " : "") + cfg.sharedNote; sub.appendChild(n); }
       main.appendChild(sub);
     }
+    addScopeBadge(main, cfg.member);
     row.appendChild(main);
     const current = () => pendingPartEdits[cfg.member] || MOD_PARTS[cfg.member];
     row.addEventListener("click", () => {
@@ -3086,6 +3270,138 @@ function buildPartsDrawer(applyLiveReimport, removeLivePart, highlightPart) {
     }
   }
 
+  // --- the horn ball as a PACKAGE -----------------------------------------
+  // Deliberately its own control rather than a branch inside the part rows'
+  // Import button. The two operations have different blast radii: an OBJ import
+  // touches one member, a package touches a mesh, its textures and a sound, and
+  // sweeps the outgoing textures on the way. Hiding that behind the same button
+  // would make what it does depend on which file you happened to pick.
+  //
+  // The OBJ import/export on each row stays exactly as it was -- that is for
+  // editing a part in a modelling tool. This is for moving a finished one
+  // between cars and between people.
+  (function(){
+    const box = document.createElement("div");
+    box.className = "part-bundle";
+    box.dataset.view = "hornball";
+    box.style.cssText = "margin:10px 0 4px;padding:9px 11px;border:1px solid #2d4a7a;"
+      + "border-radius:7px;background:#121b2c";
+    const head = document.createElement("div");
+    head.style.cssText = "font-size:12px;color:#9fb6da;margin-bottom:7px";
+    head.textContent = "Horn ball package - the mesh, its textures and the horn sound as one file";
+    box.appendChild(head);
+
+    const imp = document.createElement("label");
+    imp.className = "part-import";
+    imp.textContent = "Import package";
+    imp.title = "A .zip of game-format members (ball.mod, its .tex files, horn.sfx). "
+      + "They are written as they are, with no conversion. Textures belonging to the "
+      + "horn ball being replaced are removed so they do not pile up.";
+    const inp = document.createElement("input");
+    inp.type = "file"; inp.accept = ".zip";
+    imp.appendChild(inp);
+    inp.addEventListener("change", async e => {
+      const f = e.target.files && e.target.files[0];
+      e.target.value = "";
+      if (!f) return;
+      status.textContent = "Reading package...";
+      try {
+        const bag = await unzipFlat(new Uint8Array(await f.arrayBuffer()));
+        const names = Object.keys(bag);
+        if (!names.some(n => /\.mod$/i.test(n))) {
+          status.textContent = "That zip has no .mod in it - not a package.";
+          return;
+        }
+        let staged = 0;
+        for (const [name, bytes] of Object.entries(bag)) {
+          if (!/\.(mod|tex|sfx)$/i.test(name)) continue;
+          pendingMemberEdits[name] = bytesToBase64(bytes);
+          staged++;
+        }
+        updateCommitStatus();
+        const ignored = names.length - staged;
+        const summary = `Staged ${staged} member(s) from ${f.name}: `
+          + Object.keys(pendingMemberEdits).join(", ")
+          + (ignored ? ` (${ignored} ignored - not .mod/.tex/.sfx)` : "");
+        status.textContent = summary + ". Preparing a preview...";
+        // Show it now. Only meshes and textures go to the server -- a sound
+        // cannot change the picture and can be 15 MB.
+        const visual = {};
+        for (const [n, b64] of Object.entries(pendingMemberEdits)) {
+          if (/[.](mod|tex)$/i.test(n)) visual[n] = b64;
+        }
+        let previewed = false;
+        try {
+          const resp = await fetch(COMMIT_ROUTE, {
+            method: "POST", headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({car_path: CAR_PATH, action: "previewmembers", members: visual}),
+          });
+          const result = await resp.json();
+          if (result.ok && result.data) {
+            // Textures first: a mesh resolves its materials against TEXTURES by
+            // name as it is built, so they must be there before it is.
+            for (const [n, uri] of Object.entries(result.data.textures || {})) {
+              for (const key of new Set([n, n.toLowerCase()])) {
+                if (!(key in TEXTURES)) packagePreview.addedTextures.add(key);
+                TEXTURES[key] = uri;
+              }
+            }
+            for (const [n, objText] of Object.entries(result.data.objs || {})) {
+              if (applyLiveReimport(n, objText)) { packagePreview.meshes.add(n); previewed = true; }
+            }
+            if (typeof rebuildTextureDrawer === "function" && rebuildTextureDrawer) rebuildTextureDrawer();
+          }
+        } catch (err) { /* no preview is not a failed import -- Save still works */ }
+        status.textContent = summary + (previewed
+          ? ". Previewing it now -- press Save to write it to the car, or Discard to undo."
+          : ". Not applied yet -- press Save. It could not be previewed, but it will "
+            + "show once it is written.");
+      } catch (err) {
+        status.textContent = "Could not read that package: " + (err && err.message || err);
+      }
+    });
+    box.appendChild(imp);
+
+    const exp = document.createElement("button");
+    exp.className = "part-export";
+    exp.textContent = "Export package";
+    exp.title = "Zip this car's ball.mod, the textures it names and horn.sfx, named "
+      + "<author>_<part>.zip. Stock shared textures are left out - every install "
+      + "already has them.";
+    exp.addEventListener("click", async () => {
+      let author = "";
+      try { author = window.localStorage.getItem("vrmod-author") || ""; } catch (e) {}
+      author = window.prompt("Your name, for the package filename:", author || "");
+      if (author === null) return;
+      author = author.trim();
+      try { window.localStorage.setItem("vrmod-author", author); } catch (e) {}
+      const part = (window.prompt("Name for this horn ball:", "horn-ball") || "").trim();
+      if (!part) return;
+      exp.disabled = true;
+      status.textContent = "Building package...";
+      try {
+        const resp = await fetch(COMMIT_ROUTE, {
+          method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({car_path: CAR_PATH, action: "exportbundle",
+                                member: "ball.mod", sound: "horn.sfx",
+                                author: author, part: part}),
+        });
+        const result = await resp.json();
+        if (!result.ok) { status.textContent = "Export failed: " + result.error; return; }
+        const bytes = Uint8Array.from(atob(result.data), c => c.charCodeAt(0));
+        downloadBytes(new Blob([bytes], {type: "application/zip"}), result.filename);
+        status.textContent = `${result.filename} - ` + (result.resized || []).join("; ")
+          + ((result.warnings || []).length ? "  " + result.warnings.join(" ") : "");
+      } catch (err) {
+        status.textContent = "Export failed: " + (err && err.message || err);
+      } finally {
+        exp.disabled = false;
+      }
+    });
+    box.appendChild(exp);
+    root.appendChild(box);
+  })();
+
   // --- anything owned but unrecognised: raw "Other parts" (always in use, never
   //     hidden) so nothing a car actually carries can disappear ---
   const others = Object.keys(MOD_PARTS).filter(n => !claimed.has(n.toLowerCase()) && !sharedMembers.has(n.toLowerCase()));
@@ -3114,16 +3430,38 @@ function buildSoundDrawer() {
   names.forEach(name => {
     const info = SFX_PARTS[name];
     const pendingB64 = pendingSfxEdits[name];        // a staged replacement (mono 16-bit WAV), if any
+    const pendingRaw = pendingSfxRaw[name];         // ...or a .sfx staged untouched
+    const staged = pendingB64 || pendingRaw;
     const row = document.createElement("div");
-    row.className = "sound-row" + (pendingB64 ? " pending" : "");
+    row.className = "sound-row" + (staged ? " pending" : "");
     const label = document.createElement("div");
     label.className = "sound-name";
-    label.textContent = name + (pendingB64 ? " (pending)" : (info && info.shared ? " (shared default)" : ""));
+    label.textContent = name + (staged ? " (pending)" : (info && info.shared ? " (shared default)" : ""));
+    addScopeBadge(label, name);
     row.appendChild(label);
 
     // Body: a pending replacement previews the CONVERTED wav (what actually gets
     // committed); otherwise the original entry, playable if PCM.
-    if (pendingB64) {
+    if (pendingRaw) {
+      const d = pendingRaw.info;
+      const meta = document.createElement("div");
+      meta.className = "sound-meta";
+      meta.textContent = `staged verbatim — ${d.rate} Hz, ${d.bits}-bit `
+        + `${d.channels === 2 ? "stereo" : "mono"} ${d.isPcm ? "PCM" : "ADPCM"}, `
+        + `${d.seconds.toFixed(2)}s; commits byte-for-byte`;
+      row.appendChild(meta);
+      if (pendingRaw.wav_b64) {
+        const audio = document.createElement("audio");
+        audio.controls = true;
+        audio.src = "data:audio/wav;base64," + pendingRaw.wav_b64;
+        row.appendChild(audio);
+      } else {
+        const note = document.createElement("div");
+        note.className = "sound-meta";
+        note.textContent = "ADPCM — stored as given, but not playable here yet (see sfx.py)";
+        row.appendChild(note);
+      }
+    } else if (pendingB64) {
       const meta = document.createElement("div");
       meta.className = "sound-meta";
       meta.textContent = "staged replacement — mono 16-bit, commits on Save";
@@ -3166,21 +3504,45 @@ function buildSoundDrawer() {
     const importLabel = document.createElement("label");
     importLabel.className = "sound-import";
     importLabel.textContent = pendingB64 ? "Replace" : "Import";
-    importLabel.title = "Import a sound (WAV, MP3, OGG, …) -- converted to the mono 16-bit .sfx the game needs";
+    importLabel.title = "Import a sound. A .sfx goes in untouched; WAV/MP3/OGG/… "
+      + "are converted to the mono 16-bit .sfx the game needs";
     const importInput = document.createElement("input");
     importInput.type = "file";
-    importInput.accept = ".wav,.mp3,.ogg,.m4a,.aac,.flac,.opus";
+    importInput.accept = ".sfx,.wav,.mp3,.ogg,.m4a,.aac,.flac,.opus";
     importInput.addEventListener("change", async e => {
       const file = e.target.files[0];
       e.target.value = "";
       if (!file) return;
       statusEl.textContent = "Decoding…";
       try {
-        // .sfx must be mono 16-bit (sfx.from_wav_bytes rejects otherwise), so decode
-        // and re-encode to that shape at the original entry's sample rate. Handles
-        // MP3/OGG/etc AND normalises a stereo/24-bit WAV that would otherwise fail.
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        if (/[.]sfx$/i.test(file.name)) {
+          // ALREADY the game's format: in it goes, byte for byte. No decode and
+          // no re-encode -- those can only lose something, and normalising here
+          // would silently rewrite a file its author already tested. If the game
+          // will not take a stereo or ADPCM .sfx, that is the game's answer to
+          // give, not ours.
+          const sfx = readSfx(bytes);
+          if (!sfx) throw new Error("not a .sfx (too short to hold a header)");
+          delete pendingSfxEdits[name];
+          pendingMemberEdits[name] = bytesToBase64(bytes);
+          pendingSfxRaw[name] = {
+            info: sfx,
+            wav_b64: sfx.isPcm
+              ? bytesToBase64(wavAroundPcm(sfx.pcm, sfx.rate, sfx.channels || 1, sfx.bits || 16))
+              : null,       // ADPCM: staged fine, just not previewable (see sfx.py)
+          };
+          updateCommitStatus();
+          buildSoundDrawer();
+          return;
+        }
+        // Anything else has to become mono 16-bit at the entry's own rate --
+        // sfx.from_wav_bytes rejects otherwise. Handles MP3/OGG/etc AND
+        // normalises a stereo/24-bit WAV that would fail.
         const rate = (info && info.sample_rate) || 22050;
-        const wav = await decodeAudioToMonoWav(new Uint8Array(await file.arrayBuffer()), rate);
+        const wav = await decodeAudioToMonoWav(bytes, rate);
+        delete pendingSfxRaw[name];
+        delete pendingMemberEdits[name];
         pendingSfxEdits[name] = bytesToBase64(wav);
         updateCommitStatus();
         buildSoundDrawer();                          // redraw: this row now shows the staged preview + ↺
@@ -3191,13 +3553,15 @@ function buildSoundDrawer() {
     importLabel.appendChild(importInput);
     actions.appendChild(importLabel);
 
-    if (pendingB64) {
+    if (staged) {
       const rev = document.createElement("button");
       rev.className = "sound-revert";
       rev.textContent = "↺";
       rev.title = "Discard this staged sound and restore the original";
       rev.addEventListener("click", () => {
         delete pendingSfxEdits[name];
+        delete pendingSfxRaw[name];
+        delete pendingMemberEdits[name];             // the verbatim bytes live here
         updateCommitStatus();
         buildSoundDrawer();                          // redraw: back to the original row
       });
@@ -3286,10 +3650,23 @@ function main() {
     // themselves at the wrong end). car.py's assemble_car is unaffected: it works
     // in native space and gets negated with everything else.
     const frontZ = -wheelbaseM / 2, rearZ = wheelbaseM / 2;
-    wheelObjs.front_left.position.set(-ftrackM / 2, wheelBaseY.front_left, frontZ);
-    wheelObjs.front_right.position.set(ftrackM / 2, wheelBaseY.front_right, frontZ);
-    wheelObjs.rear_left.position.set(-rtrackM / 2, wheelBaseY.rear_left, rearZ);
-    wheelObjs.rear_right.position.set(rtrackM / 2, wheelBaseY.rear_right, rearZ);
+    // RIDE HEIGHT. wheelBaseY puts a wheel's bottom on the body's own datum,
+    // which is what you get if the car has no suspension: the sills sit on the
+    // road and the wheels are swallowed by the arches. The .cf has the missing
+    // number -- fground_clearance1/rground_clearance1, 4-5 inches on the stock
+    // cars -- so the wheel drops by it and the body rides that far above the
+    // contact patch. Front and rear are separate fields, which is also rake:
+    // a Beetle sits nose-up and can now say so.
+    //
+    // NOT CONFIRMED IN GAME. The names and the stock magnitudes both fit, but
+    // nothing has been driven to check the engine reads them this way. This is
+    // the viewer showing an interpretation, not a measurement.
+    const fdrop = getStat("fground_clearance1") * INCH_TO_M;
+    const rdrop = getStat("rground_clearance1") * INCH_TO_M;
+    wheelObjs.front_left.position.set(-ftrackM / 2, wheelBaseY.front_left - fdrop, frontZ);
+    wheelObjs.front_right.position.set(ftrackM / 2, wheelBaseY.front_right - fdrop, frontZ);
+    wheelObjs.rear_left.position.set(-rtrackM / 2, wheelBaseY.rear_left - rdrop, rearZ);
+    wheelObjs.rear_right.position.set(rtrackM / 2, wheelBaseY.rear_right - rdrop, rearZ);
   }
   updateWheelPositions();
   document.getElementById("sections").addEventListener("input", updateWheelPositions);
@@ -3446,7 +3823,26 @@ function main() {
     if (!built.cockpit || !built.cockpit.pieces.wheel) return;
     const [x, y, z] = getCockpitRecordValues("wheel");
     built.cockpit.pieces.wheel.group.position.set(x, y, -z);
+    applyWheelHidden();
     if (activeKey === "cockpit") refitAndRefresh("cockpit");
+  }
+
+  // The steering wheel sits between the eye and the gauges on most dashes, so
+  // calibrating a needle means looking through it. Hiding it is view-only: the
+  // wheel record and the car are untouched. "Focus gauges" turns it on; the
+  // checkbox beside it is the switch either way.
+  // var, not let: updateCockpitWheelLive can run before this line is reached
+  var wheelHidden = false;
+  function applyWheelHidden() {
+    if (built.cockpit && built.cockpit.pieces.wheel) {
+      built.cockpit.pieces.wheel.group.visible = !wheelHidden;
+    }
+    const box = document.getElementById("hide-wheel");
+    if (box) box.checked = wheelHidden;
+  }
+  function setWheelHidden(on) {
+    wheelHidden = on;
+    applyWheelHidden();
   }
 
   // Switches (or, once already switched, keeps updating) the Cockpit tab into
@@ -3472,29 +3868,125 @@ function main() {
   // calibrate once against viper's known dat (-196/70/7000) so idle and redline
   // land on the painted marks, then it holds for every car (same convention).
   let needleRpmValue = 0, needleMphValue = 0;
+  // The speedo's dat max is METRES PER SECOND, not mph: the stock Viper's record
+  // is -152/142/89 against a dial painted 0-200 mph, and 89 m/s is 199 mph.
+  // Treating it as mph put the preview needle at 87% of its sweep for 104 mph on
+  // a max of 120, where the game (fed 46.5 m/s) sat at 39%. The slider stays in
+  // mph, because that is what the dial says; it is converted here.
+  const MPH_TO_MPS = 0.44704;
   const NEEDLE_REF_OFFSET = 0;   // degrees; tune against viper, then leave it
   function orientNeedle(piece, pivotNative, dat, value) {
     if (!piece) return;
     const px = pivotNative[0], py = pivotNative[1], pz = -pivotNative[2];  // -> scene space
-    piece.group.position.set(px, py, pz);
     const a0 = dat[0], amax = dat[1], maxv = dat[2] || 1;
     const t = Math.min(Math.max(value, 0), maxv) / maxv;
     const angleDeg = a0 + t * (amax - a0) + NEEDLE_REF_OFFSET;
     const eye = CAR_ROLES.cockpit.camera_pos;
+    piece.group.position.set(px, py, pz);
     // Axis points from the eye INTO the dial (away from the viewer): with the
     // right-hand rule that makes a positive angle sweep clockwise as the driver
     // sees it, matching the game (an eye->pivot axis pointing at the viewer swept
     // counter-clockwise -- confirmed wrong in the viewer).
+    //
+    // Do NOT "fix" this to spin flat against a flat dash. It was tried: the preview
+    // then showed a whole needle on the Azzaroni's SoSC panel while the game drew
+    // none, and the tilted sweep is what reproduces the in-game cut-off on a flat
+    // panel (the needle leans into it above horizontal). A preview that hides a
+    // clipping the game has is worse than one that shows it. The cure for a
+    // clipped needle is moving the pivot toward the eye ALONG this line, which
+    // gains clearance without moving the needle as the driver sees it.
     const axis = new THREE.Vector3(px - eye[0], py - eye[1], pz - eye[2]).normalize();
     piece.group.setRotationFromAxisAngle(axis, THREE.MathUtils.degToRad(angleDeg));
   }
   function updateCockpitNeedleLive() {
+    syncGaugeSliderRanges();
     if (!built.cockpit || !built.cockpit.pieces.needle_rpm) return;
     orientNeedle(built.cockpit.pieces.needle_rpm, getCockpitRecordValues("rpm pt"),
                  getCockpitRecordValues("rpm dat"), needleRpmValue);
     orientNeedle(built.cockpit.pieces.needle_mph, getCockpitRecordValues("mph pt"),
-                 getCockpitRecordValues("mph dat"), needleMphValue);
+                 getCockpitRecordValues("mph dat"), needleMphValue * MPH_TO_MPS);
     if (activeKey === "cockpit") refitAndRefresh("cockpit");
+  }
+
+  // The sweep sliders' ceilings come from the dat records' third field (max rpm /
+  // max mph), which is itself an editable value -- so raising a car's max mph
+  // from 89 to 120 has to raise the slider with it. Read once at panel-build
+  // time, the slider stayed pinned at the old maximum and there was no way to
+  // sweep the needle over the part of the dial you had just made reachable.
+  //
+  // Read from the live inputs rather than COCKPIT_RECORDS: that holds the values
+  // as loaded from the file, and an edit is not written back to it until commit.
+  //
+  // The speedo slider runs in mph but its record's max is m/s, so it is converted
+  // here too -- left raw, a max of 120 m/s capped the slider at 120 mph.
+  function syncGaugeSliderRanges() {
+    [["sweep-rpm", "rpm dat", 8000, 1], ["sweep-mph", "mph dat", 89, MPH_TO_MPS]].forEach(
+      ([id, record, fallback, perUnit]) => {
+        const slider = document.getElementById(id);
+        if (!slider) return;
+        const max = Math.round((getCockpitRecordValues(record)[2] || fallback) / perUnit);
+        if (Number(slider.max) === max) return;
+        slider.max = max;
+        // Lowering the ceiling under the handle would otherwise leave the slider
+        // showing a value it can no longer reach, and the needle parked past the
+        // end of its own sweep. Compared against the needle's value, not the
+        // slider's: setting slider.max already clamped slider.value, so testing it
+        // here was always false and the readout kept the old, unreachable speed.
+        const current = id === "sweep-rpm" ? needleRpmValue : needleMphValue;
+        if (current > max) {
+          slider.value = max;
+          const readout = document.getElementById(id + "-val");
+          if (id === "sweep-rpm") needleRpmValue = max; else needleMphValue = max;
+          if (readout) readout.textContent = id === "sweep-rpm" ? max
+            : max + " (" + (max * MPH_TO_MPS).toFixed(1) + " m/s)";
+        }
+      });
+    updateMphMaxHint();
+  }
+
+  // The speedo's max field is m/s, which nobody reads off a dial -- so the mph it
+  // works out to is shown under it, live, instead of making you convert.
+  function updateMphMaxHint() {
+    const hint = document.getElementById("mph-max-hint");
+    if (!hint) return;
+    const mps = Number(getCockpitRecordValues("mph dat")[2]) || 0;
+    hint.textContent = "= " + Math.round(mps / MPH_TO_MPS) + " mph";
+  }
+
+  // "Toward eye" / "Away" beside a needle pivot. The game hides a needle whose
+  // pivot sits at or behind the dash face -- the SoSC panels put their pivots
+  // right on it -- and it leans back into the dash at the top of its tilted sweep.
+  // Pulling the pivot straight forward in z cures that but slides the needle off
+  // its dial, because the driver looks at the gauges from above and to one side.
+  // So each click moves the pivot along the line to the driver's eye instead,
+  // 5 mm of depth at a time, with x and y following in proportion: the needle
+  // gets closer (and fractionally bigger) without moving as the driver sees it.
+  const NUDGE_DEPTH = 0.005;
+  function nudgeTowardEye(name, dir) {
+    const inputs = [...document.querySelectorAll('#cockpit-sections input[data-record="' + name + '"]')]
+      .sort((a, b) => Number(a.dataset.index) - Number(b.dataset.index));
+    if (inputs.length !== 3) return;
+    const p = inputs.map(i => Number(i.value));
+    const eye = getCockpitRecordValues("camera").map(Number);
+    const depth = Math.abs(eye[2] - p[2]);
+    if (depth < 1e-6) return;
+    const k = dir * NUDGE_DEPTH / depth;
+    inputs.forEach((inp, i) => { inp.value = Number((p[i] + k * (eye[i] - p[i])).toFixed(4)); });
+    // one bubbling input event marks the record dirty and moves the needle live
+    inputs[0].dispatchEvent(new Event("input", {bubbles: true}));
+  }
+  function eyeNudgeRow(name) {
+    const row = document.createElement("div");
+    row.className = "eye-nudge";
+    row.style.cssText = "display:flex;gap:6px;align-items:center;margin-top:6px;font-size:.7rem;color:#8a90a4";
+    const btn = 'style="background:#14161c;border:1px solid #2a4a66;color:#e8eaf2;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:.72rem"';
+    row.innerHTML =
+      '<button type="button" data-dir="1" ' + btn + ' title="Move the pivot 5 mm closer along the line of sight -- clears the dash without moving the needle on its dial">Toward eye</button>' +
+      '<button type="button" data-dir="-1" ' + btn + ' title="Move the pivot 5 mm back along the line of sight">Away</button>' +
+      '<span>5 mm along the line of sight</span>';
+    row.querySelectorAll("button").forEach(b =>
+      b.addEventListener("click", () => nudgeTowardEye(name, Number(b.dataset.dir))));
+    return row;
   }
 
   // "Focus gauges": drive the driver's-eye view to look straight at the midpoint
@@ -3513,6 +4005,8 @@ function main() {
     // (the default view looks right), so magnifying that same view keeps the
     // needle on its face. Scroll adjusts FOV from here; leaving eye mode resets it.
     if (!cockpitEyeMode) enterCockpitEyeMode();
+    eyeShiftX = eyeShiftY = 0;                              // aim fresh, unshifted
+    setWheelHidden(true);                                   // it is in the way of the dials
     eyePos.set(eye[0], eye[1], eye[2]);
     const a = directionAngles(new THREE.Vector3(eye[0], eye[1], eye[2]), [mid.x, mid.y, mid.z]);
     if (a) { eyeAz = a.az; eyeEl = a.el; }
@@ -3538,11 +4032,13 @@ function main() {
     // painted dial. Shown only if the car actually has needle calibration.
     if (COCKPIT_RECORDS["rpm dat"] || COCKPIT_RECORDS["mph dat"]) {
       const rpmMax = (COCKPIT_RECORDS["rpm dat"] || [0, 0, 8000])[2] || 8000;
-      const mphMax = (COCKPIT_RECORDS["mph dat"] || [0, 0, 200])[2] || 200;
+      // the record's max is m/s; the slider runs in mph up to the same speed
+      const mphMax = Math.round(((COCKPIT_RECORDS["mph dat"] || [0, 0, 89])[2] || 89) / MPH_TO_MPS);
       const ctl = document.createElement("div");
       ctl.className = "gauge-preview";
       ctl.innerHTML =
         '<button id="focus-gauges" type="button">Focus gauges</button>' +
+        '<label title="View only -- the wheel stays in the car"><input id="hide-wheel" type="checkbox"> Hide steering wheel</label>' +
         '<label>RPM <input id="sweep-rpm" type="range" min="0" max="' + rpmMax + '" value="0" step="10">' +
         '<span id="sweep-rpm-val">0</span></label>' +
         '<label>MPH <input id="sweep-mph" type="range" min="0" max="' + mphMax + '" value="0" step="1">' +
@@ -3555,10 +4051,13 @@ function main() {
       });
       ctl.querySelector("#sweep-mph").addEventListener("input", e => {
         needleMphValue = Number(e.target.value);
-        document.getElementById("sweep-mph-val").textContent = needleMphValue;
+        document.getElementById("sweep-mph-val").textContent =
+          needleMphValue + " (" + (needleMphValue * MPH_TO_MPS).toFixed(1) + " m/s)";
         updateCockpitNeedleLive();
       });
       ctl.querySelector("#focus-gauges").addEventListener("click", focusGauges);
+      ctl.querySelector("#hide-wheel").addEventListener("change", e => setWheelHidden(e.target.checked));
+      applyWheelHidden();
     }
     Object.entries(COCKPIT_RECORDS).forEach(([name, values]) => {
       const isLive = name in COCKPIT_LIVE_RECORDS;
@@ -3590,11 +4089,19 @@ function main() {
         input.dataset.index = i;
         fieldDiv.appendChild(label);
         fieldDiv.appendChild(wrapWithStepper(input, step));
+        if (name === "mph dat" && i === 2) {
+          const hint = document.createElement("div");
+          hint.id = "mph-max-hint";
+          hint.style.cssText = "font-size:11px;opacity:0.7;margin-top:2px";
+          fieldDiv.appendChild(hint);
+        }
         fieldsWrap.appendChild(fieldDiv);
       });
       rec.appendChild(fieldsWrap);
+      if (name === "rpm pt" || name === "mph pt") rec.appendChild(eyeNudgeRow(name));
       root.appendChild(rec);
     });
+    updateMphMaxHint();
     root.addEventListener("input", e => {
       const recordName = e.target.dataset.record;
       if (!recordName) return;
@@ -3602,6 +4109,7 @@ function main() {
       updateCommitStatus();
       const applyLive = COCKPIT_LIVE_RECORDS[recordName];
       if (applyLive) applyLive();
+      if (recordName === "mph dat") updateMphMaxHint();
     });
   }
 
@@ -3622,6 +4130,7 @@ function main() {
     updateCockpitWheelLive();
     updateCockpitCameraLive();
     updateCockpitNeedleLive();
+    updateMphMaxHint();
     updateCommitStatus();
   }
 
@@ -3652,6 +4161,19 @@ function main() {
   let cockpitEyeMode = false, eyeAz = 0, eyeEl = 0;
   const eyePos = new THREE.Vector3();
 
+  // Panning (right-drag, middle-drag or shift-drag). The two camera modes pan
+  // differently, because they are for different things:
+  //   orbit  moves the orbit TARGET along the camera's own right/up axes, as the
+  //          track viewer does. Kept as an offset from `center` rather than by
+  //          moving `center`, because every live Cockpit Configs edit re-fits
+  //          `center` (refitAndRefresh) and would otherwise snap the pan back.
+  //   eye    shifts the LENS (a view offset), not the camera. The eye has to stay
+  //          exactly on the "camera" record -- that is what the readout checks and
+  //          what keeps a needle on its dial without parallax -- so sliding the
+  //          picture sideways is done the way a tilt-shift lens does it.
+  const panOffset = new THREE.Vector3();
+  let eyeShiftX = 0, eyeShiftY = 0, lastFitKey = null;
+
   function updateCam() {
     if (cockpitEyeMode) {
       camera.position.copy(eyePos);
@@ -3659,15 +4181,39 @@ function main() {
         Math.cos(eyeEl)*Math.sin(eyeAz), Math.sin(eyeEl), Math.cos(eyeEl)*Math.cos(eyeAz),
       );
       camera.lookAt(eyePos.clone().add(dir));
+      if (eyeShiftX || eyeShiftY) camera.setViewOffset(W(), H(), eyeShiftX, eyeShiftY, W(), H());
+      else camera.clearViewOffset();
     } else {
+      camera.clearViewOffset();
+      const target = center.clone().add(panOffset);
       camera.position.set(
-        center.x + radius*Math.cos(el)*Math.sin(az),
-        center.y + radius*Math.sin(el),
-        center.z + radius*Math.cos(el)*Math.cos(az)
+        target.x + radius*Math.cos(el)*Math.sin(az),
+        target.y + radius*Math.sin(el),
+        target.z + radius*Math.cos(el)*Math.cos(az)
       );
-      camera.lookAt(center);
+      camera.lookAt(target);
     }
     updateCamReadout();
+  }
+
+  function panBy(dxPix, dyPix) {
+    if (cockpitEyeMode) {
+      // the picture follows the cursor
+      eyeShiftX -= dxPix;
+      eyeShiftY -= dyPix;
+    } else {
+      const target = center.clone().add(panOffset);
+      const forward = new THREE.Vector3().subVectors(target, camera.position).normalize();
+      const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize();
+      const up = new THREE.Vector3().crossVectors(right, forward).normalize();
+      // World units per pixel at the target's distance, so the model stays under
+      // the cursor. (The track viewer's rougher radius/H x 1.5 moved a cockpit
+      // nearly twice as far as the drag.)
+      const k = 2 * radius * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) / H();
+      panOffset.addScaledVector(right, -dxPix * k);
+      panOffset.addScaledVector(up, dyPix * k);
+    }
+    updateCam();
   }
 
   // Live camera-position readout, for comparing against Cockpit Configs' "camera"
@@ -3750,6 +4296,7 @@ function main() {
       eyeAz = (built.cockpit.pieces.wheel.group.position.z - eyePos.z) >= 0 ? 0 : Math.PI;
     }
     eyeEl = 0;
+    eyeShiftX = eyeShiftY = 0;
     document.getElementById("hint").style.display = "none";
     document.getElementById("eye-mode-bar").style.display = "flex";
   }
@@ -3757,6 +4304,7 @@ function main() {
   function exitCockpitEyeMode() {
     if (!cockpitEyeMode) return;
     cockpitEyeMode = false;
+    eyeShiftX = eyeShiftY = 0;
     camera.fov = ORBIT_FOV;
     camera.updateProjectionMatrix();
     document.getElementById("hint").style.display = "block";
@@ -3772,6 +4320,8 @@ function main() {
     center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
     radius = Math.max(size.x, size.y, size.z) * 2.3 || 5;
+    // A pan belongs to the tab it was made on; live edits on the same tab keep it.
+    if (key !== lastFitKey) { panOffset.set(0, 0, 0); lastFitKey = key; }
     if (!visitedTabs.has(key)) {
       visitedTabs.add(key);
       snapOrbitToward(TAB_DEFAULT_DIRECTIONS[key]);
@@ -3906,6 +4456,11 @@ function main() {
     }
     for (const m of Array.from(pendingPartRemovals)) applyLiveReimport(m, MOD_PARTS[m]);  // put removed parts back
     pendingPartRemovals.clear();
+    for (const m of Object.keys(pendingMemberEdits)) delete pendingMemberEdits[m];  // staged package, never written
+    for (const key of packagePreview.addedTextures) delete TEXTURES[key];
+    for (const m of packagePreview.meshes) if (m in MOD_PARTS) applyLiveReimport(m, MOD_PARTS[m]);
+    packagePreview.meshes.clear(); packagePreview.addedTextures.clear();
+    for (const m of Object.keys(pendingSfxRaw)) delete pendingSfxRaw[m];           // ...and verbatim sounds
     for (const k of Object.keys(importedTexturesByPart)) delete importedTexturesByPart[k];
     // Textures: restore each staged material's pre-import value and re-apply to
     // every built tab's meshes that use it.
@@ -4023,11 +4578,22 @@ function main() {
   });
   document.getElementById("exit-eye-mode").addEventListener("click", exitCockpitEyeMode);
 
-  let isDown = false, lastX = 0, lastY = 0;
-  renderer.domElement.addEventListener("mousedown", e => { isDown = true; lastX = e.clientX; lastY = e.clientY; });
-  window.addEventListener("mouseup", () => isDown = false);
+  let isDown = false, panning = false, lastX = 0, lastY = 0;
+  renderer.domElement.addEventListener("contextmenu", e => e.preventDefault());
+  renderer.domElement.addEventListener("mousedown", e => {
+    isDown = true;
+    panning = (e.button === 2 || e.button === 1 || e.shiftKey);
+    lastX = e.clientX; lastY = e.clientY;
+  });
+  window.addEventListener("mouseup", () => { isDown = false; panning = false; });
   window.addEventListener("mousemove", e => {
     if (!isDown) return;
+    if (panning) {
+      const dx = e.clientX - lastX, dy = e.clientY - lastY;
+      lastX = e.clientX; lastY = e.clientY;
+      panBy(dx, dy);
+      return;
+    }
     if (cockpitEyeMode) {
       eyeAz += (e.clientX - lastX) * 0.01;
       eyeEl = Math.max(-1.4, Math.min(1.4, eyeEl + (e.clientY - lastY) * 0.01));
@@ -4056,6 +4622,7 @@ function main() {
     camera.aspect = W()/H();
     camera.updateProjectionMatrix();
     renderer.setSize(W(), H());
+    updateCam();   // an eye-mode lens shift is sized to the canvas
   });
 
   function animate(){ requestAnimationFrame(animate); renderer.render(scene, camera); }
@@ -4154,6 +4721,14 @@ def build_shell_html(
     # its own.
     ball_raw = car.find_shared(car_path, entries, "ball.mod")
     ball_mesh = mod.parse(ball_raw) if ball_raw is not None else None
+    # Needle.mod the same way, and for the same reason. Only the primary car and
+    # 4x4cos actually carry one; every other car takes race.res's. Resolving it
+    # from the car's own archive alone meant the gauge needles appeared on the
+    # viper (which owns one) and silently on nothing else -- so a converted car,
+    # which is exactly the kind that needs its pivots aimed, was the one case
+    # with no needle to aim.
+    needle_raw = car.find_shared(car_path, entries, "needle.mod")
+    needle_mesh = mod.parse(needle_raw) if needle_raw is not None else None
 
     # Every real .mod entry in the car's own archive, individually -- the Parts
     # drawer's material, separate from the curated tabs above (see its docstring).
@@ -4180,6 +4755,8 @@ def build_shell_html(
         all_material_names |= {m.name for m in cockpit_result.mesh.materials}
     if ball_mesh is not None:
         all_material_names |= {m.name for m in ball_mesh.materials}
+    if needle_mesh is not None:
+        all_material_names |= {m.name for m in needle_mesh.materials}
     for entry in mod_parts.values():
         if entry is not None:
             all_material_names |= entry[1]
@@ -4282,6 +4859,13 @@ def build_shell_html(
             mod_parts_obj["ball.mod"] = mod.to_obj(ball_mesh, "ball.mtl")[0]
             shared_part_names.append("ball.mod")
             car_roles["hornball"] = "ball.mod"
+    if needle_mesh is not None and car_roles["cockpit"] is not None             and car_roles["cockpit"]["needle"] is None:
+        # Not owned: hand the shared default over under its own name so the
+        # cockpit view can instance it at both pivots, flagged shared like the
+        # horn ball so the Parts drawer labels it honestly.
+        mod_parts_obj["needle.mod"] = mod.to_obj(needle_mesh, "needle.mtl")[0]
+        shared_part_names.append("needle.mod")
+        car_roles["cockpit"]["needle"] = "needle.mod"
 
     html = _SHELL_TEMPLATE
     html = html.replace("__BODY_CLASS__", "view-only" if view_only else "")
@@ -4303,6 +4887,7 @@ def build_shell_html(
     html = html.replace("__STOCK_RANGES_JSON__", json.dumps(STOCK_STAT_RANGES))
     html = html.replace("__MOD_PARTS_JSON__", json.dumps(mod_parts_obj))
     html = html.replace("__SHARED_PART_NAMES_JSON__", json.dumps(shared_part_names))
+    html = html.replace("__SHARED_SCOPE_JSON__", json.dumps(car.SHARED_ASSET_SCOPE))
     html = html.replace("__SFX_PARTS_JSON__", json.dumps(sfx_parts))
     html = html.replace(
         "__COCKPIT_RECORDS_JSON__",
@@ -4675,11 +5260,21 @@ function exportTextureAsTga(name, dataUri) {
   img.src = dataUri;
 }
 
-function updateCommitStatus() {
-  const btn = document.getElementById("commit-btn");
+function trackHasPendingEdits() {
   // The sky is not one of pendingTextureEdits -- it is not a material -- so it
   // has to be counted separately or Save stays disabled after a sky import.
-  btn.disabled = Object.keys(pendingTextureEdits).length === 0 && !pendingSkyEdit;
+  return Object.keys(pendingTextureEdits).length > 0 || !!pendingSkyEdit;
+}
+
+// Same contract as the car shell's: the embedding library asks before doing
+// anything that would discard this page. See viewer.py's car-shell copy.
+window.vrmodShell = {
+  hasPendingEdits: () => { try { return trackHasPendingEdits(); } catch (e) { return false; } },
+};
+
+function updateCommitStatus() {
+  const btn = document.getElementById("commit-btn");
+  btn.disabled = !trackHasPendingEdits();
 }
 
 async function importTextureAsTga(name, file, meshesByMaterial, loadTexture) {
@@ -4908,6 +5503,12 @@ async function commitChanges() {
     // Over-budget geometry is a different class of message: the save WORKED,
     // but the game may not load the result. It gets its own warning styling
     // rather than being appended to a success line.
+    // And, as in the car shell: our own write must not read as the file
+    // changing under us -- see hostSaved there.
+    try {
+      const h = (window.self !== window.top) ? window.parent.vrmodHost : null;
+      if (h && h.saved) h.saved(false);          // textures only: no reload needed
+    } catch (e) { /* not embedded */ }
     const warn = result.warnings || [];
     if (warn.length) {
       statusEl.className = "pending";

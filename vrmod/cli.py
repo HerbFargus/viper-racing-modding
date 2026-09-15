@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import argparse
 import base64
+import io
+import zipfile
 import functools
 import http.server
 import json
@@ -12,7 +14,7 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from . import aifield, archive, aspectfix, backups, bpp as bppmod, car, carshot, catalog as catalog_mod, cf, cockpit_tab, dekey, doctor, envelope, hornball, mapfile, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon, drawdistance, surface, writepaths, modassert, carlist
+from . import aifield, archive, aspectfix, backups, bpp as bppmod, bundle, car, carshot, catalog as catalog_mod, cf, cockpit_tab, dekey, doctor, envelope, hornball, mapfile, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon, drawdistance, surface, writepaths, modassert, carlist
 
 COMMIT_PATH = "/__vrmod_commit__"
 
@@ -186,6 +188,74 @@ def _apply_commit(body: dict) -> tuple[Path, Path]:
     # <prefix>1..7.mod, carrying its textures) so the car stays itself at every
     # distance. Standalone action -- operates on the saved car, then the shell
     # reloads. Backs up first, like every other write.
+    if body.get("action") == "exportbundle":
+        # Zip the part's REAL members and hand the bytes back through the same
+        # "data" channel a save-elsewhere uses. Built here rather than in the
+        # browser because the page only holds textures as decoded PNG data URIs
+        # -- it would have to re-encode them, which is the one thing a bundle
+        # exists to avoid.
+        car_path = Path(body["car_path"])
+        entries = archive.read(car_path)
+        by_name = {e.name.lower(): e for e in entries}
+        member = (body.get("member") or "ball.mod").lower()
+        if member not in by_name:
+            raise ValueError(f"{car_path.name} has no {member}")
+        mesh = mod.parse(by_name[member].to_standalone_bytes())
+        shared = {n.lower() for n in car.STOCK_SHARED_TEX}
+        want = [by_name[member].name]
+        borrowed = []
+        for mat in sorted({mt.name for mt in mesh.materials}):
+            low = mat.lower()
+            if low in shared:
+                borrowed.append(mat)     # every install has these; not ours to ship
+            elif low in by_name:
+                want.append(by_name[low].name)
+        sound = (body.get("sound") or "").lower()
+        if sound and sound in by_name:
+            want.append(by_name[sound].name)
+
+        author = re.sub(r"[^A-Za-z0-9]", "", body.get("author") or "") or "unknown"
+        part = re.sub(r"[^A-Za-z0-9-]", "-",
+                      (body.get("part") or Path(member).stem)).strip("-") or "part"
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            for n in want:
+                z.writestr(n, by_name[n.lower()].to_standalone_bytes())
+        warnings = []
+        if borrowed:
+            warnings.append(
+                f"{member} uses the stock shared texture(s) {', '.join(borrowed)}, "
+                f"which are not included -- every install already has them, but the "
+                f"bundle is 'portable' rather than 'self-contained'")
+        return (Path(f"{author}_{part}.zip"), None,
+                [f"{len(want)} member(s): " + ", ".join(want)],
+                warnings, base64.b64encode(buf.getvalue()).decode())
+
+    if body.get("action") == "previewmembers":
+        # A package's members, converted for DISPLAY and nothing else. The page
+        # has no reader for .mod or .tex -- everything it draws arrives as OBJ
+        # text and image data URIs made here -- so without this a staged package
+        # is bytes it cannot show until Save writes them and the view reloads.
+        #
+        # Deliberately a conversion on the server rather than a second .mod/.tex
+        # reader in JavaScript: one implementation of each format, so the preview
+        # cannot drift from what the rest of the tool does with the same file.
+        # Writes nothing. What Save commits is still the members byte for byte;
+        # this only decides what is on screen until then.
+        objs, textures = {}, {}
+        for name, raw_b64 in (body.get("members") or {}).items():
+            low = name.lower()
+            raw = base64.b64decode(raw_b64)
+            if low.endswith(".mod"):
+                obj_text, _mtl = mod.to_obj(mod.parse(raw), Path(name).stem + ".mtl")
+                objs[name] = obj_text
+            elif low.endswith(".tex"):
+                textures[name] = ("data:image/png;base64,"
+                                  + base64.b64encode(tex.tex_to_png_bytes(raw)).decode())
+        return (Path("preview"), None,
+                [f"previewed {len(objs)} mesh(es), {len(textures)} texture(s)"], [],
+                {"objs": objs, "textures": textures})
+
     if body.get("action") == "genlods":
         car_path = Path(body["car_path"])
         entries = archive.read(car_path)
@@ -242,6 +312,26 @@ def _apply_commit(body: dict) -> tuple[Path, Path]:
     # happen -- the UI stages one or the other) resolves as "gone". Silently skip
     # a name that isn't actually in the archive (already absent = already the
     # desired state), rather than failing the whole save.
+    # Bundle members: already in the game's own formats, so they are written
+    # byte-for-byte rather than converted. That is the point of a bundle -- what
+    # the author tested is what the player gets, with no converter in between
+    # choosing a wrap mode or recomputing a normal.
+    #
+    # Swapping a part also clears the textures the OUTGOING one brought, or they
+    # pile up in the archive a few KB at a time with every horn ball anyone tries.
+    # bundle.sweep_on_swap works that out from the old mesh's own material
+    # records, holding back the stock shared textures and anything another mesh
+    # still refers to -- without which swapping away from the stock horn ball
+    # would take wheels.tex with it and strip every wheel on the car.
+    members = body.get("members") or {}
+    for name in members:
+        if not name.lower().endswith(".mod"):
+            continue
+        for dead in bundle.sweep_on_swap_entries(entries, name):
+            entries = archive.remove_entry(entries, dead)
+    for name, raw_b64 in members.items():
+        entries = archive.upsert_entry(entries, name, base64.b64decode(raw_b64))
+
     for name in (body.get("remove") or []):
         try:
             entries = archive.remove_entry(entries, name)

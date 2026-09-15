@@ -159,6 +159,9 @@ body.resizing #frame{pointer-events:none}   /* keep the drag out of the iframe *
 
 /* ---- Detail: the existing viewer pages, embedded rather than popped out ---- */
 #detail{display:flex;flex-direction:column;min-width:0;height:100%}
+#frame-banner{flex:none;padding:9px 14px;background:#3a3320;border-bottom:1px solid #6d5f34;
+  color:#e8d9a0;font-size:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+#frame-banner button{font-size:11px;padding:3px 9px}
 #frame-wrap{flex:1;min-height:0;position:relative;background:#0f1115}
 #frame{width:100%;height:100%;border:0;display:block}
 /* Two kinds of control share this bar and should not read as one list: the
@@ -465,6 +468,7 @@ async function refresh(){
   if(need){ el$('dir').textContent = ''; el$('health').hidden = true; return; }
   el$('dir').textContent = STATE.data_dir;
   renderLibrary();
+  checkFrameStale();      // after the render, so findSelected sees the new list
   renderToolbar();
   loadHealth();
   if(VIEW === 'game') renderGame();     // keep the configurator in step
@@ -474,6 +478,8 @@ async function refresh(){
 // folder picker via the pywebview bridge; in a plain browser it falls back to a
 // typed path. Either way the server is pointed at the folder and the page reloads.
 async function chooseFolder(){
+  // Pointing at another folder reloads the whole window, editor included.
+  if(!okToDropFrame('Changing the Data folder')) return;
   if(window.pywebview && window.pywebview.api && window.pywebview.api.pick_folder){
     const r = await window.pywebview.api.pick_folder();
     if(r && r.ok) location.reload();
@@ -603,6 +609,7 @@ function findSelected(){
 
 function select(k){
   if(SEL === k) return;              // don't reload the iframe on a re-click
+  if(!okToDropFrame('Opening something else')) return;
   SEL = k;
   renderLibrary();
 }
@@ -623,6 +630,12 @@ function renderDetail(){
     // restore can drop the item out of the list), and from anything else that
     // invalidates the selection -- a delete, or a file removed outside the app.
     if(el$('view-library').classList.contains('expanded')) toggleExpand(false);
+    // ...unless the editor standing there has unsaved work. Replacing the pane
+    // would discard it with no prompt and no way back, and the usual reason to
+    // land here is the file being renamed or moved in Explorer WHILE you edit.
+    // Keep the frame; checkFrameStale explains it and points at Save As.
+    if(el$('frame') && frameDirty()) return;
+    FRAME_NAME = FRAME_STAMP = null;
     d.innerHTML = `<div id="detail-body" class="placeholder">Pick something on the left to
       view it in 3D, change its textures, or put it in the game.</div>`;
     return;
@@ -673,7 +686,10 @@ function renderDetail(){
   // No title banner here: both embedded pages already label themselves with
   // the same name-over-filename pair, immediately below where a banner would
   // sit. Dropping it removes the duplication and gives the 3D view the space.
+  FRAME_NAME = i.name;
+  FRAME_STAMP = i.stamp || null;
   d.innerHTML = `
+    <div id="frame-banner" hidden></div>
     <div id="frame-wrap"><iframe id="frame" data-src="${esc(src)}" src="${esc(src)}"></iframe></div>
     <div class="act" id="detail-actions">${actions}</div>
     <div id="plan"></div>`;
@@ -701,6 +717,30 @@ window.vrmodHost = {
   // stale behind the iframe. selectKey ("car:jeep.car") also moves the
   // selection onto it, so the left pane matches what the frame is showing.
   refresh: async (selectKey) => { if(selectKey) SEL = selectKey; await refresh(); },
+  // The editor just wrote the file it has open. Re-scan, but re-baseline the
+  // stamp instead of reporting the change -- it was not a change "under" the
+  // editor, it WAS the editor. Clearing the stamp first makes checkFrameStale
+  // skip its comparison for this one pass.
+  saved: async (reload) => {
+    FRAME_STAMP = null;
+    await refresh();
+    const i = findSelected();
+    FRAME_STAMP = (i && i.stamp) || null;
+    showFrameBanner('');
+    // The editor wrote a mesh or a texture it could not render itself -- a
+    // package's members go in as raw bytes -- so the view is showing the car as
+    // it was before the save. Rebuild it from disk. No okToDropFrame here: the
+    // save is what just cleared everything staged, so there is nothing to lose.
+    // Deferred so the editor's own call stack unwinds before its page is torn
+    // out from under it.
+    if (reload) setTimeout(() => {
+      const f = el$('frame');
+      if (!f) return;
+      FRAME_STAMP = (findSelected() || {}).stamp || null;
+      try { f.contentWindow.location.reload(); }
+      catch (e) { f.src = f.dataset.src + '?t=' + Date.now(); }
+    }, 50);
+  },
 };
 
 // Same-origin iframe, so the viewer's own controls can just be clicked from
@@ -708,6 +748,95 @@ window.vrmodHost = {
 function frameDoc(){
   const f = el$('frame');
   try { return f && f.contentDocument; } catch(e) { return null; }
+}
+
+// ---- protecting an editor that has unsaved work --------------------------
+// Re-scanning the Data folder is something you do MID-EDIT: alt-tab to Explorer,
+// drop a texture in, come back. The scan itself is harmless -- renderDetail only
+// rebuilds the frame when its src changes -- so the rule here is not "refresh
+// less", it is "scan freely, never tear the editor down unasked". Three paths
+// did tear it down, silently: picking another item, the open file vanishing
+// from the folder, and a whole-window reload.
+function frameDirty(){
+  const f = el$('frame');
+  if(!f) return false;
+  try {
+    const w = f.contentWindow;
+    if(w && w.vrmodShell && typeof w.vrmodShell.hasPendingEdits === 'function')
+      return !!w.vrmodShell.hasPendingEdits();
+    // A page that predates the bridge still enables Save exactly when something
+    // is staged, so the button is a serviceable fallback.
+    const b = f.contentDocument && f.contentDocument.getElementById('commit-btn');
+    return !!(b && !b.disabled);
+  } catch(e){ return false; }   // still loading, or gone: nothing to lose
+}
+
+// True to proceed. Silent when there is nothing staged, which is nearly always.
+function okToDropFrame(what){
+  if(!frameDirty()) return true;
+  return confirm(`You have unsaved changes in ${FRAME_NAME || 'the open editor'}.
+
+${what} will discard them.
+
+Save first, or use Save As to fork a copy. Discard and continue?`);
+}
+
+// The file the frame was built from, and the stamp it had then -- so a re-scan
+// can tell "the folder changed" (common, uninteresting) from "the file under
+// this editor changed" (rare, and it means Save is about to overwrite whatever
+// did it).
+let FRAME_NAME = null, FRAME_STAMP = null;
+
+function showFrameBanner(html){
+  const b = el$('frame-banner');
+  if(!b) return;
+  b.innerHTML = html;
+  b.hidden = !html;
+}
+
+// Called after every re-scan. The frame stays put either way -- this only tells
+// you what happened, because deciding for you is exactly what loses work.
+function checkFrameStale(){
+  if(!FRAME_NAME) return;
+  const i = findSelected();
+  if(!i || i.name !== FRAME_NAME){
+    // The open file is no longer in the folder: renamed, deleted, or moved into
+    // Disabled from Explorer. Nothing to reload, and Save has nowhere to go --
+    // but the staged edits are still here, and Save As can still rescue them.
+    if(frameDirty())
+      showFrameBanner('<b>' + esc(FRAME_NAME) + '</b> is no longer in the Data folder. '
+        + 'Your unsaved changes are still open here &mdash; use <b>Save As</b> in the '
+        + 'editor to write them somewhere before closing it.');
+    return;
+  }
+  if(FRAME_STAMP && i.stamp && i.stamp !== FRAME_STAMP){
+    showFrameBanner('<b>' + esc(FRAME_NAME) + '</b> changed on disk since you opened it'
+      + (frameDirty() ? ' &mdash; saving from here would overwrite that change.' : '.')
+      + ' <button onclick="reloadFrame()">Reload it</button>'
+      + '<button onclick="dismissFrameBanner()">Keep what I have</button>');
+  }
+}
+
+function dismissFrameBanner(){
+  // Accepting the divergence: re-baseline, so the same change is not reported
+  // again on every later scan.
+  const i = findSelected();
+  if(i && i.stamp) FRAME_STAMP = i.stamp;
+  showFrameBanner('');
+}
+
+function reloadFrame(){
+  if(!okToDropFrame('Reloading')) return;
+  const f = el$('frame');
+  if(!f) return;
+  const i = findSelected();
+  if(i && i.stamp) FRAME_STAMP = i.stamp;
+  showFrameBanner('');
+  // Same URL, so this is a re-fetch rather than a navigation -- and the server
+  // sends no-store, so it really does come off disk again. Assigning .src to
+  // the value it already holds is not reliably a reload; reload() is.
+  try { f.contentWindow.location.reload(); }
+  catch(e){ f.src = f.dataset.src + '?t=' + Date.now(); }   // query is stripped server-side
 }
 
 function toggleExpand(force){
@@ -1657,6 +1786,24 @@ def _track_mesh_size(path: Path) -> tuple[int, int] | None:
     return out
 
 
+def _stamp(path: Path) -> str:
+    """A cheap "is this still the file I opened?" signature for ONE file.
+
+    _folder_fingerprint answers the same question for the whole folder, which is
+    what a re-scan needs; this is what an OPEN EDITOR needs, because a mod
+    dropped in beside the car you are editing changes the folder but not your
+    car, and being told to reload for that would be noise. Size plus whole-second
+    mtime, the same pair the folder signature uses -- a write that keeps both
+    identical is not something a stat can see, and is not worth a hash of every
+    .car on every scan.
+    """
+    try:
+        st = path.stat()
+        return f"{st.st_size}:{int(st.st_mtime)}"
+    except OSError:
+        return ""
+
+
 def _car_entry(c: Path, active: bool) -> dict:
     """One card's worth of a .car, read without assembling any geometry.
 
@@ -1665,6 +1812,7 @@ def _car_entry(c: Path, active: bool) -> dict:
     and hiding them is worse than showing why they failed.
     """
     entry = {"name": c.name, "stem": c.stem, "size": c.stat().st_size,
+             "stamp": _stamp(c),
              "parts": 0, "cockpit": False, "error": None, "active": active}
     try:
         entries = archive.read(c)
@@ -1772,7 +1920,7 @@ def _status_payload(d: Path) -> dict:
             "display_name": info["display_name"], "miles": info["miles"],
             "preview": info["preview"], "stp": info["stp"],
             "size": info["size"], "occupied_by": info["occupied_by"],
-            "mesh": _track_mesh_size(f),
+            "mesh": _track_mesh_size(f), "stamp": _stamp(f),
         })
     for t in tracks:
         library_tracks.append({
@@ -1781,6 +1929,7 @@ def _status_payload(d: Path) -> dict:
             "display_name": t["stem"], "miles": t["miles"],
             "preview": t["preview"], "stp": t["stp"], "size": t["size"],
             "occupied_by": None, "mesh": _track_mesh_size(d / t["name"]),
+            "stamp": _stamp(d / t["name"]),
             # The game's track-select screen shows a <slot>.stp out of ui.res.
             # An add-on without one installs over whatever is already there, so
             # the menu ends up showing the PREVIOUS track's picture under the

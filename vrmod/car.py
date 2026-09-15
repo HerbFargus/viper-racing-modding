@@ -343,7 +343,36 @@ def assemble_cockpit(car_path: str | Path) -> CarAssembly:
     # an earlier pass here wrongly "fixed" a camera-angle problem by flipping the mesh
     # 180 degrees, which was reverted once the real cause (camera, not mesh) was found.
     positioned_wheel = mod.transform(wheel, dx=wx, dy=wy, dz=wz)
-    combined = mod.merge([dash, positioned_wheel])
+    parts = [dash, positioned_wheel]
+
+    # The gauge needles. cockpit.tab has carried their pivots ("rpm pt"/"mph pt")
+    # and sweep ranges ("rpm dat"/"mph dat") all along and this function parsed
+    # them and then placed nothing, so the needles showed in game and never in a
+    # cockpit view -- which is precisely the view you would use to aim them.
+    #
+    # Needle.mod is one triangle standing on its own origin and pointing straight
+    # up, so a pivot is a translation and a reading is a rotation about the depth
+    # axis. Each is drawn at its RESTING angle, the first number of its "dat"
+    # record (-196 degrees for the viper tacho, -152 for its speedo), because
+    # that is the position you can check against a parked car.
+    #
+    # Looked up with find_shared: most cars do not carry Needle.mod and take
+    # race.res's, but some do ship their own.
+    needle_raw = find_shared(car_path, entries, "needle.mod")
+    if needle_raw is not None:
+        needle = mod.parse(needle_raw)
+        placed = []
+        for pivot, data in (("rpm pt", "rpm dat"), ("mph pt", "mph dat")):
+            if pivot not in records or data not in records:
+                continue
+            nx, ny, nz = records[pivot]
+            rest = records[data][0]
+            parts.append(mod.transform(needle, dx=nx, dy=ny, dz=nz, rotate_z=rest))
+            placed.append(f"{pivot} @ {rest:g} deg")
+        if placed:
+            parts_found["needles"] = "needle.mod (" + ", ".join(placed) + ")"
+
+    combined = mod.merge(parts)
     return CarAssembly(
         mesh=combined, stats={}, prefix=prefix, parts_found=parts_found, cockpit_records=records
     )
@@ -356,6 +385,67 @@ def assemble_cockpit(car_path: str | Path) -> CarAssembly:
 # author didn't ship" one, WITHOUT a copy of race.res present -- which is exactly
 # the browser-gallery case. Captured from a stock v1.2.5 install; if a real set
 # of shared archives is on hand, pass its names to texture_provenance() instead.
+# The shared race.res assets a car may override, and HOW FAR the override
+# reaches. Overriding any of these works -- that much is settled -- but "works"
+# and "affects only my car" turn out to be different claims, and a tool that
+# conflates them tells people something false.
+#
+# Measured by giving one car an unmistakable copy and leaving a second car
+# untouched as a control (see file-formats.md, "What a car can override"):
+#
+#   "per-car"  the control car was unaffected. Safe to present as "your car".
+#   "global"   the override applied to EVERY car in the race. Worse, the
+#              supplying car need not even use the asset: a car carrying a
+#              magenta ucar.tex displayed none of it -- no mesh of its own
+#              names that texture -- and repainted the undercarriage of every
+#              stock Viper on track.
+#   "unknown"  the override resolves, but whether it leaks was never tested.
+#              Say so; do not guess in either direction.
+#
+# The working model is that sounds resolve per-car while meshes and textures are
+# cached once globally by bare name -- but road1.sfx is the only sound with a
+# control behind it and the arms the only meshes, so everything else stays
+# "unknown" until someone drives it. Filling these in is one car-switch each.
+_SCOPE_GLOBAL = (
+    # every car in the race grew the same enlarged suspension arms
+    "arm_ll.mod", "arm_lr.mod", "arm_ul.mod", "arm_ur.mod",
+    "arm_sl.mod", "arm_sr.mod",
+    # repainted the undercarriage of the whole field, from a car that has no
+    # mesh naming it
+    "ucar.tex",
+)
+_SCOPE_PER_CAR = (
+    # a soundtrack kludged into road1.sfx played on the modded car only; the
+    # control car kept the stock road noise
+    "road1.sfx",
+)
+_SCOPE_UNKNOWN = (
+    "ball.mod", "brakelt.mod", "diskglow.mod", "xray.mod",
+    "fwheel_1.mod", "fwheel_2.mod", "fwheel_3.mod",
+    "wheel_1.mod", "wheel_2.mod", "wheel_3.mod",
+    "spin_l.mod", "spin_r.mod",
+    "horn.sfx", "shift1.sfx", "squeal.sfx", "road2.sfx",
+    "crash1.sfx", "go.sfx", "rpm.stp",
+    "wheels.tex", "effects.tex", "effectsx.tex", "xray.tex",
+    "damage.tex", "skid.tex", "splash.tex", "envmap.tex",
+)
+
+SHARED_ASSET_SCOPE = {
+    **{n: "global" for n in _SCOPE_GLOBAL},
+    **{n: "per-car" for n in _SCOPE_PER_CAR},
+    **{n: "unknown" for n in _SCOPE_UNKNOWN},
+}
+
+
+def shared_scope(name: str) -> str:
+    """"per-car" | "global" | "unknown" for a shared asset; "" if not shared.
+
+    An empty string is not a fourth scope -- it means the question does not
+    apply, because the asset is the car's own and lives in its own archive.
+    """
+    return SHARED_ASSET_SCOPE.get(name.lower().lstrip("/"), "")
+
+
 STOCK_SHARED_TEX = frozenset({
     "ucar.tex", "wheels.tex", "effects.tex", "effectsx.tex",
     "xray.tex", "damage.tex", "skid.tex", "splash.tex", "envmap.tex",
