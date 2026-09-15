@@ -31,6 +31,18 @@ assumption:
     drawing these waypoints into an exported/rendered scene has to negate Z
     on the way out (see `viewer._build_track_path`), while anything comparing
     them to raw file data must not.
+  * **field[6]'s unit is probably METRES PER SECOND -- untested.** The engine's
+    own debug overlay (number key 3, then `L`; see runtime.md 8.1) draws this
+    line as a dotted trail and prints a per-node speed in mph. Read as m/s,
+    Bemidji's 58.7-71.0 becomes 131-159 mph, which is right for a banked
+    superspeedway; read as mph it is 59-71, far too slow, and as ft/s it is
+    40-48, absurd. The overlay can settle it outright rather than by inference:
+    park on a known waypoint and compare. Until someone does, this module keeps
+    the field unitless.
+  * **field[5] is a constant -20000** on every waypoint of every track checked,
+    and field[10]/field[16] hold values near -1.7e38 -- half of -FLT_MAX, and
+    almost certainly uninitialised padding that serialises consistently. None of
+    the three is data; do not read meaning into them.
   * **There is no height field.** field[6] looks like a plausible elevation
     at a glance (58-71 on Bemidji) but it is target SPEED -- the same field
     reads 34-59 on Rock Island, a road course, while Bemidji is a flat
