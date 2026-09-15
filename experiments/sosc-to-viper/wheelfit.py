@@ -36,7 +36,9 @@ centres them on the body's own z=0 (see car.py's WHEEL POSITIONING note, which
 flags this as the genuinely uncertain piece). Every SoSC body is symmetric about
 z=0, so a symmetric axle pair is the only thing that can be right for them.
 
-    python wheelfit.py <fleet_dir_or_car>
+    python wheelfit.py <fleet_dir_or_car> [--chassis=<Val's Viper.car>]
+
+--chassis puts the cars that tipped on Val's chassis -- see CHASSIS_CARS.
 """
 from __future__ import annotations
 
@@ -221,7 +223,77 @@ HAND_TUNED = {
         # the Hunter's own geometry, as driven
         "wheelbase": 91.150002, "ftrack": 43.700001, "rtrack": 40.0,
     },
+    # The Police as driven carries 101.4, where its arch fractions give 101.353
+    # off the body -- 0.05 in, about a millimetre. The driven figure wins.
+    "police": {"wheelbase": 101.4},
 }
+
+
+# VAL'S CHASSIS. The airhawk file above stopped the Hunter tipping; the Strtrat,
+# the van and the Police kept tipping on their own donors (sedan, 4x4cos). What
+# fixed all four, by driving, was one shared chassis: the physics file from Val's
+# "best handling viper" (Viper.car, 22 Oct 2014, by Val in Moose Jaw; his readme
+# gives permission to reuse its parts). Read at build time from --chassis, never
+# stored here -- a .cf is more than its named fields, and his changes four
+# unnamed words (0x218-0x224) too.
+#
+# A physics file splits three ways, and only one part is Val's:
+#   chassis   Val's: mass, inertia, CG height, suspension, diffs, drive split,
+#             downforce, brakes -- everything not listed below
+#   engine    the car's own, power and torque scaled by Val's mass over the car's,
+#             so each keeps its original weight per horsepower; drag coefficient
+#             scaled the same way so total drag (Cd x frontal area) is unchanged
+#   body      the car's own: size, wheelbase, ride height, tyre sizes
+#
+# The TRACK is the exception to "the body's own". Narrow tracks tucked the wheels
+# in the wells and the cars would not turn, and a front narrower than the rear
+# oversteered in proportion to the gap (van 12 in: swervy; Police 4 in: pulled).
+# Even, and ~50 in or wider, is what drove: Strtrat 51.6 best, van 49.6 fine,
+# Police tippy until 52. The wheels reach the Hunter's body sides at 52, which
+# looked better anyway.
+#
+# The exotic-built three never tipped, but they went onto the same chassis too so
+# the whole fleet drives as one family -- the stock exotic is itself a finicky
+# car. Their tracks follow the same rule: the wider of front and rear, at least
+# 52, but no wider than keeps the tyres inside the body (Azzaroni caps at 51.2).
+CHASSIS_CARS = ("strtrat", "hmxvan", "police", "hunter",
+                "airhawk", "azzaroni", "j57")
+CHASSIS_BODY = ("width", "height", "wheelbase",
+                "fground_clearance1", "rground_clearance1",
+                "ftyre_width", "ftyre_aspect", "ftyre_rim",
+                "rtyre_width", "rtyre_aspect", "rtyre_rim")
+CHASSIS_ENGINE = ("power_rpm", "torque_rpm", "idle_speed", "redline",
+                  "engine_inertia", "engine_drag", "fuel_consumption",
+                  "fuel_capacity", "num_gears", "rear_end_ratio1",
+                  "rear_end_ratio2", "trans_inertia", "trans_drag")
+EVEN_TRACK = {
+    "strtrat": 51.58858108520508,    # its fitted track, already even
+    "hmxvan":  49.61811065673828,    # its fitted REAR track, front raised to match
+    "police":  52.0,
+    "hunter":  52.0,
+    "airhawk": 52.0,                 # from 42.9 / 47.3
+    "azzaroni": 51.21614074707031,   # body width less tyre width: 64.2 - 13.0
+    "j57":     64.9143295288086,     # its fitted REAR track, front raised to match
+}
+
+
+def load_chassis(car_path: Path) -> bytes:
+    """The .cf of a car, whole, as the base every chassis car is built on."""
+    e = next(x for x in archive.read(car_path) if x.name.lower().endswith(".cf"))
+    return envelope.build(e.tag, e.version, e.payload)
+
+
+def on_chassis(car_raw: bytes, chassis_raw: bytes, stem: str) -> bytes:
+    """Val's .cf, carrying this car's engine and body. See VAL'S CHASSIS."""
+    mine, val = cf.parse(car_raw), cf.parse(chassis_raw)
+    new = {k: mine[k] for k in CHASSIS_BODY + CHASSIS_ENGINE}
+    k = val["mass"] / mine["mass"]
+    new["power_max"] = mine["power_max"] * k
+    new["torque_max"] = mine["torque_max"] * k
+    new["drag_coefficient"] = (mine["drag_coefficient"] * mine["frontal_area"]
+                               / val["frontal_area"])
+    new["ftrack"] = new["rtrack"] = EVEN_TRACK[stem]
+    return cf.build(chassis_raw, new)
 
 
 def body_mesh(entries, stem: str):
@@ -233,7 +305,7 @@ def body_mesh(entries, stem: str):
     return mod_mod.parse(envelope.build(e.tag, e.version, e.payload))
 
 
-def fit(car_path: Path) -> dict | None:
+def fit(car_path: Path, chassis: bytes | None = None) -> dict | None:
     """Rewrite one car's wheelbase/track/width from its own body. Returns a report."""
     stem = car_path.stem.lower()
     spec = SPECS.get(stem)
@@ -296,6 +368,12 @@ def fit(car_path: Path) -> dict | None:
     # Only the named fields are written; every other byte of the .cf carries
     # over untouched, same as realstats does it.
     raw = cf.build(envelope.build(ce.tag, ce.version, ce.payload), new)
+    # Val's chassis goes on over the finished file, so the engine and body it
+    # carries across are exactly what the steps above produced.
+    if chassis is not None and stem in CHASSIS_CARS:
+        raw = on_chassis(raw, chassis, stem)
+        new = dict(new, ftrack=EVEN_TRACK[stem], rtrack=EVEN_TRACK[stem])
+        source += " on Val's chassis"
     out = [archive.ArchiveEntry(name=x.name, tag=x.tag, version=x.version,
                                 payload=raw[20:]) if x is ce else x
            for x in entries]
@@ -358,14 +436,20 @@ def _shift_cockpit(car_path: Path, dz: float, dy: float = 0.0) -> None:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 1:
-        raise SystemExit("wheelfit.py <fleet_dir_or_car>")
-    target = Path(argv[0])
+    flags = [a for a in argv if a.startswith("--chassis=")]
+    args = [a for a in argv if not a.startswith("--chassis=")]
+    if len(args) != 1:
+        raise SystemExit("wheelfit.py <fleet_dir_or_car> [--chassis=<Val's Viper.car>]")
+    chassis = load_chassis(Path(flags[-1].split("=", 1)[1])) if flags else None
+    target = Path(args[0])
     cars = sorted(target.rglob("*.car")) if target.is_dir() else [target]
     if not cars:
         raise SystemExit(f"no .car under {target}")
+    if chassis is None and any(p.stem.lower() in CHASSIS_CARS for p in cars):
+        print("  no --chassis: " + ", ".join(CHASSIS_CARS)
+              + " stay on their donors' physics, which tip")
     for p in cars:
-        r = fit(p)
+        r = fit(p, chassis)
         b, a = r["before"], r["after"]
         if not r["scaled"]:
             print(f"  {r['stem']:9s} no real-world twin -- width set from the mesh "

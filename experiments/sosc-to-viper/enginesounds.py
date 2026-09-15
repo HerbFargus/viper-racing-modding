@@ -51,14 +51,19 @@ from vrmod import archive, envelope, sfx  # noqa: E402
 
 # car prefix -> which sample plays for idle, and for each load band.
 # "2" is optional; a car that has no <prefix>2.sfx simply skips it.
+#
+# No band may be a STRT sample. Those are STARTER MOTORS, not engine notes: the
+# Hunter (one of the two cars whose donor has a <prefix>2.sfx slot) looped
+# CBRASTRT under its engine in every race, and it read in-game as a constant
+# scraping sound. The band plays the upper working loop instead.
 FLEET = {
-    "airhawk":  dict(i="CAMOFF",   b0="CAMMID",   b1="CAMMID",    b2="CAMSTRT"),
-    "strtrat":  dict(i="GHIAOFF",  b0="GHIAMID",  b1="GHIAMID2",  b2="GHIASTRT"),
-    "j57":      dict(i="MUSTEND",  b0="MUSTMID",  b1="MUSTMD1",   b2="MUSTSTRT"),
+    "airhawk":  dict(i="CAMOFF",   b0="CAMMID",   b1="CAMMID",    b2="CAMMID"),
+    "strtrat":  dict(i="GHIAOFF",  b0="GHIAMID",  b1="GHIAMID2",  b2="GHIAMID2"),
+    "j57":      dict(i="MUSTEND",  b0="MUSTMID",  b1="MUSTMD1",   b2="MUSTMD1"),
     "azzaroni": dict(i="COBRALOW", b0="COBRAMID", b1="COBRAHI",   b2="COBRAMD2"),
-    "police":   dict(i="396END",   b0="396MID",   b1="396MID",    b2="396STRT"),
+    "police":   dict(i="396END",   b0="396MID",   b1="396MID",    b2="396MID"),
     "hmxvan":   dict(i="VWBUSMID", b0="VWBUSMID", b1="VWBUSMID",  b2="VWBUSMID"),
-    "hunter":   dict(i="CBRAOFF",  b0="CBRAREV",  b1="CBRAREV",   b2="CBRASTRT"),
+    "hunter":   dict(i="CBRAOFF",  b0="CBRAREV",  b1="CBRAREV",   b2="CBRAREV"),
 }
 
 

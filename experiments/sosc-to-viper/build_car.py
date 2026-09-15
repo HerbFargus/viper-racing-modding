@@ -420,6 +420,30 @@ def drop_marker_faces(unpacked: Path) -> tuple[int, list[str]]:
     return dropped, sorted(sentinel)
 
 
+# A donor's HUD sprites are not part of the car it becomes. The 4x4cos carries
+# Val's tachometer -- its rpm.stp is byte-identical to the one in his Viper.car --
+# so the Hunter and the van drew a different dial from the other five. Every
+# converted car uses the stock gauges from race.res instead.
+HUD_SPRITES = {"rpm.stp", "mph.stp"}
+
+
+def drop_hud_sprites(unpacked: Path) -> list[str]:
+    """Remove any per-car tach/speedo sprite the donor brought along."""
+    gone = sorted(p.name for p in unpacked.iterdir()
+                  if p.name.lower() in HUD_SPRITES)
+    if not gone:
+        return []
+    man = unpacked / "_manifest.txt"
+    if man.is_file():
+        keep = [l for l in man.read_text(encoding="utf-8").splitlines()
+                if l.lower() not in HUD_SPRITES]
+        man.write_text("".join(l + chr(10) for l in keep),
+                       encoding="utf-8")
+    for name in gone:
+        (unpacked / name).unlink()
+    return gone
+
+
 def sanitise_textures(unpacked: Path) -> int:
     """Lift every opaque texture in the car off the transparency marker.
 
@@ -615,6 +639,10 @@ def build(max_path: Path, model: str, skin: Path, donor: Path,
     lifted = sanitise_textures(unpacked)
     if lifted:
         print(f"  lifted {lifted:,} texel(s) off the transparency marker")
+
+    hud = drop_hud_sprites(unpacked)
+    if hud:
+        print(f"  dropped the donor's HUD sprite(s): {', '.join(hud)}")
 
     subprocess.run(run + ["pack", str(unpacked), str(forked)],
                    cwd=cwd, check=True, capture_output=True)
