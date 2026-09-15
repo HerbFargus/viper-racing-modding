@@ -1161,6 +1161,36 @@ const CAR_WHEELS = __CAR_WHEELS_JSON__;  // {front_left/front_right/rear_left/re
 // one still works, it just creates a new per-car override on save instead of
 // patching an existing entry (archive.upsert_entry, see cli.py's _apply_commit).
 const SHARED_PART_NAMES = new Set(__SHARED_PART_NAMES_JSON__);
+// {assetName: "per-car" | "global" | "unknown"} -- how far overriding a shared
+// asset reaches. See car.SHARED_ASSET_SCOPE; measured, not assumed.
+const SHARED_SCOPE = __SHARED_SCOPE_JSON__;
+const SCOPE_NOTE = {
+  "global": ["affects ALL cars",
+             "Measured: overriding this changes it for every car in the race, not "
+             + "just this one -- and it applies even if nothing in this car uses the "
+             + "asset. Treat it as editing the install, not the car."],
+  "unknown": ["reach untested",
+              "Overriding this works, but whether it affects other cars as well was "
+              + "never tested. It may behave like your car's own copy, or like the "
+              + "suspension arms, which apply to the whole field."],
+};
+
+// A shared asset whose override reaches beyond this car says so on its row, in
+// the Parts and Sound drawers alike, before anyone clicks Import. Only for
+// assets actually measured global or never tested -- road1.sfx is per-car with a
+// control behind it and gets no badge, because a blanket "shared assets affect
+// other cars" would be false there and would train people to ignore the ones
+// that matter. A member the car owns outright isn't in the map at all.
+function addScopeBadge(host, member) {
+  const scope = SHARED_SCOPE[String(member || "").toLowerCase()];
+  const note = SCOPE_NOTE[scope];
+  if (!note) return;
+  const b = document.createElement("span");
+  b.className = "scope-badge scope-" + scope;
+  b.textContent = note[0];
+  b.title = note[1];
+  host.appendChild(b);
+}
 // One material->dataUri map for the WHOLE page (every tab, every wheel, every
 // Parts-drawer entry) -- see build_shell_html's docstring for why this is a single
 // shared lookup instead of each part embedding its own resolved copy.
@@ -1614,6 +1644,10 @@ function buildTextureDrawer(meshesByMaterial) {
       badge.title = PROV_META[bucket].title;
       label.appendChild(badge);
     }
+    // Provenance says where the texture came FROM; scope says how far replacing
+    // it reaches. A stock shared texture is both borrowed and, for ucar.tex,
+    // measured to repaint the entire field.
+    addScopeBadge(label, name);
     el.appendChild(label);
     if (dataUri) {
       const actions = document.createElement("div");
@@ -2925,6 +2959,7 @@ function buildPartsDrawer(applyLiveReimport, removeLivePart, highlightPart) {
       if (cfg.sharedNote) { const n = document.createElement("span"); n.className = "note"; n.textContent = (sub.textContent ? " · " : "") + cfg.sharedNote; sub.appendChild(n); }
       main.appendChild(sub);
     }
+    addScopeBadge(main, cfg.member);
     row.appendChild(main);
     const current = () => pendingPartEdits[cfg.member] || MOD_PARTS[cfg.member];
     row.addEventListener("click", () => {
@@ -3255,6 +3290,7 @@ function buildSoundDrawer() {
     const label = document.createElement("div");
     label.className = "sound-name";
     label.textContent = name + (pendingB64 ? " (pending)" : (info && info.shared ? " (shared default)" : ""));
+    addScopeBadge(label, name);
     row.appendChild(label);
 
     // Body: a pending replacement previews the CONVERTED wav (what actually gets
@@ -4486,6 +4522,7 @@ def build_shell_html(
     html = html.replace("__STOCK_RANGES_JSON__", json.dumps(STOCK_STAT_RANGES))
     html = html.replace("__MOD_PARTS_JSON__", json.dumps(mod_parts_obj))
     html = html.replace("__SHARED_PART_NAMES_JSON__", json.dumps(shared_part_names))
+    html = html.replace("__SHARED_SCOPE_JSON__", json.dumps(car.SHARED_ASSET_SCOPE))
     html = html.replace("__SFX_PARTS_JSON__", json.dumps(sfx_parts))
     html = html.replace(
         "__COCKPIT_RECORDS_JSON__",
