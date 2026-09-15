@@ -101,7 +101,7 @@ class Mesh:
 
 def transform(
     mesh: Mesh, dx: float = 0, dy: float = 0, dz: float = 0,
-    mirror_x: bool = False, rotate_y90: bool = False,
+    mirror_x: bool = False, rotate_y90: bool = False, rotate_z: float = 0.0,
 ) -> Mesh:
     """Return a repositioned copy of a mesh -- used to place multiple instances of the
     same part .mod (most notably a wheel) at different spots in a combined scene.
@@ -115,16 +115,32 @@ def transform(
 
     mirror_x: flip left/right for the opposite-side copy of a part. Flips winding
     (swaps two face indices) to keep the mesh correctly wound after the handedness flip.
+
+    rotate_z: degrees about the depth axis, applied before translating. This is the
+    dash-gauge case: Needle.mod is a single triangle standing on its pivot and
+    pointing straight up, and cockpit.tab's "rpm dat"/"mph dat" records give the
+    angle it should stand at for a given reading. Like rotate_y90 it is a pure
+    rotation, so winding is untouched.
     """
+    import math
+
     def rot(x: float, z: float) -> tuple[float, float]:
         return (z, -x) if rotate_y90 else (x, z)
+
+    t = math.radians(rotate_z)
+    cz, sz = math.cos(t), math.sin(t)
+
+    def spin(x: float, y: float) -> tuple[float, float]:
+        return (x * cz - y * sz, x * sz + y * cz) if rotate_z else (x, y)
 
     sx = -1.0 if mirror_x else 1.0
     new_vertices = []
     for v in mesh.vertices:
         rx, rz = rot(v.x, v.z)
         rnx, rnz = rot(v.nx, v.nz)
-        new_vertices.append(Vertex(rx * sx + dx, v.y + dy, rz + dz, rnx * sx, v.ny, rnz, v.u, v.v))
+        rx, ry = spin(rx, v.y)
+        rnx, rny = spin(rnx, v.ny)
+        new_vertices.append(Vertex(rx * sx + dx, ry + dy, rz + dz, rnx * sx, rny, rnz, v.u, v.v))
     new_faces = [(a, c, b) if mirror_x else (a, b, c) for a, b, c in mesh.faces]
     return Mesh(vertices=new_vertices, materials=list(mesh.materials), faces=new_faces, version=mesh.version)
 

@@ -4154,6 +4154,14 @@ def build_shell_html(
     # its own.
     ball_raw = car.find_shared(car_path, entries, "ball.mod")
     ball_mesh = mod.parse(ball_raw) if ball_raw is not None else None
+    # Needle.mod the same way, and for the same reason. Only the primary car and
+    # 4x4cos actually carry one; every other car takes race.res's. Resolving it
+    # from the car's own archive alone meant the gauge needles appeared on the
+    # viper (which owns one) and silently on nothing else -- so a converted car,
+    # which is exactly the kind that needs its pivots aimed, was the one case
+    # with no needle to aim.
+    needle_raw = car.find_shared(car_path, entries, "needle.mod")
+    needle_mesh = mod.parse(needle_raw) if needle_raw is not None else None
 
     # Every real .mod entry in the car's own archive, individually -- the Parts
     # drawer's material, separate from the curated tabs above (see its docstring).
@@ -4180,6 +4188,8 @@ def build_shell_html(
         all_material_names |= {m.name for m in cockpit_result.mesh.materials}
     if ball_mesh is not None:
         all_material_names |= {m.name for m in ball_mesh.materials}
+    if needle_mesh is not None:
+        all_material_names |= {m.name for m in needle_mesh.materials}
     for entry in mod_parts.values():
         if entry is not None:
             all_material_names |= entry[1]
@@ -4282,6 +4292,13 @@ def build_shell_html(
             mod_parts_obj["ball.mod"] = mod.to_obj(ball_mesh, "ball.mtl")[0]
             shared_part_names.append("ball.mod")
             car_roles["hornball"] = "ball.mod"
+    if needle_mesh is not None and car_roles["cockpit"] is not None             and car_roles["cockpit"]["needle"] is None:
+        # Not owned: hand the shared default over under its own name so the
+        # cockpit view can instance it at both pivots, flagged shared like the
+        # horn ball so the Parts drawer labels it honestly.
+        mod_parts_obj["needle.mod"] = mod.to_obj(needle_mesh, "needle.mtl")[0]
+        shared_part_names.append("needle.mod")
+        car_roles["cockpit"]["needle"] = "needle.mod"
 
     html = _SHELL_TEMPLATE
     html = html.replace("__BODY_CLASS__", "view-only" if view_only else "")

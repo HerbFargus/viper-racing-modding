@@ -343,7 +343,36 @@ def assemble_cockpit(car_path: str | Path) -> CarAssembly:
     # an earlier pass here wrongly "fixed" a camera-angle problem by flipping the mesh
     # 180 degrees, which was reverted once the real cause (camera, not mesh) was found.
     positioned_wheel = mod.transform(wheel, dx=wx, dy=wy, dz=wz)
-    combined = mod.merge([dash, positioned_wheel])
+    parts = [dash, positioned_wheel]
+
+    # The gauge needles. cockpit.tab has carried their pivots ("rpm pt"/"mph pt")
+    # and sweep ranges ("rpm dat"/"mph dat") all along and this function parsed
+    # them and then placed nothing, so the needles showed in game and never in a
+    # cockpit view -- which is precisely the view you would use to aim them.
+    #
+    # Needle.mod is one triangle standing on its own origin and pointing straight
+    # up, so a pivot is a translation and a reading is a rotation about the depth
+    # axis. Each is drawn at its RESTING angle, the first number of its "dat"
+    # record (-196 degrees for the viper tacho, -152 for its speedo), because
+    # that is the position you can check against a parked car.
+    #
+    # Looked up with find_shared: most cars do not carry Needle.mod and take
+    # race.res's, but some do ship their own.
+    needle_raw = find_shared(car_path, entries, "needle.mod")
+    if needle_raw is not None:
+        needle = mod.parse(needle_raw)
+        placed = []
+        for pivot, data in (("rpm pt", "rpm dat"), ("mph pt", "mph dat")):
+            if pivot not in records or data not in records:
+                continue
+            nx, ny, nz = records[pivot]
+            rest = records[data][0]
+            parts.append(mod.transform(needle, dx=nx, dy=ny, dz=nz, rotate_z=rest))
+            placed.append(f"{pivot} @ {rest:g} deg")
+        if placed:
+            parts_found["needles"] = "needle.mod (" + ", ".join(placed) + ")"
+
+    combined = mod.merge(parts)
     return CarAssembly(
         mesh=combined, stats={}, prefix=prefix, parts_found=parts_found, cockpit_records=records
     )
