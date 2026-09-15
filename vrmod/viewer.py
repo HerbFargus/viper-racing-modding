@@ -1101,8 +1101,8 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
 <div id="canvas-wrap"></div>
 <div id="fatal-error"></div>
 <div id="cam-readout"></div>
-<div id="hint">Drag to orbit -- scroll to zoom</div>
-<div id="eye-mode-bar">Driver's-eye view -- drag to look around, scroll to zoom <button id="exit-eye-mode">Back to free orbit</button></div>
+<div id="hint">Drag to orbit -- right-drag (or shift-drag) to pan -- scroll to zoom</div>
+<div id="eye-mode-bar">Driver's-eye view -- drag to look around, right-drag to slide the view, scroll to zoom <button id="exit-eye-mode">Back to free orbit</button></div>
 <aside id="stats-drawer" class="drawer">
   <h2>Car Configs</h2>
   <div class="car-name-row"><label for="car-name-input">Name</label><input id="car-name-input" type="text" maxlength="24" spellcheck="false" autocomplete="off" placeholder="(car display name)" title="In-game display name. The car-select menu shows up to 24 characters; longer names are truncated there."></div>
@@ -1251,7 +1251,7 @@ const SFX_PARTS = __SFX_PARTS_JSON__;
 const COCKPIT_RECORDS = __COCKPIT_RECORDS_JSON__;
 const COCKPIT_FIELD_LABELS = {
   camera: ["x", "y", "z"], wheel: ["x", "y", "z"], "rpm pt": ["x", "y", "z"], "mph pt": ["x", "y", "z"],
-  "rpm dat": ["angle @ 0", "angle @ max", "max rpm"], "mph dat": ["angle @ 0", "angle @ max", "max mph"],
+  "rpm dat": ["angle @ 0", "angle @ max", "max rpm"], "mph dat": ["angle @ 0", "angle @ max", "max m/s"],
 };
 const POSITION_RECORDS = new Set(["camera", "wheel", "rpm pt", "mph pt"]);
 // "wheel" moves the actual steering wheel mesh (same position
@@ -1273,7 +1273,7 @@ const COCKPIT_LIVE_TITLES = {
   "rpm pt": "Moves the tachometer needle's pivot live",
   "mph pt": "Moves the speedometer needle's pivot live",
   "rpm dat": "Calibrates the tach needle sweep live (use the RPM slider to test)",
-  "mph dat": "Calibrates the speedo needle sweep live (use the MPH slider to test)",
+  "mph dat": "Calibrates the speedo needle sweep live (use the MPH slider to test). Max is in METRES PER SECOND: mph x 0.447, so a 120 mph dial is 53.6 (the stock Viper's 89 is its 200 mph dial)",
 };
 
 function parseObj(text) {
@@ -3818,7 +3818,26 @@ function main() {
     if (!built.cockpit || !built.cockpit.pieces.wheel) return;
     const [x, y, z] = getCockpitRecordValues("wheel");
     built.cockpit.pieces.wheel.group.position.set(x, y, -z);
+    applyWheelHidden();
     if (activeKey === "cockpit") refitAndRefresh("cockpit");
+  }
+
+  // The steering wheel sits between the eye and the gauges on most dashes, so
+  // calibrating a needle means looking through it. Hiding it is view-only: the
+  // wheel record and the car are untouched. "Focus gauges" turns it on; the
+  // checkbox beside it is the switch either way.
+  // var, not let: updateCockpitWheelLive can run before this line is reached
+  var wheelHidden = false;
+  function applyWheelHidden() {
+    if (built.cockpit && built.cockpit.pieces.wheel) {
+      built.cockpit.pieces.wheel.group.visible = !wheelHidden;
+    }
+    const box = document.getElementById("hide-wheel");
+    if (box) box.checked = wheelHidden;
+  }
+  function setWheelHidden(on) {
+    wheelHidden = on;
+    applyWheelHidden();
   }
 
   // Switches (or, once already switched, keeps updating) the Cockpit tab into
@@ -3844,19 +3863,33 @@ function main() {
   // calibrate once against viper's known dat (-196/70/7000) so idle and redline
   // land on the painted marks, then it holds for every car (same convention).
   let needleRpmValue = 0, needleMphValue = 0;
+  // The speedo's dat max is METRES PER SECOND, not mph: the stock Viper's record
+  // is -152/142/89 against a dial painted 0-200 mph, and 89 m/s is 199 mph.
+  // Treating it as mph put the preview needle at 87% of its sweep for 104 mph on
+  // a max of 120, where the game (fed 46.5 m/s) sat at 39%. The slider stays in
+  // mph, because that is what the dial says; it is converted here.
+  const MPH_TO_MPS = 0.44704;
   const NEEDLE_REF_OFFSET = 0;   // degrees; tune against viper, then leave it
   function orientNeedle(piece, pivotNative, dat, value) {
     if (!piece) return;
     const px = pivotNative[0], py = pivotNative[1], pz = -pivotNative[2];  // -> scene space
-    piece.group.position.set(px, py, pz);
     const a0 = dat[0], amax = dat[1], maxv = dat[2] || 1;
     const t = Math.min(Math.max(value, 0), maxv) / maxv;
     const angleDeg = a0 + t * (amax - a0) + NEEDLE_REF_OFFSET;
     const eye = CAR_ROLES.cockpit.camera_pos;
+    piece.group.position.set(px, py, pz);
     // Axis points from the eye INTO the dial (away from the viewer): with the
     // right-hand rule that makes a positive angle sweep clockwise as the driver
     // sees it, matching the game (an eye->pivot axis pointing at the viewer swept
     // counter-clockwise -- confirmed wrong in the viewer).
+    //
+    // Do NOT "fix" this to spin flat against a flat dash. It was tried: the preview
+    // then showed a whole needle on the Azzaroni's SoSC panel while the game drew
+    // none, and the tilted sweep is what reproduces the in-game cut-off on a flat
+    // panel (the needle leans into it above horizontal). A preview that hides a
+    // clipping the game has is worse than one that shows it. The cure for a
+    // clipped needle is moving the pivot toward the eye ALONG this line, which
+    // gains clearance without moving the needle as the driver sees it.
     const axis = new THREE.Vector3(px - eye[0], py - eye[1], pz - eye[2]).normalize();
     piece.group.setRotationFromAxisAngle(axis, THREE.MathUtils.degToRad(angleDeg));
   }
@@ -3866,7 +3899,7 @@ function main() {
     orientNeedle(built.cockpit.pieces.needle_rpm, getCockpitRecordValues("rpm pt"),
                  getCockpitRecordValues("rpm dat"), needleRpmValue);
     orientNeedle(built.cockpit.pieces.needle_mph, getCockpitRecordValues("mph pt"),
-                 getCockpitRecordValues("mph dat"), needleMphValue);
+                 getCockpitRecordValues("mph dat"), needleMphValue * MPH_TO_MPS);
     if (activeKey === "cockpit") refitAndRefresh("cockpit");
   }
 
@@ -3878,24 +3911,77 @@ function main() {
   //
   // Read from the live inputs rather than COCKPIT_RECORDS: that holds the values
   // as loaded from the file, and an edit is not written back to it until commit.
+  //
+  // The speedo slider runs in mph but its record's max is m/s, so it is converted
+  // here too -- left raw, a max of 120 m/s capped the slider at 120 mph.
   function syncGaugeSliderRanges() {
-    [["sweep-rpm", "rpm dat", 8000], ["sweep-mph", "mph dat", 200]].forEach(
-      ([id, record, fallback]) => {
+    [["sweep-rpm", "rpm dat", 8000, 1], ["sweep-mph", "mph dat", 89, MPH_TO_MPS]].forEach(
+      ([id, record, fallback, perUnit]) => {
         const slider = document.getElementById(id);
         if (!slider) return;
-        const max = getCockpitRecordValues(record)[2] || fallback;
+        const max = Math.round((getCockpitRecordValues(record)[2] || fallback) / perUnit);
         if (Number(slider.max) === max) return;
         slider.max = max;
         // Lowering the ceiling under the handle would otherwise leave the slider
         // showing a value it can no longer reach, and the needle parked past the
-        // end of its own sweep.
-        if (Number(slider.value) > max) {
+        // end of its own sweep. Compared against the needle's value, not the
+        // slider's: setting slider.max already clamped slider.value, so testing it
+        // here was always false and the readout kept the old, unreachable speed.
+        const current = id === "sweep-rpm" ? needleRpmValue : needleMphValue;
+        if (current > max) {
           slider.value = max;
           const readout = document.getElementById(id + "-val");
-          if (readout) readout.textContent = max;
           if (id === "sweep-rpm") needleRpmValue = max; else needleMphValue = max;
+          if (readout) readout.textContent = id === "sweep-rpm" ? max
+            : max + " (" + (max * MPH_TO_MPS).toFixed(1) + " m/s)";
         }
       });
+    updateMphMaxHint();
+  }
+
+  // The speedo's max field is m/s, which nobody reads off a dial -- so the mph it
+  // works out to is shown under it, live, instead of making you convert.
+  function updateMphMaxHint() {
+    const hint = document.getElementById("mph-max-hint");
+    if (!hint) return;
+    const mps = Number(getCockpitRecordValues("mph dat")[2]) || 0;
+    hint.textContent = "= " + Math.round(mps / MPH_TO_MPS) + " mph";
+  }
+
+  // "Toward eye" / "Away" beside a needle pivot. The game hides a needle whose
+  // pivot sits at or behind the dash face -- the SoSC panels put their pivots
+  // right on it -- and it leans back into the dash at the top of its tilted sweep.
+  // Pulling the pivot straight forward in z cures that but slides the needle off
+  // its dial, because the driver looks at the gauges from above and to one side.
+  // So each click moves the pivot along the line to the driver's eye instead,
+  // 5 mm of depth at a time, with x and y following in proportion: the needle
+  // gets closer (and fractionally bigger) without moving as the driver sees it.
+  const NUDGE_DEPTH = 0.005;
+  function nudgeTowardEye(name, dir) {
+    const inputs = [...document.querySelectorAll('#cockpit-sections input[data-record="' + name + '"]')]
+      .sort((a, b) => Number(a.dataset.index) - Number(b.dataset.index));
+    if (inputs.length !== 3) return;
+    const p = inputs.map(i => Number(i.value));
+    const eye = getCockpitRecordValues("camera").map(Number);
+    const depth = Math.abs(eye[2] - p[2]);
+    if (depth < 1e-6) return;
+    const k = dir * NUDGE_DEPTH / depth;
+    inputs.forEach((inp, i) => { inp.value = Number((p[i] + k * (eye[i] - p[i])).toFixed(4)); });
+    // one bubbling input event marks the record dirty and moves the needle live
+    inputs[0].dispatchEvent(new Event("input", {bubbles: true}));
+  }
+  function eyeNudgeRow(name) {
+    const row = document.createElement("div");
+    row.className = "eye-nudge";
+    row.style.cssText = "display:flex;gap:6px;align-items:center;margin-top:6px;font-size:.7rem;color:#8a90a4";
+    const btn = 'style="background:#14161c;border:1px solid #2a4a66;color:#e8eaf2;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:.72rem"';
+    row.innerHTML =
+      '<button type="button" data-dir="1" ' + btn + ' title="Move the pivot 5 mm closer along the line of sight -- clears the dash without moving the needle on its dial">Toward eye</button>' +
+      '<button type="button" data-dir="-1" ' + btn + ' title="Move the pivot 5 mm back along the line of sight">Away</button>' +
+      '<span>5 mm along the line of sight</span>';
+    row.querySelectorAll("button").forEach(b =>
+      b.addEventListener("click", () => nudgeTowardEye(name, Number(b.dataset.dir))));
+    return row;
   }
 
   // "Focus gauges": drive the driver's-eye view to look straight at the midpoint
@@ -3914,6 +4000,8 @@ function main() {
     // (the default view looks right), so magnifying that same view keeps the
     // needle on its face. Scroll adjusts FOV from here; leaving eye mode resets it.
     if (!cockpitEyeMode) enterCockpitEyeMode();
+    eyeShiftX = eyeShiftY = 0;                              // aim fresh, unshifted
+    setWheelHidden(true);                                   // it is in the way of the dials
     eyePos.set(eye[0], eye[1], eye[2]);
     const a = directionAngles(new THREE.Vector3(eye[0], eye[1], eye[2]), [mid.x, mid.y, mid.z]);
     if (a) { eyeAz = a.az; eyeEl = a.el; }
@@ -3939,11 +4027,13 @@ function main() {
     // painted dial. Shown only if the car actually has needle calibration.
     if (COCKPIT_RECORDS["rpm dat"] || COCKPIT_RECORDS["mph dat"]) {
       const rpmMax = (COCKPIT_RECORDS["rpm dat"] || [0, 0, 8000])[2] || 8000;
-      const mphMax = (COCKPIT_RECORDS["mph dat"] || [0, 0, 200])[2] || 200;
+      // the record's max is m/s; the slider runs in mph up to the same speed
+      const mphMax = Math.round(((COCKPIT_RECORDS["mph dat"] || [0, 0, 89])[2] || 89) / MPH_TO_MPS);
       const ctl = document.createElement("div");
       ctl.className = "gauge-preview";
       ctl.innerHTML =
         '<button id="focus-gauges" type="button">Focus gauges</button>' +
+        '<label title="View only -- the wheel stays in the car"><input id="hide-wheel" type="checkbox"> Hide steering wheel</label>' +
         '<label>RPM <input id="sweep-rpm" type="range" min="0" max="' + rpmMax + '" value="0" step="10">' +
         '<span id="sweep-rpm-val">0</span></label>' +
         '<label>MPH <input id="sweep-mph" type="range" min="0" max="' + mphMax + '" value="0" step="1">' +
@@ -3956,10 +4046,13 @@ function main() {
       });
       ctl.querySelector("#sweep-mph").addEventListener("input", e => {
         needleMphValue = Number(e.target.value);
-        document.getElementById("sweep-mph-val").textContent = needleMphValue;
+        document.getElementById("sweep-mph-val").textContent =
+          needleMphValue + " (" + (needleMphValue * MPH_TO_MPS).toFixed(1) + " m/s)";
         updateCockpitNeedleLive();
       });
       ctl.querySelector("#focus-gauges").addEventListener("click", focusGauges);
+      ctl.querySelector("#hide-wheel").addEventListener("change", e => setWheelHidden(e.target.checked));
+      applyWheelHidden();
     }
     Object.entries(COCKPIT_RECORDS).forEach(([name, values]) => {
       const isLive = name in COCKPIT_LIVE_RECORDS;
@@ -3991,11 +4084,19 @@ function main() {
         input.dataset.index = i;
         fieldDiv.appendChild(label);
         fieldDiv.appendChild(wrapWithStepper(input, step));
+        if (name === "mph dat" && i === 2) {
+          const hint = document.createElement("div");
+          hint.id = "mph-max-hint";
+          hint.style.cssText = "font-size:11px;opacity:0.7;margin-top:2px";
+          fieldDiv.appendChild(hint);
+        }
         fieldsWrap.appendChild(fieldDiv);
       });
       rec.appendChild(fieldsWrap);
+      if (name === "rpm pt" || name === "mph pt") rec.appendChild(eyeNudgeRow(name));
       root.appendChild(rec);
     });
+    updateMphMaxHint();
     root.addEventListener("input", e => {
       const recordName = e.target.dataset.record;
       if (!recordName) return;
@@ -4003,6 +4104,7 @@ function main() {
       updateCommitStatus();
       const applyLive = COCKPIT_LIVE_RECORDS[recordName];
       if (applyLive) applyLive();
+      if (recordName === "mph dat") updateMphMaxHint();
     });
   }
 
@@ -4023,6 +4125,7 @@ function main() {
     updateCockpitWheelLive();
     updateCockpitCameraLive();
     updateCockpitNeedleLive();
+    updateMphMaxHint();
     updateCommitStatus();
   }
 
@@ -4053,6 +4156,19 @@ function main() {
   let cockpitEyeMode = false, eyeAz = 0, eyeEl = 0;
   const eyePos = new THREE.Vector3();
 
+  // Panning (right-drag, middle-drag or shift-drag). The two camera modes pan
+  // differently, because they are for different things:
+  //   orbit  moves the orbit TARGET along the camera's own right/up axes, as the
+  //          track viewer does. Kept as an offset from `center` rather than by
+  //          moving `center`, because every live Cockpit Configs edit re-fits
+  //          `center` (refitAndRefresh) and would otherwise snap the pan back.
+  //   eye    shifts the LENS (a view offset), not the camera. The eye has to stay
+  //          exactly on the "camera" record -- that is what the readout checks and
+  //          what keeps a needle on its dial without parallax -- so sliding the
+  //          picture sideways is done the way a tilt-shift lens does it.
+  const panOffset = new THREE.Vector3();
+  let eyeShiftX = 0, eyeShiftY = 0, lastFitKey = null;
+
   function updateCam() {
     if (cockpitEyeMode) {
       camera.position.copy(eyePos);
@@ -4060,15 +4176,39 @@ function main() {
         Math.cos(eyeEl)*Math.sin(eyeAz), Math.sin(eyeEl), Math.cos(eyeEl)*Math.cos(eyeAz),
       );
       camera.lookAt(eyePos.clone().add(dir));
+      if (eyeShiftX || eyeShiftY) camera.setViewOffset(W(), H(), eyeShiftX, eyeShiftY, W(), H());
+      else camera.clearViewOffset();
     } else {
+      camera.clearViewOffset();
+      const target = center.clone().add(panOffset);
       camera.position.set(
-        center.x + radius*Math.cos(el)*Math.sin(az),
-        center.y + radius*Math.sin(el),
-        center.z + radius*Math.cos(el)*Math.cos(az)
+        target.x + radius*Math.cos(el)*Math.sin(az),
+        target.y + radius*Math.sin(el),
+        target.z + radius*Math.cos(el)*Math.cos(az)
       );
-      camera.lookAt(center);
+      camera.lookAt(target);
     }
     updateCamReadout();
+  }
+
+  function panBy(dxPix, dyPix) {
+    if (cockpitEyeMode) {
+      // the picture follows the cursor
+      eyeShiftX -= dxPix;
+      eyeShiftY -= dyPix;
+    } else {
+      const target = center.clone().add(panOffset);
+      const forward = new THREE.Vector3().subVectors(target, camera.position).normalize();
+      const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize();
+      const up = new THREE.Vector3().crossVectors(right, forward).normalize();
+      // World units per pixel at the target's distance, so the model stays under
+      // the cursor. (The track viewer's rougher radius/H x 1.5 moved a cockpit
+      // nearly twice as far as the drag.)
+      const k = 2 * radius * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) / H();
+      panOffset.addScaledVector(right, -dxPix * k);
+      panOffset.addScaledVector(up, dyPix * k);
+    }
+    updateCam();
   }
 
   // Live camera-position readout, for comparing against Cockpit Configs' "camera"
@@ -4151,6 +4291,7 @@ function main() {
       eyeAz = (built.cockpit.pieces.wheel.group.position.z - eyePos.z) >= 0 ? 0 : Math.PI;
     }
     eyeEl = 0;
+    eyeShiftX = eyeShiftY = 0;
     document.getElementById("hint").style.display = "none";
     document.getElementById("eye-mode-bar").style.display = "flex";
   }
@@ -4158,6 +4299,7 @@ function main() {
   function exitCockpitEyeMode() {
     if (!cockpitEyeMode) return;
     cockpitEyeMode = false;
+    eyeShiftX = eyeShiftY = 0;
     camera.fov = ORBIT_FOV;
     camera.updateProjectionMatrix();
     document.getElementById("hint").style.display = "block";
@@ -4173,6 +4315,8 @@ function main() {
     center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
     radius = Math.max(size.x, size.y, size.z) * 2.3 || 5;
+    // A pan belongs to the tab it was made on; live edits on the same tab keep it.
+    if (key !== lastFitKey) { panOffset.set(0, 0, 0); lastFitKey = key; }
     if (!visitedTabs.has(key)) {
       visitedTabs.add(key);
       snapOrbitToward(TAB_DEFAULT_DIRECTIONS[key]);
@@ -4429,11 +4573,22 @@ function main() {
   });
   document.getElementById("exit-eye-mode").addEventListener("click", exitCockpitEyeMode);
 
-  let isDown = false, lastX = 0, lastY = 0;
-  renderer.domElement.addEventListener("mousedown", e => { isDown = true; lastX = e.clientX; lastY = e.clientY; });
-  window.addEventListener("mouseup", () => isDown = false);
+  let isDown = false, panning = false, lastX = 0, lastY = 0;
+  renderer.domElement.addEventListener("contextmenu", e => e.preventDefault());
+  renderer.domElement.addEventListener("mousedown", e => {
+    isDown = true;
+    panning = (e.button === 2 || e.button === 1 || e.shiftKey);
+    lastX = e.clientX; lastY = e.clientY;
+  });
+  window.addEventListener("mouseup", () => { isDown = false; panning = false; });
   window.addEventListener("mousemove", e => {
     if (!isDown) return;
+    if (panning) {
+      const dx = e.clientX - lastX, dy = e.clientY - lastY;
+      lastX = e.clientX; lastY = e.clientY;
+      panBy(dx, dy);
+      return;
+    }
     if (cockpitEyeMode) {
       eyeAz += (e.clientX - lastX) * 0.01;
       eyeEl = Math.max(-1.4, Math.min(1.4, eyeEl + (e.clientY - lastY) * 0.01));
@@ -4462,6 +4617,7 @@ function main() {
     camera.aspect = W()/H();
     camera.updateProjectionMatrix();
     renderer.setSize(W(), H());
+    updateCam();   // an eye-mode lens shift is sized to the canvas
   });
 
   function animate(){ requestAnimationFrame(animate); renderer.render(scene, camera); }
