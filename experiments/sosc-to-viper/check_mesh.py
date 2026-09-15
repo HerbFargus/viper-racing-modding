@@ -228,6 +228,17 @@ def main() -> int:
         check("every LOD is a reduction of this body", not wrong,
               "; ".join(wrong[:2]) or f"{len(chain)} meshes in the chain")
 
+        # A forked car inherits the donor's display name, so five of the seven
+        # showed up in the car-select menu as "Exotic Car" or "Sports Sedan".
+        # Nothing about the car is broken by that, which is why it survived
+        # this long -- it is only visible in a menu nothing else checks.
+        from vrmod import car as car_mod
+        shown = car_mod.read_car_name(archive.read(car))
+        donors = {"Exotic Car", "Sports Sedan", "RS Cosworth 4x4", "Viper GTS-R"}
+        check("the car has its own name in the menu",
+              bool(shown) and shown not in donors,
+              f"{shown!r}" + (" -- this is a donor's name" if shown in donors else ""))
+
         # Brake lights. NOTHING here can be checked by looking: carshot renders
         # <prefix>0.mod and the wheels, and never draws the brake mesh, so a
         # render of a car with its lamps buried inside the bodywork looks
