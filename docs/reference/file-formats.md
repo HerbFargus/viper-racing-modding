@@ -345,6 +345,25 @@ each; move it in that table and the drawers follow.
 Absence of precedent proved nothing, twice. Not one of 160 third-party cars ships a
 `road*.sfx` or an `arm_*.mod`; both work. Nobody had tried.
 
+#### `ftrack`/`rtrack` are physics, not just placement ✅ CONFIRMED IN GAME
+
+The toolkit derives wheel POSITION from `wheelbase`/`ftrack`/`rtrack` (see
+`car.py`'s WHEEL POSITIONING note), and it was an open question whether those
+fields do anything beyond putting the wheels somewhere — a renderer-only reading
+would have made track free to set for looks alone.
+
+It is not free. A converted car given a deliberately narrow rear track, to tuck
+its wheels inside a body that necks in at the back, **would not turn** — driven,
+not inferred. So track carries roll stiffness and lateral load transfer the way
+its name suggests, and any tool that sets it from the bodywork is trading grip
+for appearance whether it says so or not.
+
+This matters for converted cars specifically. A body built for another game has
+no obligation to be wide where an axle needs to be, so "the wheels sit inside
+the bodywork" and "the car corners" can be in direct conflict, and only one of
+them is visible in a screenshot.
+
+
 - **⚠ The horn ball is the exception.** `ball.mod` is *not* resolved per-car — the engine
   hardcodes the bare name `ball.mod` in its obstacle system (the `horn_ball` hack tosses it) and
   loads it **once, globally**. In a multiplayer session there is effectively **one horn ball for
