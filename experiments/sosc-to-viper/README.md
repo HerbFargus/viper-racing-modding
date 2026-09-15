@@ -171,6 +171,40 @@ identified doubling as the wrong mitigation rather than something to widen the
 threshold around. Without it the Airhawk sits at 5 of 609 (0.8%), inside the
 band the shipped cars occupy.
 
+## Dead end: a radio
+
+Streets of SimCity has a radio -- three stations, five tracks each, plus DJ
+idents and chatter -- and the obvious question was whether any of it could play
+in Viper Racing. It cannot, and the reasons are worth recording so nobody
+repeats the experiment.
+
+**Viper has no music path.** `race.exe` carries no CD-audio, MCI, MIDI or
+`waveOut` imports. Its sound module is DirectSound only, event-driven through
+`CreateSound` / `Play` / `PlayLooped`. (The 23 "Radio" strings in the binary are
+all `RadioButton` UI widgets; the one real hit, `music_test` in
+`sound:softmxr.obj`, is a developer test function.) So music can only come from
+putting a song in a slot the engine already plays.
+
+Three slots were tested in game, and each failed differently:
+
+| slot | result |
+|---|---|
+| `horn.sfx` (per-car) | **Plays.** Clean, unmodulated, on demand -- but it is a horn |
+| `road1.sfx` (looped road noise) | Plays, but **pitch-scaled by speed** -- the song's tempo tracks the throttle |
+| `start.sfx` / `go.sfx` (one-shots) | **Truncated.** Clips briefly and stops, whatever the length |
+
+**Size is not the constraint, which was the surprise.** The largest sound the
+game ships is `race.res/road1.sfx` at 177 KB. A 30 MB station mix -- 11.3
+minutes, 168x that -- loaded and played. Whatever stops a one-shot playing
+through, it is not the amount of audio.
+
+Two things that did come out of it and are worth keeping: `.sfx` will hold
+essentially unlimited audio, and one-shot event sounds are cut off rather than
+played to completion. Both are facts about the engine, not about music.
+
+The practical answer for anyone who wants music while they race is to play it
+outside the game.
+
 ## Known residuals
 
 - The Airhawk keeps 5 inconsistent edges of 609 that the source mesh cannot
