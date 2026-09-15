@@ -178,6 +178,25 @@ def tga_from_image(im) -> bytes:
             + bytes(body))
 
 
+def lift_marker(im):
+    """Nudge pure black off the transparency marker, before it is encoded.
+
+    A .tex stores RGB565 and raw 0x0000 means TRANSPARENT. Some drivers honour
+    that in plain opaque textures too, so a black texel renders as a hole -- and
+    the missile's banded surface is 312 texels of exactly that. Confirmed in
+    game: the black read through.
+
+    The same sweep build_car.sanitise_textures does for a car's own skins. The
+    missile never went through it, because it builds its textures itself.
+    """
+    px = list(im.getdata())
+    out = [(r, 8 if (r < 8 and g < 8 and b < 8) else g, b) for r, g, b in px]
+    lifted = sum(1 for a, b in zip(px, out) if a != b)
+    if lifted:
+        im.putdata(out)
+    return lifted
+
+
 def per_surface(faces, pal, atl):
     """One texture per surface, and the UVs left pointing at a whole page.
 
@@ -339,7 +358,9 @@ def build(max_path: Path, skin: Path, install: Path, length: float):
         raise SystemExit(f"obj2mod failed: {r.stderr[-400:]}")
 
     out_tex = {}
+    lifted_total = 0
     for name, im in sorted(pages.items()):
+        lifted_total += lift_marker(im)
         png = work / (name[:-4] + ".png")
         im.save(png)
         dest = work / name
@@ -351,6 +372,8 @@ def build(max_path: Path, skin: Path, install: Path, length: float):
             subprocess.run(run + ["tga2tex", str(tga), str(dest), "--wrap", "1"],
                            cwd=str(ROOT), check=True, capture_output=True)
         out_tex[name] = dest.read_bytes()
+    if lifted_total:
+        print(f"  lifted {lifted_total} texel(s) off the transparency marker")
     return out_mod.read_bytes(), out_tex
 
 
