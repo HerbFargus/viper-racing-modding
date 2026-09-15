@@ -225,13 +225,20 @@ def consolidate(faces, pal, atl):
         where[key] = (ox, oy, is_image)
     W, H = page.size
     half = 0.5
+    # V IS MEASURED FROM THE OTHER END. PIL's origin is top-left and the cell
+    # rows are laid out downward from it, but Viper reads v from the bottom --
+    # the same convention that flips a converted car's roof onto its bumper
+    # (README, convention 3). Written top-down, the missile samples the row
+    # below the one it means: the body came out RED, off the bottom-right cell,
+    # where the white it wants sits top-right. Confirmed in game, not inferred
+    # -- it renders red there too, so this was never a viewer artefact.
     for f in faces:
         ox, oy, is_image = where[(f["type"], f["tex"])]
         if is_image:
             f["uv"] = [(((ox + half) + u * (CELL - 1)) / W,
-                        ((oy + half) + v * (CELL - 1)) / H) for u, v in f["uv"]]
+                        1.0 - ((oy + half) + v * (CELL - 1)) / H) for u, v in f["uv"]]
         else:
-            c = ((ox + CELL / 2) / W, (oy + CELL / 2) / H)
+            c = ((ox + CELL / 2) / W, 1.0 - (oy + CELL / 2) / H)
             f["uv"] = [c for _ in f["uv"]]
     return page, where
 
