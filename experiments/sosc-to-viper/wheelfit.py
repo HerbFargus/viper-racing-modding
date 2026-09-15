@@ -95,7 +95,7 @@ ARCHES = {
     "hmxvan":   (0.232, 0.852),   # re-read against the drawn axles: both
                                  # wells sit ~3% further forward than first taken
     "airhawk":  (0.23, 0.77),
-    "police":   (0.224, 0.787),
+    "police":   (0.224, 0.820),   # front re-read against the drawn axle
 }
 
 
@@ -176,6 +176,7 @@ LIFT = {
     "strtrat":  0.048,
     "hmxvan":   0.002,
     "airhawk":  0.000,
+    "police":   0.119,   # large, and confirmed by eye before it was applied
 }
 
 
