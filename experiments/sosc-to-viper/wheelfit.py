@@ -68,6 +68,43 @@ LENGTHS = {
 }
 
 
+# ---------------------------------------------------------------------------
+# THE ARCHES, READ OFF THE ART. Measured by rasterising each body's left flank
+# in MODEL SPACE -- x maps linearly to z by construction, so a position in the
+# picture is a position on the car -- and reading the well centres against a
+# 10% grid. As a fraction of the body from tail (0.0) to nose (1.0).
+#
+# Read by eye, deliberately. Three automatic detectors were written and all
+# three failed: a min-y profile of the flank (the wells are painted, not
+# modelled, so there is no silhouette to find), a darkest-band search, and a
+# one-arch-per-half variant. Each latched onto shadow or dark paint instead --
+# the last one put the van's front arch at 61% where it is plainly at 82%, and
+# the Beetle's rear at 38% where it is at 22%. The art is legible to a person
+# and not to those heuristics, so this is a table, like SYMMETRY and FRAME.
+#
+# The Hunter has no entry: its skin is uniform rust and shows no wells at all.
+ARCHES = {
+    "azzaroni": (0.21, 0.82),
+    "j57":      (0.19, 0.77),
+    "strtrat":  (0.22, 0.81),
+    "hmxvan":   (0.20, 0.82),
+    "airhawk":  (0.23, 0.77),
+    "police":   (0.224, 0.787),
+}
+
+
+def arch_fit(m, stem: str):
+    """(wheelbase inches, centre z) from the measured arches, or None."""
+    fr = ARCHES.get(stem)
+    if not fr:
+        return None
+    zs = [v.z for v in m.vertices]
+    z0, z1 = min(zs), max(zs)
+    rear = z0 + fr[0] * (z1 - z0)
+    front = z0 + fr[1] * (z1 - z0)
+    return (front - rear) / INCH_TO_M, (front + rear) / 2
+
+
 def body_mesh(entries, stem: str):
     """LOD 0, which is the only mesh at full size."""
     want = f"{stem}0.mod"
@@ -95,12 +132,25 @@ def fit(car_path: Path) -> dict | None:
 
     # width always: it describes THIS mesh, and can be read off it exactly.
     new = {"width": body_wid}
+    source = "none"
+    shift = 0.0
     if spec and length_real:
         zk = body_len / length_real
         xk = body_wid / spec["width"]
         new["wheelbase"] = spec["wheelbase"] * zk
         new["ftrack"] = spec["ftrack"] * xk
         new["rtrack"] = spec["rtrack"] * xk
+        source = "scaled"
+    measured = arch_fit(m, stem)
+    if measured:
+        # A measurement of THIS art beats a scaled catalogue figure, so it wins
+        # where there is one. The shift is the other half: the game hangs the
+        # axles on the body's own z=0 (car.py), and the arches are not centred
+        # there -- so the body moves instead, by the arch midpoint, and the
+        # axle pair lands on the wells.
+        new["wheelbase"], centre = measured
+        shift = -centre
+        source = "measured"
 
     # Only the named fields are written; every other byte of the .cf carries
     # over untouched, same as realstats does it.
@@ -108,9 +158,61 @@ def fit(car_path: Path) -> dict | None:
     out = [archive.ArchiveEntry(name=x.name, tag=x.tag, version=x.version,
                                 payload=raw[20:]) if x is ce else x
            for x in entries]
+
+    # The shift moves the CAR, not just the body: every mesh the car owns (the
+    # LOD chain, the brake lights) and the cockpit records, which are positions
+    # in the same car space. Miss one and it detaches from the rest.
+    moved = 0
+    if abs(shift) > 1e-4:
+        out = [_shift_mesh(x, shift, stem) if _is_own_mesh(x, stem) else x
+               for x in out]
+        moved = sum(1 for x in out if _is_own_mesh(x, stem))
     archive.write(out, car_path)
+    if abs(shift) > 1e-4:
+        _shift_cockpit(car_path, shift)
     return {"stem": stem, "length": body_len, "before": before, "after": new,
-            "scaled": bool(spec and length_real)}
+            "scaled": bool(spec and length_real), "source": source,
+            "shift": shift, "moved": moved}
+
+
+
+def _is_own_mesh(entry, stem: str) -> bool:
+    n = entry.name.lower()
+    return n.endswith(".mod") and n.startswith(stem)
+
+
+def _shift_mesh(entry, dz: float, stem: str):
+    m = mod_mod.parse(envelope.build(entry.tag, entry.version, entry.payload))
+    verts = [mod_mod.Vertex(v.x, v.y, v.z + dz, v.nx, v.ny, v.nz, v.u, v.v)
+             for v in m.vertices]
+    blob = mod_mod.build(mod_mod.Mesh(vertices=verts, materials=list(m.materials),
+                                      faces=list(m.faces), version=m.version))
+    return archive.ArchiveEntry(name=entry.name, tag=entry.tag,
+                                version=entry.version, payload=blob[20:])
+
+
+def _shift_cockpit(car_path: Path, dz: float) -> None:
+    """Move the cockpit POSITIONS by the same dz -- they are in the same space.
+
+    Only the positions. "rpm dat"/"mph dat" are three-number records too, but
+    they are a gauge's sweep calibration, not a point in the car, and adding a
+    metre-scale offset to one would swing the needle off the dial.
+    """
+    POSITIONS = {"camera", "wheel", "rpm pt", "mph pt"}
+    entries = archive.read(car_path)
+    e = next((x for x in entries if x.name.lower() == "cockpit.tab"), None)
+    if e is None:
+        return
+    from vrmod import cockpit_tab
+    raw = envelope.build(e.tag, e.version, e.payload)
+    recs = cockpit_tab.parse(raw)
+    moved = {k: ((v[0], v[1], v[2] + dz) if k.strip().lower() in POSITIONS else v)
+             for k, v in recs.items()}
+    blob = cockpit_tab.build(raw, moved)
+    out = [archive.ArchiveEntry(name=x.name, tag=x.tag, version=x.version,
+                                payload=blob[20:]) if x is e else x
+           for x in entries]
+    archive.write(out, car_path)
 
 
 def main(argv: list[str]) -> int:
