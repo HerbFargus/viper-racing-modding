@@ -1,0 +1,43 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Arena preview</title>
+<style>html,body{margin:0;height:100%;background:#9fc6e8;overflow:hidden;font:12px sans-serif}#info{position:absolute;left:8px;top:8px;background:#fffc;padding:4px 8px;border-radius:4px}</style>
+</head><body><div id="info">drag: orbit / right-drag: pan / wheel: zoom / keys 1-4: views</div>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/MTLLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+const renderer = new THREE.WebGLRenderer({antialias: true, preserveDrawingBuffer: true});
+renderer.setSize(innerWidth, innerHeight); document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+// Flat ground should come out at the texture's own colour, as it does in SoSC:
+// sky 0.65 + sun 0.38 * ~0.91 (its height) is ~1.0 on level ground. The old
+// 1.0 + 0.5 drew the grass half again brighter than the game.
+scene.add(new THREE.HemisphereLight(0xffffff, 0x777766, 0.65));
+const sun = new THREE.DirectionalLight(0xffffff, 0.38); sun.position.set(300, 800, 200); scene.add(sun);
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 1, 20000);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+window.views = {};
+new THREE.MTLLoader().load("arena.mtl", mtl => {
+  mtl.preload();
+  for (const m of Object.values(mtl.materials)) {
+    m.side = THREE.DoubleSide;
+    if (m.map) { m.map.magFilter = THREE.NearestFilter; m.alphaTest = 0.5; m.transparent = false; }
+  }
+  new THREE.OBJLoader().setMaterials(mtl).load("arena.obj", obj => {
+    scene.add(obj);
+    const box = new THREE.Box3().setFromObject(obj), c = box.getCenter(new THREE.Vector3()), s = box.getSize(new THREE.Vector3());
+    const r = Math.max(s.x, s.z);
+    views["1"] = [c.x, c.y + r * 1.1, c.z + 1, c.x, c.y, c.z];                 // top-down
+    views["2"] = [c.x - r * 0.7, c.y + r * 0.45, c.z + r * 0.7, c.x, c.y, c.z];  // three-quarter
+    views["3"] = [c.x, c.y + 60, c.z - r * 0.46, c.x, c.y + 40, c.z];           // inside, from one side
+    views["4"] = [c.x - r * 0.12, c.y + 12, c.z - r * 0.12, c.x + r * 0.2, c.y + 5, c.z + r * 0.2];
+    window.setView("2");
+    window.ready = true;
+  });
+});
+window.setView = k => { const v = views[k]; if (!v) return; camera.position.set(v[0], v[1], v[2]); controls.target.set(v[3], v[4], v[5]); controls.update(); };
+addEventListener("keydown", e => window.setView(e.key));
+addEventListener("resize", () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+(function loop() { requestAnimationFrame(loop); renderer.render(scene, camera); })();
+</script></body></html>

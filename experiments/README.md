@@ -12,6 +12,7 @@ just an assertion.
 | Experiment | Question | Answer |
 |---|---|---|
 | [`sosc-to-viper/`](sosc-to-viper/) | Can a car from another 1998 game be converted into a loadable Viper Racing car? | Yes — seven of them, though four undeclared cross-game conventions had to be found from screenshots first |
+| [`sosc-arena/`](sosc-arena/) | Can a Streets of SimCity scenario city be rebuilt, at true scale and in its own art, as the basis of a Viper Racing track? | The city, yes — the Continuous Fire arena matches in-game screenshots. The Viper track export is not started |
 
 ## Running them
 
