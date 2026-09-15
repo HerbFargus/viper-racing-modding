@@ -354,6 +354,72 @@ def unkey(rgb):
     return (r, 8, b) if (r < 8 and g < 8 and b < 8) else rgb
 
 
+# Windows reserves palette entries 0-9 and 246-255, and Streets of SimCity uses
+# one of them as a marker rather than a colour: faces it wants the engine to
+# treat specially -- the missile's shadow was the first one found -- come out of
+# the atlas as pure (0,248,0). Viper has no such convention, so they render as
+# flat fluorescent green panels, and on the Hunter three runs of them sit over
+# the wheel wells and box the wheels in like a parade float.
+#
+# A whole texture being the sentinel is the tell. A marker face's atlas region
+# is uniformly reserved-green; real bodywork never is, which is why this tests
+# the generated texture rather than guessing from geometry.
+SENTINEL_GREEN = 0.9          # fraction of a texture that must be reserved green
+
+
+def _is_sentinel(path: Path) -> bool:
+    try:
+        info = tex.parse(path.read_bytes())
+    except Exception:
+        return False
+    px = tex.decode_base_level(info)
+    n = info.size
+    ch = len(px) // (n * n)
+    green = sum(1 for i in range(0, len(px), ch)
+                if px[i + 1] > 200 and px[i] < 90 and px[i + 2] < 90)
+    return green > SENTINEL_GREEN * n * n
+
+
+def drop_marker_faces(unpacked: Path) -> tuple[int, list[str]]:
+    """Remove faces whose texture is the reserved-green marker, and the texture.
+
+    Materials store contiguous vertex and face runs, so dropping one means
+    rebuilding the mesh from the runs that survive and renumbering as we go --
+    a face's indices are relative to its own material's vertex run.
+    """
+    body = next((p for p in unpacked.iterdir()
+                 if p.name.lower().endswith("0.mod")), None)
+    if body is None:
+        return 0, []
+    m = mod.parse(body.read_bytes())
+    sentinel = {mt.name.lower() for mt in m.materials
+                if _is_sentinel(unpacked / mt.name)}
+    if not sentinel:
+        return 0, []
+    verts, faces, mats = [], [], []
+    dropped = 0
+    for mt in m.materials:
+        if mt.name.lower() in sentinel:
+            dropped += mt.face_end - mt.face_start
+            continue
+        vb, fb = len(verts), len(faces)
+        verts.extend(m.vertices[mt.vertex_start:mt.vertex_end])
+        for f in m.faces[mt.face_start:mt.face_end]:
+            faces.append(tuple(i - mt.vertex_start + vb for i in f))
+        mats.append(mod.Material(mt.name, vb, len(verts), fb, len(faces)))
+    body.write_bytes(mod.build(mod.Mesh(vertices=verts, materials=mats,
+                                        faces=faces, version=m.version)))
+    man = unpacked / "_manifest.txt"
+    if man.is_file():
+        keep = [l for l in man.read_text(encoding="utf-8").splitlines()
+                if l.lower() not in sentinel]
+        man.write_text("".join(l + chr(10) for l in keep),
+                       encoding="utf-8")
+    for name in sentinel:
+        (unpacked / name).unlink(missing_ok=True)
+    return dropped, sorted(sentinel)
+
+
 def sanitise_textures(unpacked: Path) -> int:
     """Lift every opaque texture in the car off the transparency marker.
 
@@ -541,6 +607,10 @@ def build(max_path: Path, model: str, skin: Path, donor: Path,
     added = [n for n in tex_files if n not in lines]
     man.write_text("\n".join(lines + added) + "\n", encoding="utf-8")
     print(f"  wrote {len(tex_files)} texture(s); added {len(added)} to the manifest")
+
+    dropped, markers = drop_marker_faces(unpacked)
+    if dropped:
+        print(f"  dropped {dropped} marker face(s) using {', '.join(markers)}")
 
     lifted = sanitise_textures(unpacked)
     if lifted:
