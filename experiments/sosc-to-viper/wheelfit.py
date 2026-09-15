@@ -133,9 +133,20 @@ def _wheel_half_width(car_path: Path) -> float:
     return 0.190                # measured on the stock wheel, as a fallback
 
 
-def track_fit(m, z: float, half_w: float, span: float = 0.25) -> float | None:
-    """Track in inches that tucks the tyre inside the body at station z."""
-    xs = [abs(v.x) for v in m.vertices if abs(v.z - z) < span]
+def track_fit(m, z: float, half_w: float, radius: float = 0.330,
+              span: float = 0.25) -> float | None:
+    """Track in inches that tucks the tyre inside the body at station z.
+
+    Measured only within the WHEEL'S OWN HEIGHT BAND, not over the full body.
+    The van is why: at its front axle the body is 0.859 m half-wide taken
+    overall, but the cab necks in to 0.677 m down where the tyre actually is --
+    182 mm of difference, and setting the track from the wider number left the
+    wheel hanging outside the cab. Every other car in the fleet measures the
+    same either way, so this costs nothing where it is not needed.
+    """
+    base = min(v.y for v in m.vertices)
+    xs = [abs(v.x) for v in m.vertices
+          if abs(v.z - z) < span and v.y <= base + 2 * radius]
     if not xs:
         return None
     half = max(xs) - half_w - WHEEL_INSET
@@ -211,6 +222,11 @@ def fit(car_path: Path) -> dict | None:
     # Track last: it depends on the wheelbase, since the station to measure the
     # body at is where the axle ends up.
     half_w = _wheel_half_width(car_path)
+    # Even a car with no arch measurement gets its track fitted -- the Hunter
+    # has no readable wells, but its wheels still have to sit inside its body,
+    # and its existing wheelbase says where they are.
+    if "wheelbase" not in new:
+        new["wheelbase"] = values["wheelbase"]
     if "wheelbase" in new:
         half_wb = new["wheelbase"] * INCH_TO_M / 2
         ft = track_fit(m, half_wb + shift, half_w)
