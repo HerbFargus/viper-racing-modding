@@ -3312,7 +3312,8 @@ function buildPartsDrawer(applyLiveReimport, removeLivePart, highlightPart) {
         status.textContent = `Staged ${staged} member(s) from ${f.name}: `
           + Object.keys(pendingMemberEdits).join(", ")
           + (ignored ? ` (${ignored} ignored - not .mod/.tex/.sfx)` : "")
-          + ". Save to apply; the 3D view updates when the car reloads.";
+          + ". Not applied yet -- press Save. The 3D view can't show a package "
+          + "before it is written, and reloads by itself once it has been.";
       } catch (err) {
         status.textContent = "Could not read that package: " + (err && err.message || err);
       }
