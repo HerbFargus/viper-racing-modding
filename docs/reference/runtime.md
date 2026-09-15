@@ -80,7 +80,7 @@ identified as the argument parser's.
 |------|---------|--------------|
 | `-nointro` | `0x0D1804` | Skip the intro video (`intro.avi`). The parser's own `"skipped intro"` string sits just below. **Introduced by the official 1.1 patch** — see the history doc. ✅ |
 | `-server:<addr>` | `0x0D180C` | Multiplayer: connect to / act as a server at the given address. Note the trailing colon — the value is appended. ✅ format / 🟡 semantics |
-| `-location<addr>` | `0x0D1814` | Multiplayer location parameter. ✅ present / 🟡 semantics |
+| `-location<...>` | `0x0D1814` | **Jumps the Blimp camera to a position.** Not a multiplayer parameter, as this table said until the debug cameras were found: the parser's neighbours are `"Can't scan blimp jump location, but will go to track."` and `"Can't parse location arg: \"%s\""`, and it degrades to starting at the track when the argument will not scan. ✅ present / ✅ purpose / 🟡 syntax |
 | `-tri` | `0x0D1820` | Developer/diagnostic switch. ✅ present / ⚪ effect |
 | `-grid` | `0x0D1824` | Developer/diagnostic switch. ✅ present / ⚪ effect |
 | `-dedicated` | `0x0D3D68` | Run as a dedicated (headless) multiplayer server. Lives apart from the table above, checked separately. ✅ |
@@ -671,3 +671,165 @@ any texel is black for it to key. `vrmod dekey <install>` lifts every such texel
 
 **Untested prediction:** on an AMD card the sweep should be a *visual* no-op, because nothing was being
 keyed there to begin with. If it changes anything visible on AMD, the model above is wrong.
+
+---
+
+## 8. The engine has a debug HUD, and it writes a log ✅ CONFIRMED IN GAME
+
+Both were shipped in the retail build and neither is mentioned anywhere in the game,
+its manual, or the community's twenty-five years of documentation. Found by pressing
+number keys while driving.
+
+### 8.1 The overlay pages
+
+**Number keys** cycle overlay pages while driving. Confirmed by observation, with the
+engine's own format strings from `race.bin` beside each:
+
+| Key | Page | Shows |
+|-----|------|-------|
+| `2` | **Physics** | telemetry, below |
+| `3` | **Info** | the driving-line tool. Sub-keys are mnemonic: `H` help, `S` save ("global line"), `L` **line** — draws the `.ili` as a dotted path ahead of the car with a per-node readout |
+| `4` | **LOD Factor** | the LOD multiplier, plus `FOG` and `LIGHT` toggles |
+| `5` | **HUD off** | hides the overlay entirely — which is why it read as a blank page |
+| `6` | **TV Camera** | `TV Camera: 0/7` with the camera's position and angles |
+
+The LOD page documents its own controls in the string table:
+
+```
+?LOD Factor:  %4.1f
+[=down ]=up '=1.0
+```
+
+`[` steps it down, `]` up, `'` resets to 1.0. **This is the only way to inspect a
+generated LOD chain without driving away from the car** — relevant to `vrmod`'s LOD
+generator, whose output was previously only visible at whatever distance the engine
+chose to swap levels.
+
+The Physics page reads, field for field:
+
+```
+R: %1.0fF  E: %1.0f                                   two temperatures
+s: %5.2f t: %5.2f b: %5.2f c: %5.2f                   raw input axes:
+                                                      steer, throttle, brake, clutch
+%3.0f MPH  V:%3.0f MPH %5.0f RPM (%c) DIST %4.0f'     speed, velocity, revs,
+                                                      GEAR, distance in feet
+LAT %5.2f G  LONG %5.2f G  TOT %5.2f G AERO %5.2f G   four-axis accelerometer
+(%6.1f %6.1f %6.1f)                                   world position
+%1.0f                                                 printed four times, one per
+                                                      wheel, as coloured discs
+```
+
+A separate **aero** G channel is a notable thing for a 1998 title to be computing, and
+it is sitting behind an undocumented keypress. The per-wheel discs are most likely tyre
+temperature — the only other Fahrenheit value on the page is the `R:` line — but that is
+inference, not measurement; watching them under cornering load would settle it.
+
+`L` renders the racing line as a dotted trail along the road with a live readout
+(`n 6.500 m    110.000 mph`), which makes the Info page a **ground-truth oracle for the
+`.ili` format**: park on a waypoint, read the page, compare against the parsed record.
+Nothing else can settle what those fields mean. See `ili.py` for the first thing it
+already calls into question -- the page reports metres and mph, while the parser
+documents feet.
+
+The TV Camera page is directly useful for track authoring. It reports the live camera
+position and angles in the same units `camera.tab` stores, so a camera can be placed by
+flying to the spot and reading the numbers off. Note that **`camera.tab` is the same STAB
+container as `cockpit.tab` but with SEVEN fields per record and a leading type name**
+(`FIXED`, `PAN_ZOOM`, `CHASE` — the engine's own `fixed`/`pan_zoom`/`chase`):
+
+```
+FIXED     194  4.5  -196   2  33  -9
+PAN_ZOOM  185  0.4  -160   0.8 ...
+```
+
+`cockpit_tab.parse()` hardcodes four fields and rejects it with
+`unexpected fieldsPerRecord 7`.
+
+### 8.1b Free-roam: the Blimp camera ✅ CONFIRMED IN GAME
+
+**F12** drops into a free-flying camera, steered with the numpad. It is not a debug
+leftover — the engine ships **twelve named camera views** in its UI string table:
+
+```
+Cockpit  Bumper  Rear  Chase  NearChase  FarChase  RearChase
+Overhead  Aerial  Blimp  TV  Chassis
+```
+
+`Chassis` is the F3 X-ray. `Blimp` is this one, and it has real error handling behind it
+(`Can't scan blimp jump location, but will go to track.`), which is also what finally
+identifies the engine's `-location` command-line flag — see §2, where this table had it
+wrong as a multiplayer parameter.
+
+For track work this is the most immediately useful thing in §8: it flies anywhere, and
+page `6` reports the camera's position and angles in `camera.tab`'s own units while it
+does so.
+
+### 8.2 The log ✅ CONFIRMED — it is running right now
+
+The engine writes to `log\` beside the executable, unprompted, on a stock install:
+
+| File | Contents |
+|------|----------|
+| `log.log` | the main diagnostic stream |
+| `timer.log` | a frame-timing histogram, `[%+2.2d]: %d [avg: %d]` |
+| `except.log` | exceptions |
+| `career.log` | career progress |
+
+The string table also names `log.cfg` and a `logger` with installable hooks
+(`LogUninstallHook: 0 of %d funcs matches 0x%x`), so the stream is probably
+configurable; no `log.cfg` ships, and what it accepts is not known.
+
+**`log.log` names every asset the engine fails to resolve**, which is ground truth of a
+kind nothing outside the engine can produce:
+
+```
+ResourceGet("airhawk1.tex") returning NULL!
+tex not found: airhawk1.tex
+```
+
+That example is not a broken conversion — no mesh references `airhawk1.tex`. It is the
+**AI paint-slot probe**: the engine asks for `<prefix><N>.tex` per grid slot, stock
+`viper.car` answers with `viperd1..4.tex`, and a car that ships none gets one identical
+skin across the whole AI field. That limitation was already described in the format
+reference from watching races; here the engine states it outright, by name, once per slot.
+
+It also logs the video path (`vid: 16 meg card`, triple buffering, `DDERR_WRONGMODE`
+surface losses), object counts, achievable frame rate, and missing setup files
+(`Can't open Config\setups\bemidji.csu--using default`).
+
+**This is better evidence than static analysis** for anything that resolves at load time.
+`doctor` reasons about missing assets by inspecting archives; the log says what the engine
+actually asked for and did not get.
+
+### 8.3 Things named in the binary that never shipped
+
+Sitting beside the overlay strings, unexercised by any UI:
+
+- **A settings block** with sections `GLOBAL MULTI SOUND CONTROL GAME PHYSICS` — the same
+  format as `options.def`, which already carries `[GX] [SOUND] [GLOBAL] [CONTROL]` but has
+  no `[GAME]` or `[PHYSICS]`. Its keys are `car_index`, `show_car_status_info`,
+  `throttle_boost`, `grip_boost`, `gravity_factor`, `horn_ball`, `no_walls`,
+  `pave_the_world`. The last three are the shipped HACKS tab; **the first four have never
+  surfaced anywhere.** Whether they are read from a `.def` on a release build is untested.
+- **A ghost-car system**: `.gcf` files under `%sghostcar\`, `ghost.tab`, `ghost.best`,
+  version/track/realism matching, and a `GhostCar` entry in the physics object taxonomy
+  (`PhobStatic Obstacle Wobble CheckPoint PlayCar AICar NetCar GhostCar`). No ghost feature
+  exists in the game.
+- **Two more driving-line extensions**, `.ilq` and `.ilg`, beside the known `.ili`. Tracks
+  ship `default.ili` and `rdefault.ili` (forward and reversed) and nothing else, so these
+  are likely what the Info page's "save"/"global line" writes.
+- `\coffee\vc\ghosts\` — a hardcoded UNC path to a developer machine named *coffee*.
+
+### 8.4 broske was on the original team
+
+`race.bin` contains the assertion message:
+
+```
+BGHook(): (!inserted) ?!?!  Tell broske "You're lame."
+```
+
+This is in the **shipped 1998 binary**, not a community patch. The patch-lineage note has
+broske as the author of the 1.2.3 "developer gift" build that every community `race.bin` is
+hex-edited from; this places him inside the engine source years earlier, writing assertions
+against his own subsystem. The same region carries `Can't create SCO! Grak! This is
+impossible!` and a bare `dolt.`
