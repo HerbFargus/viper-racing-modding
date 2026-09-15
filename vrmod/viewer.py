@@ -608,10 +608,26 @@ def _car_mod_parts(car_path: str | Path) -> dict[str, tuple[str, set[str]] | Non
 # cleft/cright (spotter voice cues). horn.sfx/shift1.sfx/squeal.sfx are the
 # exception -- confirmed per-car overridable in practice (bowser.car ships its
 # own horn.sfx AND squeal.sfx, distinct from race.res's), consistent with the
-# mksfx guide treating horn/shift as per-car files. Only these three get shown
-# as a car's shared-default fallback; the rest stay out of the Sound drawer
-# entirely to avoid burying real per-car sounds under generic game audio.
-SHARED_SFX_ROLES = ("horn.sfx", "shift1.sfx", "squeal.sfx")
+# mksfx guide treating horn/shift as per-car files.
+#
+# road1.sfx is here on a DIRECT TEST rather than on that precedent, because no
+# precedent existed: across 188 community car archives not one ships a road
+# sound, and the format reference listed road1/2 among the shared defaults
+# without ever confirming they resolve per-car. Confirmed 2026-09-14 by putting
+# four seconds of alternating 440/880 Hz beeps into one car's own road1.sfx
+# while race.res's copy held a long music track: that car beeped, a second
+# untouched car played the music. Both halves matter -- the control is what
+# proves the test was actually running.
+#
+# It is worth exposing because it is the only shared sound that plays
+# CONTINUOUSLY while driving, which makes a car-length soundtrack possible. It
+# pitch-shifts with road speed, which is either the drawback or the entire point
+# depending on the mod. road2.sfx rides along as the second surface layer.
+#
+# The rest of race.res's shared audio (crash1-3, scrape, splash, go/ready, the
+# spotter cues) stays out: untested for per-car resolution, and one-shot cues
+# would bury a car's real sounds under generic game audio for little gain.
+SHARED_SFX_ROLES = ("horn.sfx", "shift1.sfx", "squeal.sfx", "road1.sfx", "road2.sfx")
 
 
 def _car_sfx_parts(car_path: str | Path) -> dict[str, dict | None]:
@@ -921,7 +937,17 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   .part-row.empty .dot{background:transparent;border:1px dashed #5a5f6e;width:6px;height:6px;flex:0 0 6px}
   .part-row.shared-default .dot{background:transparent;border:1px solid #4a5570}
   #parts-list.show-all .part-row.rendered .dot{background:#8ecfff}
-  .part-row.filter-hidden,.part-grp.filter-hidden,.part-detail-box.filter-hidden{display:none!important}
+  /* Anything applyPartsFilter hides, stays hidden. This used to name the
+     three classes it knew about, so the Generate/Regenerate LOD button --
+     a .part-genlods, added later -- took the class and ignored it, and sat
+     there on the Horn Ball and Cockpit tabs offering to decimate the car
+     body. Matching on the class itself means the next element added to the
+     drawer is filtered without anyone remembering to list it. */
+  .filter-hidden{display:none!important}
+  .scope-badge{display:inline-block;margin-left:7px;padding:1px 6px;border-radius:9px;
+    font-size:.62rem;letter-spacing:.02em;vertical-align:middle;cursor:help}
+  .scope-global{background:#4a1d1d;border:1px solid #8a3b3b;color:#ffb4b4}
+  .scope-unknown{background:#3a3320;border:1px solid #6d5f34;color:#e8d9a0}
   #parts-drawer h2{display:flex;align-items:center;gap:6px}
   .filter-btn{margin-left:auto;background:transparent;border:1px solid #3a3f4e;border-radius:4px;
               color:#7f8598;cursor:pointer;padding:4px 6px;line-height:0}

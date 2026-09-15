@@ -2119,7 +2119,13 @@ is the idle loop; `0.sfx` is the AI/other-player engine sound covering idle→90
 player's own engine sound over the same range; `2.sfx` is a high-RPM-only layer (4000→9000 RPM, also usable
 for a turbo hiss). `horn.sfx`/`shift1.sfx`/`squeal.sfx` are confirmed per-car overridable in practice too —
 several third-party cars ship their own, distinct from `race.res`'s shared default, resolved the same
-own-archive-first way as the horn ball mesh. On the authoring side, samples must be 16-bit mono, resampled
+own-archive-first way as the horn ball mesh. **`road1.sfx` is per-car overridable as well** ✅ CONFIRMED
+IN GAME (2026-09-14) — and this one had no third-party precedent to lean on: across 188 community car
+archives, *not one* ships a `road*.sfx`. Tested directly by giving a single car its own `road1.sfx`
+holding four seconds of alternating 440/880 Hz beeps while `race.res`'s copy held a long music track;
+that car beeped, a second untouched car played the music. It matters because `road1.sfx` is the only
+shared sound that plays *continuously* while driving and accepts arbitrary length — `.sfx` carries a
+30 MB clip without complaint — so a car can carry its own soundtrack. It pitch-shifts with road speed. On the authoring side, samples must be 16-bit mono, resampled
 to the target rate, and trimmed to a zero-crossing loop point to avoid pops.
 
 **ADPCM (`format_tag=2`) is not fully solved.** No real sample in the retail data uses it
