@@ -1882,6 +1882,7 @@ async function commitChanges() {
     const visualMembers = Object.keys(pendingMemberEdits)
       .filter(n => /[.](mod|tex)$/i.test(n));
     for (const name of Object.keys(pendingMemberEdits)) delete pendingMemberEdits[name];
+    packagePreview.meshes.clear(); packagePreview.addedTextures.clear();
     for (const mat of Object.keys(pendingTextureEdits)) {
       delete originalTextures[mat];              // current TEXTURES[mat] is now the baseline
       delete pendingTextureEdits[mat];
@@ -2730,6 +2731,11 @@ const pendingPartEdits = {};     // {realFilename: objText}
 // Separate from pendingPartEdits because those hold OBJ text the server
 // converts; these are already .mod/.tex/.sfx and must not be touched.
 const pendingMemberEdits = {};
+// What a staged PACKAGE put on screen before Save: the meshes it swapped in live,
+// and the texture names it added to TEXTURES that were not there before. Discard
+// uses this to put the car's own parts back; Save just forgets it, because the
+// view reloads from the written car anyway.
+const packagePreview = {meshes: new Set(), addedTextures: new Set()};
 const pendingTextureEdits = {};  // {materialName: decoded TGA base64}
 const pendingSfxEdits = {};      // {realFilename: raw uploaded WAV bytes, base64}
 // Sounds staged VERBATIM as .sfx. The bytes themselves live in
@@ -3309,11 +3315,42 @@ function buildPartsDrawer(applyLiveReimport, removeLivePart, highlightPart) {
         }
         updateCommitStatus();
         const ignored = names.length - staged;
-        status.textContent = `Staged ${staged} member(s) from ${f.name}: `
+        const summary = `Staged ${staged} member(s) from ${f.name}: `
           + Object.keys(pendingMemberEdits).join(", ")
-          + (ignored ? ` (${ignored} ignored - not .mod/.tex/.sfx)` : "")
-          + ". Not applied yet -- press Save. The 3D view can't show a package "
-          + "before it is written, and reloads by itself once it has been.";
+          + (ignored ? ` (${ignored} ignored - not .mod/.tex/.sfx)` : "");
+        status.textContent = summary + ". Preparing a preview...";
+        // Show it now. Only meshes and textures go to the server -- a sound
+        // cannot change the picture and can be 15 MB.
+        const visual = {};
+        for (const [n, b64] of Object.entries(pendingMemberEdits)) {
+          if (/[.](mod|tex)$/i.test(n)) visual[n] = b64;
+        }
+        let previewed = false;
+        try {
+          const resp = await fetch(COMMIT_ROUTE, {
+            method: "POST", headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({car_path: CAR_PATH, action: "previewmembers", members: visual}),
+          });
+          const result = await resp.json();
+          if (result.ok && result.data) {
+            // Textures first: a mesh resolves its materials against TEXTURES by
+            // name as it is built, so they must be there before it is.
+            for (const [n, uri] of Object.entries(result.data.textures || {})) {
+              for (const key of new Set([n, n.toLowerCase()])) {
+                if (!(key in TEXTURES)) packagePreview.addedTextures.add(key);
+                TEXTURES[key] = uri;
+              }
+            }
+            for (const [n, objText] of Object.entries(result.data.objs || {})) {
+              if (applyLiveReimport(n, objText)) { packagePreview.meshes.add(n); previewed = true; }
+            }
+            if (typeof rebuildTextureDrawer === "function" && rebuildTextureDrawer) rebuildTextureDrawer();
+          }
+        } catch (err) { /* no preview is not a failed import -- Save still works */ }
+        status.textContent = summary + (previewed
+          ? ". Previewing it now -- press Save to write it to the car, or Discard to undo."
+          : ". Not applied yet -- press Save. It could not be previewed, but it will "
+            + "show once it is written.");
       } catch (err) {
         status.textContent = "Could not read that package: " + (err && err.message || err);
       }
@@ -4271,6 +4308,9 @@ function main() {
     for (const m of Array.from(pendingPartRemovals)) applyLiveReimport(m, MOD_PARTS[m]);  // put removed parts back
     pendingPartRemovals.clear();
     for (const m of Object.keys(pendingMemberEdits)) delete pendingMemberEdits[m];  // staged package, never written
+    for (const key of packagePreview.addedTextures) delete TEXTURES[key];
+    for (const m of packagePreview.meshes) if (m in MOD_PARTS) applyLiveReimport(m, MOD_PARTS[m]);
+    packagePreview.meshes.clear(); packagePreview.addedTextures.clear();
     for (const m of Object.keys(pendingSfxRaw)) delete pendingSfxRaw[m];           // ...and verbatim sounds
     for (const k of Object.keys(importedTexturesByPart)) delete importedTexturesByPart[k];
     // Textures: restore each staged material's pre-import value and re-apply to
