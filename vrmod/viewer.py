@@ -1251,7 +1251,7 @@ const SFX_PARTS = __SFX_PARTS_JSON__;
 const COCKPIT_RECORDS = __COCKPIT_RECORDS_JSON__;
 const COCKPIT_FIELD_LABELS = {
   camera: ["x", "y", "z"], wheel: ["x", "y", "z"], "rpm pt": ["x", "y", "z"], "mph pt": ["x", "y", "z"],
-  "rpm dat": ["angle @ 0", "angle @ max", "max rpm"], "mph dat": ["angle @ 0", "angle @ max", "max mph"],
+  "rpm dat": ["angle @ 0", "angle @ max", "max rpm"], "mph dat": ["angle @ 0", "angle @ max", "max m/s"],
 };
 const POSITION_RECORDS = new Set(["camera", "wheel", "rpm pt", "mph pt"]);
 // "wheel" moves the actual steering wheel mesh (same position
@@ -1273,7 +1273,7 @@ const COCKPIT_LIVE_TITLES = {
   "rpm pt": "Moves the tachometer needle's pivot live",
   "mph pt": "Moves the speedometer needle's pivot live",
   "rpm dat": "Calibrates the tach needle sweep live (use the RPM slider to test)",
-  "mph dat": "Calibrates the speedo needle sweep live (use the MPH slider to test)",
+  "mph dat": "Calibrates the speedo needle sweep live (use the MPH slider to test). Max is in METRES PER SECOND: mph x 0.447, so a 120 mph dial is 53.6 (the stock Viper's 89 is its 200 mph dial)",
 };
 
 function parseObj(text) {
@@ -3844,6 +3844,12 @@ function main() {
   // calibrate once against viper's known dat (-196/70/7000) so idle and redline
   // land on the painted marks, then it holds for every car (same convention).
   let needleRpmValue = 0, needleMphValue = 0;
+  // The speedo's dat max is METRES PER SECOND, not mph: the stock Viper's record
+  // is -152/142/89 against a dial painted 0-200 mph, and 89 m/s is 199 mph.
+  // Treating it as mph put the preview needle at 87% of its sweep for 104 mph on
+  // a max of 120, where the game (fed 46.5 m/s) sat at 39%. The slider stays in
+  // mph, because that is what the dial says; it is converted here.
+  const MPH_TO_MPS = 0.44704;
   const NEEDLE_REF_OFFSET = 0;   // degrees; tune against viper, then leave it
   function orientNeedle(piece, pivotNative, dat, value) {
     if (!piece) return;
@@ -3866,7 +3872,7 @@ function main() {
     orientNeedle(built.cockpit.pieces.needle_rpm, getCockpitRecordValues("rpm pt"),
                  getCockpitRecordValues("rpm dat"), needleRpmValue);
     orientNeedle(built.cockpit.pieces.needle_mph, getCockpitRecordValues("mph pt"),
-                 getCockpitRecordValues("mph dat"), needleMphValue);
+                 getCockpitRecordValues("mph dat"), needleMphValue * MPH_TO_MPS);
     if (activeKey === "cockpit") refitAndRefresh("cockpit");
   }
 
@@ -3878,24 +3884,41 @@ function main() {
   //
   // Read from the live inputs rather than COCKPIT_RECORDS: that holds the values
   // as loaded from the file, and an edit is not written back to it until commit.
+  //
+  // The speedo slider runs in mph but its record's max is m/s, so it is converted
+  // here too -- left raw, a max of 120 m/s capped the slider at 120 mph.
   function syncGaugeSliderRanges() {
-    [["sweep-rpm", "rpm dat", 8000], ["sweep-mph", "mph dat", 200]].forEach(
-      ([id, record, fallback]) => {
+    [["sweep-rpm", "rpm dat", 8000, 1], ["sweep-mph", "mph dat", 89, MPH_TO_MPS]].forEach(
+      ([id, record, fallback, perUnit]) => {
         const slider = document.getElementById(id);
         if (!slider) return;
-        const max = getCockpitRecordValues(record)[2] || fallback;
+        const max = Math.round((getCockpitRecordValues(record)[2] || fallback) / perUnit);
         if (Number(slider.max) === max) return;
         slider.max = max;
         // Lowering the ceiling under the handle would otherwise leave the slider
         // showing a value it can no longer reach, and the needle parked past the
-        // end of its own sweep.
-        if (Number(slider.value) > max) {
+        // end of its own sweep. Compared against the needle's value, not the
+        // slider's: setting slider.max already clamped slider.value, so testing it
+        // here was always false and the readout kept the old, unreachable speed.
+        const current = id === "sweep-rpm" ? needleRpmValue : needleMphValue;
+        if (current > max) {
           slider.value = max;
           const readout = document.getElementById(id + "-val");
-          if (readout) readout.textContent = max;
           if (id === "sweep-rpm") needleRpmValue = max; else needleMphValue = max;
+          if (readout) readout.textContent = id === "sweep-rpm" ? max
+            : max + " (" + (max * MPH_TO_MPS).toFixed(1) + " m/s)";
         }
       });
+    updateMphMaxHint();
+  }
+
+  // The speedo's max field is m/s, which nobody reads off a dial -- so the mph it
+  // works out to is shown under it, live, instead of making you convert.
+  function updateMphMaxHint() {
+    const hint = document.getElementById("mph-max-hint");
+    if (!hint) return;
+    const mps = Number(getCockpitRecordValues("mph dat")[2]) || 0;
+    hint.textContent = "= " + Math.round(mps / MPH_TO_MPS) + " mph";
   }
 
   // "Focus gauges": drive the driver's-eye view to look straight at the midpoint
@@ -3939,7 +3962,8 @@ function main() {
     // painted dial. Shown only if the car actually has needle calibration.
     if (COCKPIT_RECORDS["rpm dat"] || COCKPIT_RECORDS["mph dat"]) {
       const rpmMax = (COCKPIT_RECORDS["rpm dat"] || [0, 0, 8000])[2] || 8000;
-      const mphMax = (COCKPIT_RECORDS["mph dat"] || [0, 0, 200])[2] || 200;
+      // the record's max is m/s; the slider runs in mph up to the same speed
+      const mphMax = Math.round(((COCKPIT_RECORDS["mph dat"] || [0, 0, 89])[2] || 89) / MPH_TO_MPS);
       const ctl = document.createElement("div");
       ctl.className = "gauge-preview";
       ctl.innerHTML =
@@ -3956,7 +3980,8 @@ function main() {
       });
       ctl.querySelector("#sweep-mph").addEventListener("input", e => {
         needleMphValue = Number(e.target.value);
-        document.getElementById("sweep-mph-val").textContent = needleMphValue;
+        document.getElementById("sweep-mph-val").textContent =
+          needleMphValue + " (" + (needleMphValue * MPH_TO_MPS).toFixed(1) + " m/s)";
         updateCockpitNeedleLive();
       });
       ctl.querySelector("#focus-gauges").addEventListener("click", focusGauges);
@@ -3991,11 +4016,18 @@ function main() {
         input.dataset.index = i;
         fieldDiv.appendChild(label);
         fieldDiv.appendChild(wrapWithStepper(input, step));
+        if (name === "mph dat" && i === 2) {
+          const hint = document.createElement("div");
+          hint.id = "mph-max-hint";
+          hint.style.cssText = "font-size:11px;opacity:0.7;margin-top:2px";
+          fieldDiv.appendChild(hint);
+        }
         fieldsWrap.appendChild(fieldDiv);
       });
       rec.appendChild(fieldsWrap);
       root.appendChild(rec);
     });
+    updateMphMaxHint();
     root.addEventListener("input", e => {
       const recordName = e.target.dataset.record;
       if (!recordName) return;
@@ -4003,6 +4035,7 @@ function main() {
       updateCommitStatus();
       const applyLive = COCKPIT_LIVE_RECORDS[recordName];
       if (applyLive) applyLive();
+      if (recordName === "mph dat") updateMphMaxHint();
     });
   }
 
@@ -4023,6 +4056,7 @@ function main() {
     updateCockpitWheelLive();
     updateCockpitCameraLive();
     updateCockpitNeedleLive();
+    updateMphMaxHint();
     updateCommitStatus();
   }
 
