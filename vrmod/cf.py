@@ -59,6 +59,12 @@ FIELD_MAP: dict[str, tuple[int, str]] = {
     "fbump_camber": (0x178, "f"), "rbump_camber": (0x17C, "f"),
     "fbump_toe": (0x180, "f"), "rbump_toe": (0x184, "f"),
     "cm_height": (0x198, "f"), "wheel_lock": (0x19C, "f"),
+    # Tyre size, as printed on the sidewall: width in mm, aspect ratio, rim in
+    # inches. Identified against viper.car, which reads 275/40 R17 front and
+    # 335/35 R17 rear -- exactly the real 1996 Viper GTS. Stock sedan is 245/35 R18
+    # all round; plane is 225/50 R15 front on 225/50 R10 rear.
+    "ftyre_width": (0x1A0, "f"), "ftyre_aspect": (0x1A4, "f"), "ftyre_rim": (0x1A8, "f"),
+    "rtyre_width": (0x1AC, "f"), "rtyre_aspect": (0x1B0, "f"), "rtyre_rim": (0x1B4, "f"),
     "fbrake1": (0x1C8, "f"), "rbrake1": (0x1CC, "f"),
     "fbrake2": (0x1D0, "f"), "rbrake2": (0x1D4, "f"),
     "rolling_resistance": (0x1D8, "f"),
