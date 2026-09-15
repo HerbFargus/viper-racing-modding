@@ -251,7 +251,8 @@ window.addEventListener("load", main);
 """
 
 _SECTIONS = [
-    ("Dimensions", ["mass", "width", "height", "wheelbase", "ftrack", "rtrack", "weight_distribution"]),
+    ("Dimensions", ["mass", "width", "height", "wheelbase", "ftrack", "rtrack",
+                    "fground_clearance1", "rground_clearance1", "weight_distribution"]),
     ("Engine", ["power_max", "power_rpm", "torque_max", "torque_rpm", "redline", "idle_speed"]),
     ("Drivetrain", ["num_gears", "rear_end_ratio1", "rear_end_ratio2"]),
     ("Chassis (front/rear)", [
@@ -1224,7 +1225,8 @@ const INCH_TO_M = 0.0254;  // matches car.py's INCH_TO_M -- .cf dimensions are i
 // The only .cf fields that actually move geometry in this tool -- see car.py's
 // assemble_car()/assemble_car_live(): wheelbase sets front/rear Z spacing, ftrack/
 // rtrack set left/right spacing per axle. Every other stat is physics-only here.
-const LIVE_GEOMETRY_FIELDS = new Set(["wheelbase", "ftrack", "rtrack"]);
+const LIVE_GEOMETRY_FIELDS = new Set(["wheelbase", "ftrack", "rtrack",
+                                      "fground_clearance1", "rground_clearance1"]);
 // Every real .mod entry in the car's OWN archive, individually -- {entryName:
 // objText | null (failed to parse)}. Deliberately NOT the same thing as PARTS: the
 // 3D tabs merge several real files together for a cleaner view (the Car tab's
@@ -3480,10 +3482,23 @@ function main() {
     // themselves at the wrong end). car.py's assemble_car is unaffected: it works
     // in native space and gets negated with everything else.
     const frontZ = -wheelbaseM / 2, rearZ = wheelbaseM / 2;
-    wheelObjs.front_left.position.set(-ftrackM / 2, wheelBaseY.front_left, frontZ);
-    wheelObjs.front_right.position.set(ftrackM / 2, wheelBaseY.front_right, frontZ);
-    wheelObjs.rear_left.position.set(-rtrackM / 2, wheelBaseY.rear_left, rearZ);
-    wheelObjs.rear_right.position.set(rtrackM / 2, wheelBaseY.rear_right, rearZ);
+    // RIDE HEIGHT. wheelBaseY puts a wheel's bottom on the body's own datum,
+    // which is what you get if the car has no suspension: the sills sit on the
+    // road and the wheels are swallowed by the arches. The .cf has the missing
+    // number -- fground_clearance1/rground_clearance1, 4-5 inches on the stock
+    // cars -- so the wheel drops by it and the body rides that far above the
+    // contact patch. Front and rear are separate fields, which is also rake:
+    // a Beetle sits nose-up and can now say so.
+    //
+    // NOT CONFIRMED IN GAME. The names and the stock magnitudes both fit, but
+    // nothing has been driven to check the engine reads them this way. This is
+    // the viewer showing an interpretation, not a measurement.
+    const fdrop = getStat("fground_clearance1") * INCH_TO_M;
+    const rdrop = getStat("rground_clearance1") * INCH_TO_M;
+    wheelObjs.front_left.position.set(-ftrackM / 2, wheelBaseY.front_left - fdrop, frontZ);
+    wheelObjs.front_right.position.set(ftrackM / 2, wheelBaseY.front_right - fdrop, frontZ);
+    wheelObjs.rear_left.position.set(-rtrackM / 2, wheelBaseY.rear_left - rdrop, rearZ);
+    wheelObjs.rear_right.position.set(rtrackM / 2, wheelBaseY.rear_right - rdrop, rearZ);
   }
   updateWheelPositions();
   document.getElementById("sections").addEventListener("input", updateWheelPositions);
