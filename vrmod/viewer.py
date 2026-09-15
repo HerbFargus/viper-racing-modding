@@ -608,10 +608,26 @@ def _car_mod_parts(car_path: str | Path) -> dict[str, tuple[str, set[str]] | Non
 # cleft/cright (spotter voice cues). horn.sfx/shift1.sfx/squeal.sfx are the
 # exception -- confirmed per-car overridable in practice (bowser.car ships its
 # own horn.sfx AND squeal.sfx, distinct from race.res's), consistent with the
-# mksfx guide treating horn/shift as per-car files. Only these three get shown
-# as a car's shared-default fallback; the rest stay out of the Sound drawer
-# entirely to avoid burying real per-car sounds under generic game audio.
-SHARED_SFX_ROLES = ("horn.sfx", "shift1.sfx", "squeal.sfx")
+# mksfx guide treating horn/shift as per-car files.
+#
+# road1.sfx is here on a DIRECT TEST rather than on that precedent, because no
+# precedent existed: across 188 community car archives not one ships a road
+# sound, and the format reference listed road1/2 among the shared defaults
+# without ever confirming they resolve per-car. Confirmed 2026-09-14 by putting
+# four seconds of alternating 440/880 Hz beeps into one car's own road1.sfx
+# while race.res's copy held a long music track: that car beeped, a second
+# untouched car played the music. Both halves matter -- the control is what
+# proves the test was actually running.
+#
+# It is worth exposing because it is the only shared sound that plays
+# CONTINUOUSLY while driving, which makes a car-length soundtrack possible. It
+# pitch-shifts with road speed, which is either the drawback or the entire point
+# depending on the mod. road2.sfx rides along as the second surface layer.
+#
+# The rest of race.res's shared audio (crash1-3, scrape, splash, go/ready, the
+# spotter cues) stays out: untested for per-car resolution, and one-shot cues
+# would bury a car's real sounds under generic game audio for little gain.
+SHARED_SFX_ROLES = ("horn.sfx", "shift1.sfx", "squeal.sfx", "road1.sfx", "road2.sfx")
 
 
 def _car_sfx_parts(car_path: str | Path) -> dict[str, dict | None]:
@@ -921,7 +937,17 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   .part-row.empty .dot{background:transparent;border:1px dashed #5a5f6e;width:6px;height:6px;flex:0 0 6px}
   .part-row.shared-default .dot{background:transparent;border:1px solid #4a5570}
   #parts-list.show-all .part-row.rendered .dot{background:#8ecfff}
-  .part-row.filter-hidden,.part-grp.filter-hidden,.part-detail-box.filter-hidden{display:none!important}
+  /* Anything applyPartsFilter hides, stays hidden. This used to name the
+     three classes it knew about, so the Generate/Regenerate LOD button --
+     a .part-genlods, added later -- took the class and ignored it, and sat
+     there on the Horn Ball and Cockpit tabs offering to decimate the car
+     body. Matching on the class itself means the next element added to the
+     drawer is filtered without anyone remembering to list it. */
+  .filter-hidden{display:none!important}
+  .scope-badge{display:inline-block;margin-left:7px;padding:1px 6px;border-radius:9px;
+    font-size:.62rem;letter-spacing:.02em;vertical-align:middle;cursor:help}
+  .scope-global{background:#4a1d1d;border:1px solid #8a3b3b;color:#ffb4b4}
+  .scope-unknown{background:#3a3320;border:1px solid #6d5f34;color:#e8d9a0}
   #parts-drawer h2{display:flex;align-items:center;gap:6px}
   .filter-btn{margin-left:auto;background:transparent;border:1px solid #3a3f4e;border-radius:4px;
               color:#7f8598;cursor:pointer;padding:4px 6px;line-height:0}
@@ -1135,6 +1161,36 @@ const CAR_WHEELS = __CAR_WHEELS_JSON__;  // {front_left/front_right/rear_left/re
 // one still works, it just creates a new per-car override on save instead of
 // patching an existing entry (archive.upsert_entry, see cli.py's _apply_commit).
 const SHARED_PART_NAMES = new Set(__SHARED_PART_NAMES_JSON__);
+// {assetName: "per-car" | "global" | "unknown"} -- how far overriding a shared
+// asset reaches. See car.SHARED_ASSET_SCOPE; measured, not assumed.
+const SHARED_SCOPE = __SHARED_SCOPE_JSON__;
+const SCOPE_NOTE = {
+  "global": ["affects ALL cars",
+             "Measured: overriding this changes it for every car in the race, not "
+             + "just this one -- and it applies even if nothing in this car uses the "
+             + "asset. Treat it as editing the install, not the car."],
+  "unknown": ["reach untested",
+              "Overriding this works, but whether it affects other cars as well was "
+              + "never tested. It may behave like your car's own copy, or like the "
+              + "suspension arms, which apply to the whole field."],
+};
+
+// A shared asset whose override reaches beyond this car says so on its row, in
+// the Parts and Sound drawers alike, before anyone clicks Import. Only for
+// assets actually measured global or never tested -- road1.sfx is per-car with a
+// control behind it and gets no badge, because a blanket "shared assets affect
+// other cars" would be false there and would train people to ignore the ones
+// that matter. A member the car owns outright isn't in the map at all.
+function addScopeBadge(host, member) {
+  const scope = SHARED_SCOPE[String(member || "").toLowerCase()];
+  const note = SCOPE_NOTE[scope];
+  if (!note) return;
+  const b = document.createElement("span");
+  b.className = "scope-badge scope-" + scope;
+  b.textContent = note[0];
+  b.title = note[1];
+  host.appendChild(b);
+}
 // One material->dataUri map for the WHOLE page (every tab, every wheel, every
 // Parts-drawer entry) -- see build_shell_html's docstring for why this is a single
 // shared lookup instead of each part embedding its own resolved copy.
@@ -1588,6 +1644,10 @@ function buildTextureDrawer(meshesByMaterial) {
       badge.title = PROV_META[bucket].title;
       label.appendChild(badge);
     }
+    // Provenance says where the texture came FROM; scope says how far replacing
+    // it reaches. A stock shared texture is both borrowed and, for ucar.tex,
+    // measured to repaint the entire field.
+    addScopeBadge(label, name);
     el.appendChild(label);
     if (dataUri) {
       const actions = document.createElement("div");
@@ -1695,8 +1755,18 @@ function hasPendingEdits() {
     || Object.keys(pendingPartEdits).length > 0
     || pendingPartRemovals.size > 0
     || Object.keys(pendingTextureEdits).length > 0
+    || Object.keys(pendingMemberEdits).length > 0
     || Object.keys(pendingSfxEdits).length > 0;
 }
+
+// The library embeds this page in a same-origin iframe and will not throw it
+// away without asking. It cannot reason about staged edits itself -- they live
+// entirely in this page -- so it asks here. Exposed rather than left to the host
+// to sniff, because the answer is a real function with seven sources and the
+// host reading half of them would drift the moment an eighth appears.
+window.vrmodShell = {
+  hasPendingEdits: () => { try { return !!hasPendingEdits(); } catch (e) { return false; } },
+};
 
 function updateCommitStatus() {
   const btn = document.getElementById("commit-btn");
@@ -1733,6 +1803,7 @@ function buildEditPayload() {
   const payload = {
     car_path: CAR_PATH, stats, cockpit, parts: pendingPartEdits, textures: pendingTextureEdits,
     sounds: pendingSfxEdits, remove: Array.from(pendingPartRemovals),
+    members: pendingMemberEdits,
   };
   if (carNameChanged()) payload.car_name = document.getElementById("car-name-input").value.trim();
   return payload;
@@ -1788,6 +1859,10 @@ async function commitChanges() {
     }
     for (const name of pendingPartRemovals) delete MOD_PARTS[name];  // removed members are gone
     pendingPartRemovals.clear();
+    // Package members went in verbatim; the car owns them now. No baseline to
+    // advance here the way pendingPartEdits has one -- the 3D view rebuilds from
+    // the reloaded car, which is what the import status line promises.
+    for (const name of Object.keys(pendingMemberEdits)) delete pendingMemberEdits[name];
     for (const mat of Object.keys(pendingTextureEdits)) {
       delete originalTextures[mat];              // current TEXTURES[mat] is now the baseline
       delete pendingTextureEdits[mat];
@@ -1806,6 +1881,8 @@ async function commitChanges() {
     buildSoundDrawer();                          // sounds: redraw from the rolled-forward SFX_PARTS
     if (payload.car_name !== undefined) CAR_NAME = payload.car_name;   // name: new baseline, no snap-back
     updateCommitStatus();
+    hostSaved();                                 // we changed the file; that is not "changed under you"
+
     // Stats/cockpit fields are deliberately left as-is: STATS still holds the
     // ORIGINAL pre-edit values (the page never re-fetches what it wrote), so
     // clearing dirtyFields would snap the displayed numbers back on the next
@@ -1825,6 +1902,17 @@ function hostRefresh(selectKey) {
     const h = (window.self !== window.top) ? window.parent.vrmodHost : null;
     if (h && h.refresh) h.refresh(selectKey);
   } catch (e) { /* not embedded, or cross-origin -- nothing to tell */ }
+}
+
+// Our own Save changes the file's size and mtime, which is exactly the signature
+// the host watches for to warn "this changed on disk since you opened it". Left
+// unsaid, every successful save would raise that alarm about itself. So say it
+// was us, and let the host re-baseline instead of warning.
+function hostSaved() {
+  try {
+    const h = (window.self !== window.top) ? window.parent.vrmodHost : null;
+    if (h && h.saved) h.saved();
+  } catch (e) { /* not embedded -- nobody is watching the file */ }
 }
 
 // The desktop bridge, or null in a plain browser. Injected into the TOP window
@@ -2563,6 +2651,10 @@ let selectedPartName = null;  // which Parts-drawer row is selected, for the imp
 // a live destination to preview against (see applyLiveReimport's docstring: "no
 // live preview" is a viewport limitation, not a reason to drop the edit).
 const pendingPartEdits = {};     // {realFilename: objText}
+// Bundle members, staged VERBATIM: {memberName: base64 of the raw file}.
+// Separate from pendingPartEdits because those hold OBJ text the server
+// converts; these are already .mod/.tex/.sfx and must not be touched.
+const pendingMemberEdits = {};
 const pendingTextureEdits = {};  // {materialName: decoded TGA base64}
 const pendingSfxEdits = {};      // {realFilename: raw uploaded WAV bytes, base64}
 // Support for discarding a staged part edit and rolling baselines forward on Save.
@@ -2889,6 +2981,7 @@ function buildPartsDrawer(applyLiveReimport, removeLivePart, highlightPart) {
       if (cfg.sharedNote) { const n = document.createElement("span"); n.className = "note"; n.textContent = (sub.textContent ? " · " : "") + cfg.sharedNote; sub.appendChild(n); }
       main.appendChild(sub);
     }
+    addScopeBadge(main, cfg.member);
     row.appendChild(main);
     const current = () => pendingPartEdits[cfg.member] || MOD_PARTS[cfg.member];
     row.addEventListener("click", () => {
@@ -3086,6 +3179,106 @@ function buildPartsDrawer(applyLiveReimport, removeLivePart, highlightPart) {
     }
   }
 
+  // --- the horn ball as a PACKAGE -----------------------------------------
+  // Deliberately its own control rather than a branch inside the part rows'
+  // Import button. The two operations have different blast radii: an OBJ import
+  // touches one member, a package touches a mesh, its textures and a sound, and
+  // sweeps the outgoing textures on the way. Hiding that behind the same button
+  // would make what it does depend on which file you happened to pick.
+  //
+  // The OBJ import/export on each row stays exactly as it was -- that is for
+  // editing a part in a modelling tool. This is for moving a finished one
+  // between cars and between people.
+  (function(){
+    const box = document.createElement("div");
+    box.className = "part-bundle";
+    box.dataset.view = "hornball";
+    box.style.cssText = "margin:10px 0 4px;padding:9px 11px;border:1px solid #2d4a7a;"
+      + "border-radius:7px;background:#121b2c";
+    const head = document.createElement("div");
+    head.style.cssText = "font-size:12px;color:#9fb6da;margin-bottom:7px";
+    head.textContent = "Horn ball package - the mesh, its textures and the horn sound as one file";
+    box.appendChild(head);
+
+    const imp = document.createElement("label");
+    imp.className = "part-import";
+    imp.textContent = "Import package";
+    imp.title = "A .zip of game-format members (ball.mod, its .tex files, horn.sfx). "
+      + "They are written as they are, with no conversion. Textures belonging to the "
+      + "horn ball being replaced are removed so they do not pile up.";
+    const inp = document.createElement("input");
+    inp.type = "file"; inp.accept = ".zip";
+    imp.appendChild(inp);
+    inp.addEventListener("change", async e => {
+      const f = e.target.files && e.target.files[0];
+      e.target.value = "";
+      if (!f) return;
+      status.textContent = "Reading package...";
+      try {
+        const bag = await unzipFlat(new Uint8Array(await f.arrayBuffer()));
+        const names = Object.keys(bag);
+        if (!names.some(n => /\.mod$/i.test(n))) {
+          status.textContent = "That zip has no .mod in it - not a package.";
+          return;
+        }
+        let staged = 0;
+        for (const [name, bytes] of Object.entries(bag)) {
+          if (!/\.(mod|tex|sfx)$/i.test(name)) continue;
+          pendingMemberEdits[name] = bytesToBase64(bytes);
+          staged++;
+        }
+        updateCommitStatus();
+        const ignored = names.length - staged;
+        status.textContent = `Staged ${staged} member(s) from ${f.name}: `
+          + Object.keys(pendingMemberEdits).join(", ")
+          + (ignored ? ` (${ignored} ignored - not .mod/.tex/.sfx)` : "")
+          + ". Save to apply; the 3D view updates when the car reloads.";
+      } catch (err) {
+        status.textContent = "Could not read that package: " + (err && err.message || err);
+      }
+    });
+    box.appendChild(imp);
+
+    const exp = document.createElement("button");
+    exp.className = "part-export";
+    exp.textContent = "Export package";
+    exp.title = "Zip this car's ball.mod, the textures it names and horn.sfx, named "
+      + "<author>_<part>.zip. Stock shared textures are left out - every install "
+      + "already has them.";
+    exp.addEventListener("click", async () => {
+      let author = "";
+      try { author = window.localStorage.getItem("vrmod-author") || ""; } catch (e) {}
+      author = window.prompt("Your name, for the package filename:", author || "");
+      if (author === null) return;
+      author = author.trim();
+      try { window.localStorage.setItem("vrmod-author", author); } catch (e) {}
+      const part = (window.prompt("Name for this horn ball:", "horn-ball") || "").trim();
+      if (!part) return;
+      exp.disabled = true;
+      status.textContent = "Building package...";
+      try {
+        const resp = await fetch(COMMIT_ROUTE, {
+          method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({car_path: CAR_PATH, action: "exportbundle",
+                                member: "ball.mod", sound: "horn.sfx",
+                                author: author, part: part}),
+        });
+        const result = await resp.json();
+        if (!result.ok) { status.textContent = "Export failed: " + result.error; return; }
+        const bytes = Uint8Array.from(atob(result.data), c => c.charCodeAt(0));
+        downloadBytes(new Blob([bytes], {type: "application/zip"}), result.filename);
+        status.textContent = `${result.filename} - ` + (result.resized || []).join("; ")
+          + ((result.warnings || []).length ? "  " + result.warnings.join(" ") : "");
+      } catch (err) {
+        status.textContent = "Export failed: " + (err && err.message || err);
+      } finally {
+        exp.disabled = false;
+      }
+    });
+    box.appendChild(exp);
+    root.appendChild(box);
+  })();
+
   // --- anything owned but unrecognised: raw "Other parts" (always in use, never
   //     hidden) so nothing a car actually carries can disappear ---
   const others = Object.keys(MOD_PARTS).filter(n => !claimed.has(n.toLowerCase()) && !sharedMembers.has(n.toLowerCase()));
@@ -3119,6 +3312,7 @@ function buildSoundDrawer() {
     const label = document.createElement("div");
     label.className = "sound-name";
     label.textContent = name + (pendingB64 ? " (pending)" : (info && info.shared ? " (shared default)" : ""));
+    addScopeBadge(label, name);
     row.appendChild(label);
 
     // Body: a pending replacement previews the CONVERTED wav (what actually gets
@@ -3935,6 +4129,7 @@ function main() {
     }
     for (const m of Array.from(pendingPartRemovals)) applyLiveReimport(m, MOD_PARTS[m]);  // put removed parts back
     pendingPartRemovals.clear();
+    for (const m of Object.keys(pendingMemberEdits)) delete pendingMemberEdits[m];  // staged package, never written
     for (const k of Object.keys(importedTexturesByPart)) delete importedTexturesByPart[k];
     // Textures: restore each staged material's pre-import value and re-apply to
     // every built tab's meshes that use it.
@@ -4349,6 +4544,7 @@ def build_shell_html(
     html = html.replace("__STOCK_RANGES_JSON__", json.dumps(STOCK_STAT_RANGES))
     html = html.replace("__MOD_PARTS_JSON__", json.dumps(mod_parts_obj))
     html = html.replace("__SHARED_PART_NAMES_JSON__", json.dumps(shared_part_names))
+    html = html.replace("__SHARED_SCOPE_JSON__", json.dumps(car.SHARED_ASSET_SCOPE))
     html = html.replace("__SFX_PARTS_JSON__", json.dumps(sfx_parts))
     html = html.replace(
         "__COCKPIT_RECORDS_JSON__",
@@ -4721,11 +4917,21 @@ function exportTextureAsTga(name, dataUri) {
   img.src = dataUri;
 }
 
-function updateCommitStatus() {
-  const btn = document.getElementById("commit-btn");
+function trackHasPendingEdits() {
   // The sky is not one of pendingTextureEdits -- it is not a material -- so it
   // has to be counted separately or Save stays disabled after a sky import.
-  btn.disabled = Object.keys(pendingTextureEdits).length === 0 && !pendingSkyEdit;
+  return Object.keys(pendingTextureEdits).length > 0 || !!pendingSkyEdit;
+}
+
+// Same contract as the car shell's: the embedding library asks before doing
+// anything that would discard this page. See viewer.py's car-shell copy.
+window.vrmodShell = {
+  hasPendingEdits: () => { try { return trackHasPendingEdits(); } catch (e) { return false; } },
+};
+
+function updateCommitStatus() {
+  const btn = document.getElementById("commit-btn");
+  btn.disabled = !trackHasPendingEdits();
 }
 
 async function importTextureAsTga(name, file, meshesByMaterial, loadTexture) {
@@ -4954,6 +5160,12 @@ async function commitChanges() {
     // Over-budget geometry is a different class of message: the save WORKED,
     // but the game may not load the result. It gets its own warning styling
     // rather than being appended to a success line.
+    // And, as in the car shell: our own write must not read as the file
+    // changing under us -- see hostSaved there.
+    try {
+      const h = (window.self !== window.top) ? window.parent.vrmodHost : null;
+      if (h && h.saved) h.saved();
+    } catch (e) { /* not embedded */ }
     const warn = result.warnings || [];
     if (warn.length) {
       statusEl.className = "pending";

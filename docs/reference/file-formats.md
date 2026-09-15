@@ -292,6 +292,59 @@ live in `race.res` under the same override rule.
   wins, otherwise the shared one is used. Clean per-car fallback, no collision.
 - **No collision for per-car assets.** Bodies, cockpits, wheels, driver textures and skins are
   all keyed by car, so identical names in different cars don't clash.
+#### What a car can override — measured, September 2026 ✅
+
+The rule above was written from what third-party cars happened to ship. Tested directly
+by giving one car a deliberately unmistakable copy and leaving a second car untouched as
+a control, the answer is broader: **assume a car can override any shared asset.** Every
+candidate tried resolved from the car's own archive, including ones with no plausible car
+context at the moment they are used.
+
+| Asset | Result | How it was established |
+|---|---|---|
+| `road1.sfx` | ✅ **per-car** | Car's own copy held 4s of 440/880 Hz beeps while `race.res`'s held music: that car beeped, the control played music. |
+| `arm_*.mod` | ✅ resolves — **but GLOBAL** | Suspension arms scaled 2x. They render doubled **on every car in the field**, not just the one carrying them. |
+| `rpm.stp` | ✅ resolves | A HUD sprite, drawn by the UI with no car attached. Stock `4x4cos.car` already ships its own. |
+| `crash1.sfx` | ✅ resolves | Beeps on impact — and it is the **horn ball's** impact sound, not only car-on-wall. |
+| `go.sfx` | ✅ resolves | Beeps when the start light goes green, a moment with no particular car in scope. |
+| `ucar.tex` | ✅ resolves — **GLOBAL, and the supplying car need not even use it** | A magenta copy was put in one car. That car showed nothing (its own meshes do not reference `ucar.tex`), but **every stock Viper in the race rendered a magenta undercarriage**. |
+
+**The distinction that matters is not whether an override works, but how far it leaks.**
+`road1.sfx` is genuinely per-car — the control car was unaffected. `arm_*.mod` and
+`ucar.tex` are supplied by a car and then apply to *everything*, the same "loaded once,
+globally" pattern already documented for `ball.mod` in multiplayer. For `rpm.stp`,
+`crash1.sfx` and `go.sfx` the override is confirmed but the leak is **not yet tested**;
+the test is to switch to a car that does not carry the override and see whether the
+effect persists.
+
+`ucar.tex` is the sharpest case and the one that should worry a tool author. The car
+carrying the magenta texture **displayed none of it** — none of its meshes reference
+`ucar.tex` — yet it repainted the undercarriage of every stock Viper on track. So a car
+can override an asset **it does not itself use**, purely by carrying a file with the
+right name, and the damage shows up on *other people's* cars. A mod whose textures happen
+to collide with a shared name will silently restyle the rest of the field, and nothing in
+the mod, its own appearance, or the game will say so.
+
+The working model this batch supports: **sounds resolve per-car, meshes and textures are
+cached once globally by bare name.** `road1.sfx` was per-car with a control; `arm_*.mod`
+and `ucar.tex` leak. That is a model, not a proven rule — `crash1.sfx` and `go.sfx` would
+confirm or break the sound half of it.
+
+That difference is what any tool exposing these has to communicate. "Your car plays its own
+road noise" and "your car changes the suspension geometry for the entire field" are very
+different things to put behind the same Import button.
+
+The mod manager now does communicate it, per asset rather than as a blanket caution:
+`vrmod/car.py`'s `SHARED_ASSET_SCOPE` holds this table in code — `per-car`, `global`, or
+`unknown` — and the Parts, Sound and Textures drawers badge each shared row from it.
+`road1.sfx` gets no badge at all, deliberately: a blanket "shared assets affect other
+cars" would be false there, and a warning that is wrong on the one asset people actually
+use is a warning everyone learns to click past. Filling in an `unknown` is one car-switch
+each; move it in that table and the drawers follow.
+
+Absence of precedent proved nothing, twice. Not one of 160 third-party cars ships a
+`road*.sfx` or an `arm_*.mod`; both work. Nobody had tried.
+
 - **⚠ The horn ball is the exception.** `ball.mod` is *not* resolved per-car — the engine
   hardcodes the bare name `ball.mod` in its obstacle system (the `horn_ball` hack tosses it) and
   loads it **once, globally**. In a multiplayer session there is effectively **one horn ball for
@@ -2119,7 +2172,13 @@ is the idle loop; `0.sfx` is the AI/other-player engine sound covering idle→90
 player's own engine sound over the same range; `2.sfx` is a high-RPM-only layer (4000→9000 RPM, also usable
 for a turbo hiss). `horn.sfx`/`shift1.sfx`/`squeal.sfx` are confirmed per-car overridable in practice too —
 several third-party cars ship their own, distinct from `race.res`'s shared default, resolved the same
-own-archive-first way as the horn ball mesh. On the authoring side, samples must be 16-bit mono, resampled
+own-archive-first way as the horn ball mesh. **`road1.sfx` is per-car overridable as well** ✅ CONFIRMED
+IN GAME (2026-09-14) — and this one had no third-party precedent to lean on: across 188 community car
+archives, *not one* ships a `road*.sfx`. Tested directly by giving a single car its own `road1.sfx`
+holding four seconds of alternating 440/880 Hz beeps while `race.res`'s copy held a long music track;
+that car beeped, a second untouched car played the music. It matters because `road1.sfx` is the only
+shared sound that plays *continuously* while driving and accepts arbitrary length — `.sfx` carries a
+30 MB clip without complaint — so a car can carry its own soundtrack. It pitch-shifts with road speed. On the authoring side, samples must be 16-bit mono, resampled
 to the target rate, and trimmed to a zero-crossing loop point to avoid pops.
 
 **ADPCM (`format_tag=2`) is not fully solved.** No real sample in the retail data uses it
