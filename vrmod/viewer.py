@@ -1759,6 +1759,15 @@ function hasPendingEdits() {
     || Object.keys(pendingSfxEdits).length > 0;
 }
 
+// The library embeds this page in a same-origin iframe and will not throw it
+// away without asking. It cannot reason about staged edits itself -- they live
+// entirely in this page -- so it asks here. Exposed rather than left to the host
+// to sniff, because the answer is a real function with seven sources and the
+// host reading half of them would drift the moment an eighth appears.
+window.vrmodShell = {
+  hasPendingEdits: () => { try { return !!hasPendingEdits(); } catch (e) { return false; } },
+};
+
 function updateCommitStatus() {
   const btn = document.getElementById("commit-btn");
   if (!btn) return;
@@ -1872,6 +1881,8 @@ async function commitChanges() {
     buildSoundDrawer();                          // sounds: redraw from the rolled-forward SFX_PARTS
     if (payload.car_name !== undefined) CAR_NAME = payload.car_name;   // name: new baseline, no snap-back
     updateCommitStatus();
+    hostSaved();                                 // we changed the file; that is not "changed under you"
+
     // Stats/cockpit fields are deliberately left as-is: STATS still holds the
     // ORIGINAL pre-edit values (the page never re-fetches what it wrote), so
     // clearing dirtyFields would snap the displayed numbers back on the next
@@ -1891,6 +1902,17 @@ function hostRefresh(selectKey) {
     const h = (window.self !== window.top) ? window.parent.vrmodHost : null;
     if (h && h.refresh) h.refresh(selectKey);
   } catch (e) { /* not embedded, or cross-origin -- nothing to tell */ }
+}
+
+// Our own Save changes the file's size and mtime, which is exactly the signature
+// the host watches for to warn "this changed on disk since you opened it". Left
+// unsaid, every successful save would raise that alarm about itself. So say it
+// was us, and let the host re-baseline instead of warning.
+function hostSaved() {
+  try {
+    const h = (window.self !== window.top) ? window.parent.vrmodHost : null;
+    if (h && h.saved) h.saved();
+  } catch (e) { /* not embedded -- nobody is watching the file */ }
 }
 
 // The desktop bridge, or null in a plain browser. Injected into the TOP window
@@ -4895,11 +4917,21 @@ function exportTextureAsTga(name, dataUri) {
   img.src = dataUri;
 }
 
-function updateCommitStatus() {
-  const btn = document.getElementById("commit-btn");
+function trackHasPendingEdits() {
   // The sky is not one of pendingTextureEdits -- it is not a material -- so it
   // has to be counted separately or Save stays disabled after a sky import.
-  btn.disabled = Object.keys(pendingTextureEdits).length === 0 && !pendingSkyEdit;
+  return Object.keys(pendingTextureEdits).length > 0 || !!pendingSkyEdit;
+}
+
+// Same contract as the car shell's: the embedding library asks before doing
+// anything that would discard this page. See viewer.py's car-shell copy.
+window.vrmodShell = {
+  hasPendingEdits: () => { try { return trackHasPendingEdits(); } catch (e) { return false; } },
+};
+
+function updateCommitStatus() {
+  const btn = document.getElementById("commit-btn");
+  btn.disabled = !trackHasPendingEdits();
 }
 
 async function importTextureAsTga(name, file, meshesByMaterial, loadTexture) {
@@ -5128,6 +5160,12 @@ async function commitChanges() {
     // Over-budget geometry is a different class of message: the save WORKED,
     // but the game may not load the result. It gets its own warning styling
     // rather than being appended to a success line.
+    // And, as in the car shell: our own write must not read as the file
+    // changing under us -- see hostSaved there.
+    try {
+      const h = (window.self !== window.top) ? window.parent.vrmodHost : null;
+      if (h && h.saved) h.saved();
+    } catch (e) { /* not embedded */ }
     const warn = result.warnings || [];
     if (warn.length) {
       statusEl.className = "pending";
