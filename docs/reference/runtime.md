@@ -819,6 +819,18 @@ Sitting beside the overlay strings, unexercised by any UI:
   ship `default.ili` and `rdefault.ili` (forward and reversed) and nothing else, so these
   are likely what the Info page's "save"/"global line" writes.
 - `\coffee\vc\ghosts\` — a hardcoded UNC path to a developer machine named *coffee*.
+- **Music.** The binary carries `music_volume` (in `menu:moptions.obj`, so a real options
+  entry) and a `?music_test@@YAXXZ` in the sound module — and there is no music. Nothing in
+  the game ships any: the largest audio in any archive is `road1.sfx` at 177,710 bytes, the
+  road noise, and no `.res` holds a single file long enough to be a song. Nor is it CD
+  audio: `race.exe` imports `winmm` for `timeGetTime` and `timeKillEvent` only, with no
+  `mciSendStringA`, `mciSendCommandA`, `waveOutOpen` or `auxGetVolume` anywhere in it, so
+  there is no path by which it could play a Redbook track.
+
+  Which makes `road1.sfx` the only way to get music into this game, and is why a car's own
+  road noise is worth overriding: it is the one continuously-playing sound that accepts
+  arbitrary length (see file-formats.md §3.5). It pitch-shifts with road speed, which is
+  either a bug or a feature depending on the track.
 
 ### 8.4 broske was on the original team
 
