@@ -58,13 +58,10 @@ PROPS = {
         recolour={43: 226, 61: 63}, body_index=61),
     "mine": dict(
         model="MINE", code="min", scale=2.0,
-        # 15 is RGB(10,37,58) and is the DARK end of the ramp 12..15, which runs
-        # (48,79,96) down to it. On SoSC's streets that reads as a dark object on
-        # pale concrete; on Viper's asphalt it disappears. 12 is the light end of
-        # the same ramp, so this is the brightest the mine can be without leaving
-        # the shade family the model chose -- the same move as the missile's
-        # 61 -> 63, and for the same reason.
-        recolour={15: 12}, body_index=15),
+        # No recolour. An earlier version mapped 15 -> 12 on the belief that 15
+        # was the body's palette colour; 15 is the mine's CELL on the pickup
+        # sheet, and its colours come from the image there.
+        recolour={}, body_index=15),
 }
 
 
@@ -218,6 +215,52 @@ def lift_marker(im):
     return lifted
 
 
+# TWO KINDS OF TEXTURED FACE, and they name their image differently. Measured
+# across every model in SIM3D2.MAX:
+#
+#   type 13   4,825 faces (car bodies, the missile's band). atlas is ALWAYS 0;
+#             tex names a whole page of the atlas.
+#   type 18   2,752 faces (the pickups, debris, boats). atlas is NEVER 0; it
+#             names a 256x256 page, and tex names a 32x32 CELL on it, eight to
+#             a row from the top left. Page 84 is the pickup sheet: the mine is
+#             cell 15, repair 14, armour 16, oil 3-4, bullets 9-10.
+#
+# The car pipeline only ever met type 13, and this script inherited its test,
+# so every type-18 face fell through to the flat path with tex read as a palette
+# index. That is how the mine -- grey, with a red light on top -- came out as one
+# flat blue-grey disc.
+CELL_PX = 32
+
+
+def textured(f) -> bool:
+    return f["type"] in (13, 18)
+
+
+def surface_key(f) -> tuple:
+    """What makes two faces the same surface. A type-18 cell is only unique with
+    its page: cell 15 on page 84 is not cell 15 on page 39."""
+    if f["type"] == 18:
+        return (18, f["atlas"], f["tex"])
+    return (f["type"], f["tex"])
+
+
+def cell_image(atl, pal, page: int, cell: int):
+    """One 32x32 cell off an atlas page, as a PIL image."""
+    from PIL import Image
+    w, h, px = atl[page]
+    per = w // CELL_PX
+    if per == 0 or cell >= per * (h // CELL_PX):
+        # Page 20 is a 1x256 strip and fails this. It is not a cell sheet, and
+        # guessing what its index means would be worse than stopping.
+        raise SystemExit(f"page {page} is {w}x{h}; it has no cell {cell} on a "
+                         f"{CELL_PX}px grid -- not a sheet this script understands")
+    r, c = divmod(cell, per)
+    im = Image.new("RGB", (CELL_PX, CELL_PX))
+    im.putdata([pal[px[(r * CELL_PX + y) * w + c * CELL_PX + x]]
+                for y in range(CELL_PX) for x in range(CELL_PX)])
+    return im
+
+
 def per_surface(faces, pal, atl):
     """One texture per surface, and the UVs left pointing at a whole page.
 
@@ -240,25 +283,30 @@ def per_surface(faces, pal, atl):
     FLAT = 16                       # smallest sane square for one colour
     surfaces = []
     for f in faces:
-        key = (f["type"], f["tex"])
+        key = surface_key(f)
         if key not in [s[0] for s in surfaces]:
-            surfaces.append((key, f["type"] == 13))
+            surfaces.append((key, textured(f)))
 
     pages, mats, used = {}, {}, set()
     for key, is_image in surfaces:
-        idx = RECOLOUR.get(key[1], key[1])
+        # Recolour is a PALETTE substitution, so it only means anything on a
+        # flat face. A cell's tex is a position on a sheet, not a colour.
+        idx = key[1] if is_image else RECOLOUR.get(key[1], key[1])
         # CODE, not a hardcoded "mis": two props in one race share a texture
         # namespace, and a mine whose texture is called mis012.tex both lies
         # about what it is and collides with any missile that happens to use
         # index 12 (see bundle.py's KNOWN, NOT GUARDED note).
-        stem = "{}{:03d}".format(CODE, idx)
+        stem = ("{}c{:03d}".format(CODE, key[2]) if key[0] == 18
+                else "{}{:03d}".format(CODE, idx))
         while stem + ".tex" in used:            # two surfaces, one palette slot
             stem = stem + "b"
         name = stem + ".tex"
         if len(name) > NAME_LIMIT:
             raise SystemExit(name + " is over " + str(NAME_LIMIT) + " characters")
         used.add(name)
-        if is_image:
+        if key[0] == 18:
+            pages[name] = cell_image(atl, pal, key[1], key[2])
+        elif is_image:
             w, h, px = atl[key[1]]
             cell = Image.new("RGB", (w, h))
             cell.putdata([pal[b] for b in px])
@@ -275,8 +323,8 @@ def per_surface(faces, pal, atl):
     # A flat page does not care, but the banded one does, so every surface is
     # treated the same way rather than only the one that shows it.
     for f in faces:
-        key = (f["type"], f["tex"])
-        if f["type"] == 13:
+        if textured(f):
+            # a cell's UVs are relative to the cell, which is now the whole page
             f["uv"] = [(u, 1.0 - v) for u, v in f["uv"]]
         else:
             f["uv"] = [(0.5, 0.5) for _ in f["uv"]]
@@ -308,7 +356,7 @@ def build(max_path: Path, skin: Path, install: Path, length: float):
     reserved = reserved_indices(pal)
     groups = {}
     for f in faces:
-        if f["type"] != 13 and f["tex"] in reserved:
+        if not textured(f) and f["tex"] in reserved:
             groups.setdefault(f["tex"], []).append(f)
     # Flat RELATIVE to the model, not to an absolute figure. The shadow is 79
     # fixed-point units thick against the missile's own 347,340 -- 0.02% -- but
@@ -321,9 +369,9 @@ def build(max_path: Path, skin: Path, install: Path, length: float):
         if (max(ys) - min(ys)) / span < 0.02:
             shadows.add(idx)
     before = len(faces)
-    faces = [f for f in faces if f["type"] == 13 or f["tex"] not in shadows]
+    faces = [f for f in faces if textured(f) or f["tex"] not in shadows]
     for f in faces:
-        if f["type"] != 13 and f["tex"] in reserved:
+        if not textured(f) and f["tex"] in reserved:
             f["tex"] = BODY_INDEX           # the cap, painted as bodywork
     if before != len(faces):
         print(f"  dropped {before - len(faces)} flat shadow face(s); "
@@ -339,7 +387,7 @@ def build(max_path: Path, skin: Path, install: Path, length: float):
     print(f"  double-sided: added {backs} back face(s) so it reads from any angle")
     moved, widest = unit_uvs(faces)
     print(f"  uvs: normalised {moved} face(s), widest span {widest:.2f}")
-    live = {f["tex"] for f in faces if f["type"] != 13}
+    live = {f["tex"] for f in faces if not textured(f)}
     missing = sorted(set(RECOLOUR) - live)
     if missing:
         raise SystemExit(
@@ -365,7 +413,7 @@ def build(max_path: Path, skin: Path, install: Path, length: float):
     for f in faces:
         if f["n"] < 3:
             continue
-        m = mats[(f["type"], f["tex"])]
+        m = mats[surface_key(f)]
         if m != current:
             obj.append(f"usemtl {m}")
             current = m
