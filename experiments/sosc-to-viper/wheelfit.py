@@ -180,6 +180,50 @@ LIFT = {
 }
 
 
+# THE HUNTER, SET BY DRIVING. Everything above is measured off the art; this is
+# not. The Hunter tipped in fast swerves through four one-field fixes (clearance2,
+# drive split, CG height, track), because the cause was never one field: it was
+# built on the 4x4cos, a community car, not a stock one, and 11 of that donor's 85
+# physics values sit outside all five stock cars -- including more downforce than
+# the Viper, which is exactly a "fine slow, over at speed" fault.
+#
+# What finally drove well was the airhawk's physics file with the Hunter's own
+# tracks. The airhawk is exotic-built, and no exotic-built car has ever tipped.
+# Recorded here as explicit values rather than "copy the airhawk at build time",
+# so the result does not depend on which car the build happens to finish first.
+#
+# Applied LAST in fit(), over both the scaled and the measured figures, because
+# fit() would otherwise re-tuck the tracks to 42.0 / 24.5 -- the numbers that put
+# the car on its roof.
+HAND_TUNED = {
+    "hunter": {
+        # the airhawk's physics
+        "mass": 3550.0, "mx": 73598.0, "my": 73598.0, "mz": 21646.0,
+        "fground_clearance1": 4.0, "fground_clearance2": 20.0,
+        "rground_clearance1": 4.0, "rground_clearance2": 20.0,
+        "weight_distribution": 56.0,
+        "power_max": 375.0, "power_rpm": 5600.0,
+        "torque_max": 415.0, "torque_rpm": 3600.0,
+        "idle_speed": 700.0, "redline": 6000.0,
+        "engine_inertia": 22.0, "engine_drag": 0.034, "fuel_capacity": 18.0,
+        "torque_balance": 1.0, "num_gears": 4,
+        "rear_end_ratio1": 3.55, "rear_end_ratio2": 4.7,
+        "caster": 5.0, "cm_height": 11.0, "rolling_resistance": 0.54,
+        "frontal_area": 21.5, "drag_coefficient": 0.45,
+        "lat_drag": 13.0, "vert_drag": 16.0,
+        # -0.0 as the stock files store it, so the result is bit-identical
+        "front_lift": -0.0, "rear_lift": -0.0,
+        "fspoiler_drag": 0.0, "rspoiler_drag": 0.0,
+        # the exotic's tyres: 280/35 R18 front, 330/40 R18 rear. The 4x4cos put
+        # the Viper's 275/40 R17 FRONT tyre on all four corners.
+        "ftyre_width": 280.0, "ftyre_aspect": 35.0, "ftyre_rim": 18.0,
+        "rtyre_width": 330.0, "rtyre_aspect": 40.0, "rtyre_rim": 18.0,
+        # the Hunter's own geometry, as driven
+        "wheelbase": 91.150002, "ftrack": 43.700001, "rtrack": 40.0,
+    },
+}
+
+
 def body_mesh(entries, stem: str):
     """LOD 0, which is the only mesh at full size."""
     want = f"{stem}0.mod"
@@ -243,6 +287,11 @@ def fit(car_path: Path) -> dict | None:
             new["ftrack"] = ft
         if rt:
             new["rtrack"] = rt
+
+    # A car tuned by driving has the last word -- see HAND_TUNED.
+    if stem in HAND_TUNED:
+        new.update(HAND_TUNED[stem])
+        source = "hand-tuned"
 
     # Only the named fields are written; every other byte of the .cf carries
     # over untouched, same as realstats does it.
