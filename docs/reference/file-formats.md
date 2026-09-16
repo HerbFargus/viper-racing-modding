@@ -750,10 +750,17 @@ the executable itself.
 ```
 obj car       <x>, <z>
 obj checkpoint <mesh> <x>,<z> <x>,<z>                        -- mesh is checkpt1.mod
-obj obstacle  <ball|cube|prism> <mesh.mod> <x>,<y>:<z> <r>   -- e.g. cube ball.mod (the horn ball)
+obj obstacle  <ball|cube|prism> <mesh.mod> <x>,<z>:<y> <r>   -- e.g. cube ball.mod (the horn ball)
 obj static    <box> <x,y,z> <x,y,z> <x,y,z>
 obj wobble    <pole|flap> <int>
 ```
+
+**The obstacle record's comma pair is a GROUND position, and the colon introduces the HEIGHT** —
+`x,z:y`, the same convention as `obj checkpoint`'s two ground points, not the `x,y:z` the format
+string's letters suggest. Written the other way the engine parses the line without complaint, builds
+the object (the `number of objects was %d` line rises by exactly the record count) and puts it off
+the map sideways and hundreds of metres up: invisible, intangible, and silent in the log. That cost
+three in-game tests to find.
 
 The physics object types it builds from these: `Ball`, `PhobStatic`, `Obstacle`, `Wobble`,
 `CheckPoint`, `PlayCar`, `AICar`, `NetCar`, `GhostCar`. Wobble objects have their own pool —
@@ -761,17 +768,39 @@ The physics object types it builds from these: `Ball`, `PhobStatic`, `Obstacle`,
 
 Three things follow that are not visible from the shipped data:
 
-- **`obstacle` places a named mesh at a position with a radius.** That is per-instance collision with
-  arbitrary geometry, authored directly in a file `vrmod` already writes — no `.sol`, no MKWORLD.
+- **`obstacle` places a named mesh at a position with a radius — ✅ CONFIRMED IN GAME 2026-09-15.**
+  Per-instance physics with arbitrary geometry, authored in a file `vrmod` already writes: no `.sol`,
+  no MKWORLD, no scene graph. A generated track carrying 40 `obj obstacle ball cow.mod` records spawns
+  40 knockable cows that a car can shove around. **It builds a `Ball`: a free rigid body that drops
+  under gravity and rolls**, the horn ball's own machinery — so it suits things meant to tumble away,
+  not things rooted in the ground. The mesh is resolved BY NAME from any loaded archive, and a `.mod`
+  member added to the track's own archive (tag `FNIM`, version 1, like every other `.mod`) resolves
+  fine; it must sit at its own origin, since the record supplies the position.
+- **`static` is NOT counted among the objects** and produced nothing in the same test, where the
+  obstacles in the same table worked. Still unexercised.
 - **`flap` is a second wobble subtype that nothing ships.** Every `obj wobble` record in every track
   is `pole`.
-- **Neither `obstacle` nor `static` appears in ANY shipped track.** They are parser-supported but
-  unexercised, so they are an opportunity and an untested path in equal measure.
 
-`obj wobble` is the one record carrying no coordinates, so its integer must reference something
-placed elsewhere. The best candidate is the `.sol` TUBE list: across every track the wobble count is
-≤ the TUBE count, the indices run contiguously from 0, and the only track with no wobble records
-(limbo) is also the only one with no TUBEs. Untested.
+**`obj wobble`'s integer names the `.sol` TUBE with that id — ✅ CONFIRMED from the shipped data.**
+Every tube carries an id at `+0x30`: `-1` on ordinary ones, and `0…n-1` on exactly `n` of them, where
+`n` is that track's wobble count. Measured across all six tracks that ship wobbles — hastings 15/15,
+uptown 47/47, kenyon 59/59, heaven 72/72, nfield 50 ids among 299 tubes, dundas 170 among 349 — with a
+perfect one-to-one match every time. The game confirms the binding from the other side: a generated
+track carrying wobble records builds `WobbleObject`s from them rather than rejecting them.
+
+**What a wobble still needs is its MODEL, and that is the open part.** `WobbleObject::Draw` calls
+`mrModelDraw(int, Frame const&)` → `direct_model_draw(int)`, and on a generated track that dies with
+an access violation, because a `.grf` written by `grf.build()` is a flat chain of type-3 geometry
+chunks and declares no placed models at all. In a shipped `.grf` — a hierarchical scene graph of
+type-1 nodes (`+04` next sibling, `+08` first child, a centre and radius at `+16`) — every wobble's
+model is a record whose centre equals its tube's position exactly and which carries the wobble index
+12 bytes after that centre. Two structural theories were tested against the data and **failed**:
+"the model is any chunk with a non-zero centre" (bemidji has 51 such chunks and no wobbles at all)
+and "placed models are the type-2 records" (hastings has 27 of those against 15 wobbles, none
+matching). Writing one still needs the node format decoded.
+
+Unlike a wobble, `obj obstacle` needs none of that — which makes it the practical route to a
+knock-over object today.
 
 - **`track.obt`** (placed-object table): `fieldsPerRecord = 1` in every sample (i.e. one big text field per
   record), `recordCount` matched the number of `obj ...` string occurrences exactly. Real extracted

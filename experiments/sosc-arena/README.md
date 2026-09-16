@@ -129,6 +129,28 @@ measures the same (their footprints differ only because each is turned at a
 random angle). The towers really are 43.75 m tall, 48 m apart, beside a 16 m
 road. What differs between the two games is the camera, not the world.
 
+### Knockable cows
+
+40 of the cows -- the ones nearest the racing line -- are `obj obstacle` records
+rather than `.sol` tubes, and a car can shove them around. See the format
+reference for the record itself; what matters here:
+
+- **A tube and an obstacle at the same spot cancel out.** The tube stops the car
+  before the obstacle registers, so a knockable cow must NOT also have one. The
+  other 160 keep their tubes and stay solid.
+- **`obj obstacle` builds a `Ball`** -- a free rigid body that drops under
+  gravity and rolls off, the horn ball's own machinery. It is the right
+  mechanism for something that should tumble away and the wrong one for
+  something rooted in the ground, which is why every knockable object the game
+  ships is a sign or a chevron panel held by a `wobble` instead.
+- **The object budget is real.** `number of objects` runs 218-275 on the stock
+  tracks, was 207 with four obstacles here and 253 with fifty, and the engine
+  panics with `Too many objects allocated--increase MAX_OBJECTS`. 40 is a
+  deliberately conservative first number; the log's own count is how to find the
+  ceiling.
+- **The mesh is resolved by name** from the track's own archive: `cow.mod`, one
+  cow centred on its origin, tag `FNIM` version 1.
+
 ### Open
 
 - The props keep SoSC's arbitrary winding, so some tower and tree faces are
@@ -136,8 +158,11 @@ road. What differs between the two games is the camera, not the world.
 - The minimap and the cameras are the donor's, not this track's.
 - The off-track corridor is 16 m (the road's full width) and untested against a
   car that drives out onto the arena floor deliberately.
-- `obj wobble` -- the tip-over record -- is still unexplored; a cow is the
-  obvious test subject.
+- **Anchored knock-over objects** (`obj wobble`) would suit a cow better than a
+  rolling ball does, and the record's binding to its `.sol` tube is now known --
+  but its MODEL has to be declared in the `.grf` scene graph, which is not
+  decoded. See the format reference.
+- How many of the 200 cows can be knockable before the object pool runs out.
 
 ## What was established
 
