@@ -385,6 +385,60 @@ def wall_template(donor: "Sol") -> "Primitive":
     raise SolError("the donor .sol carries no BOX primitive to use as a template")
 
 
+# The only two orientations any shipped TUBE carries, and which one a tube gets
+# is decided entirely by whether it is a wobble: across 931 tubes on 7 tracks,
+# every tube with an id carries WOBBLE and every tube without one carries PLAIN,
+# with ZERO exceptions. So the matrix is written here rather than inherited from
+# the template -- bemidji's only tube is a plain one, and a wobble built by
+# copying it would carry the wrong orientation.
+TUBE_MATRIX_PLAIN = (1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 1.0, 0.0)
+TUBE_MATRIX_WOBBLE = (1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, -1.0, 0.0)
+
+
+def tube_at(template: "Primitive", position, *, radius: float,
+            ident: int = -1) -> "Primitive":
+    """A TUBE at `position`, built by patching a shipped record.
+
+    As with box_from_segment, only the fields whose meaning is established get
+    written and everything undecoded rides along from `template`.
+
+    A TUBE IS ONE RADIUS, at +0x5c, and there is no height to supply. The two
+    words after it are NOT extents and are deliberately left alone: +0x60 holds
+    the identical raw value 0x00417210 on all 931 shipped tubes across all seven
+    tracks -- an address inside the executable's own image, so a serialised
+    pointer rather than a number -- and +0x64 is exactly 0.0 on all 931. Neither
+    is understood, so both ride along from `template`, under the same rule
+    box_from_segment works by. (An earlier version zeroed both. Wobbles built
+    that way did work in game, so this is discipline rather than a known fault.)
+
+    `ident` is the wobble id, and -1 means an ordinary solid. Give an id ONLY to
+    a tube that has a matching `obj wobble` record and facing node: a tube
+    claiming an id no wobble uses is a dangling claim on that slot. Stock hands
+    out exactly as many ids as a track has wobbles.
+    """
+    if ident >= 512:
+        raise SolError(f"wobble id {ident} outside 0..511")
+    raw = bytearray(template.raw)
+    matrix = TUBE_MATRIX_WOBBLE if ident >= 0 else TUBE_MATRIX_PLAIN
+    struct.pack_into("<9f", raw, 0x00, *matrix)
+    struct.pack_into("<3f", raw, POSITION_OFFSET, *position)
+    struct.pack_into("<f", raw, 0x5c, radius)
+    struct.pack_into("<i", raw, ID_OFFSET, ident)
+    struct.pack_into("<4s", raw, TYPE_OFFSET, TUBE[::-1])
+    return Primitive(raw=bytes(raw))
+
+
+def tube_template(donor: "Sol") -> "Primitive":
+    """A shipped TUBE to patch. Raises if the donor has none."""
+    for prim in donor.primitives:
+        if prim.type == TUBE:
+            return prim
+    raise SolError(
+        "the donor .sol carries no TUBE primitive to use as a template -- "
+        "bemidji has one, and hastings, uptown, kenyon, heaven, nfield and "
+        "dundas have many; limbo has none")
+
+
 def from_segments(segments, template: "Primitive", *, height: float = 1.5,
                   version: int = 2) -> "Sol":
     """A complete populated `.sol` from a list of (a, b) wall segments."""

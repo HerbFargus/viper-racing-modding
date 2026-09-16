@@ -119,7 +119,8 @@ def _texture_map(scene, donor_entries, overrides=None):
 def assemble(scene, *, donor: str | Path, out_path: str | Path,
              slot: str = "track", textures: dict | None = None,
              corridor: float | None = None, closed: bool = True,
-             speed: float | None = None, **bpp_kw) -> BuildResult:
+             speed: float | None = None, tube_template=None,
+             **bpp_kw) -> BuildResult:
     """Build a complete track archive from a TrackScene.
 
     `donor` is a stock .trk to take configuration and art from. `slot` names the
@@ -135,6 +136,21 @@ def assemble(scene, *, donor: str | Path, out_path: str | Path,
         entries.append(archive.ArchiveEntry(
             name=name, tag=tag, version=version, payload=payload))
 
+    # ---- wobbles ---------------------------------------------------------
+    # Validated up front because a wobble is three files agreeing on one
+    # integer, and every failure we hit building the first one was an
+    # invariant broken in a single place (file-formats.md §4.3).
+    wobbles = list(getattr(scene, "wobbles", ()) or ())
+    if len(wobbles) > 512:
+        raise ValueError(f"{len(wobbles)} wobbles; the model table holds 512")
+    for w in wobbles:
+        if w.mesh not in scene.meshes:
+            raise ValueError(
+                f"wobble mesh {w.mesh!r} is not in scene.meshes -- it must be, "
+                f"or its texture never ships")
+        if not scene.meshes[w.mesh].materials:
+            raise ValueError(f"wobble mesh {w.mesh!r} carries no material")
+
     # ---- render geometry -------------------------------------------------
     tex_for = _texture_map(scene, src, textures)
     chunks = []
@@ -146,8 +162,17 @@ def assemble(scene, *, donor: str | Path, out_path: str | Path,
         chunks.append((mesh, name))
     if not chunks:
         raise ValueError("the scene has no drawable geometry")
-    add("track.grf", GRF_TAG, GRF_VERSION,
-        envelope.parse(grf.build(chunks, GRF_VERSION)).payload)
+    grf_payload = envelope.parse(grf.build(chunks, GRF_VERSION)).payload
+    if wobbles:
+        # The facing's centre and its tube's position come from ONE call to
+        # to_viper below and here, so they cannot drift; stock holds them equal
+        # to the last decimal on all 15 of hastings'.
+        grf_payload = grf.append_facings(grf_payload, [
+            (scene.meshes[w.mesh],
+             scene.meshes[w.mesh].materials[0].name,
+             trackgen.to_viper(w.position), i)
+            for i, w in enumerate(wobbles)])
+    add("track.grf", GRF_TAG, GRF_VERSION, grf_payload)
 
     # ---- collision -------------------------------------------------------
     tris = trackgen.collision_triangles(scene)
@@ -160,26 +185,43 @@ def assemble(scene, *, donor: str | Path, out_path: str | Path,
     add("track.obt", OBT_TAG, OBT_VERSION,
         envelope.parse(trackgen.build_obt(scene)).payload)
     add("track.bsp", BSP_TAG, BSP_VERSION, envelope.parse(bsp.build()).payload)
-    # Barriers. A scene with no walls gets the empty .sol the game is happy
-    # with; one with walls gets real BOX primitives and a quadtree over them.
+    # Barriers and wobbles. A scene with neither gets the empty .sol the game is
+    # happy with; otherwise ONE primitive list carries both, under one quadtree.
     #
     # The quad corners are in the SOURCE frame and the primitives must be in the
     # game's, so every point goes through to_viper(). Forgetting that is what
     # mirrored the racing lines through the origin and wound the ground plane
     # face-down, both in this same file's pipeline.
-    if getattr(scene, "walls", None):
-        template = sol.wall_template(
-            sol.parse(envelope.build(src["track.sol"].tag,
-                                     src["track.sol"].version,
-                                     src["track.sol"].payload)))
-        segments = []
-        for quad in scene.walls:
-            base_a, base_b = quad[0], quad[1]
-            top = max(c[2] for c in quad) - min(c[2] for c in quad)
-            segments.append((trackgen.to_viper(base_a), trackgen.to_viper(base_b), top))
-        built = sol.from_segments([(a, b) for a, b, _h in segments], template,
-                                  height=segments[0][2] or 1.5,
-                                  version=SOL_VERSION)
+    if getattr(scene, "walls", None) or wobbles:
+        donor_sol = sol.parse(envelope.build(src["track.sol"].tag,
+                                             src["track.sol"].version,
+                                             src["track.sol"].payload))
+        prims = []
+        # Wobble tubes are the ONLY primitives given an id, and their ids are
+        # list order -- the same order build_obt numbers the records and
+        # append_facings numbers the nodes, which is what makes the three files
+        # agree. Every shipped track hands out exactly as many ids as it has
+        # wobbles; a tube claiming an id no wobble uses is a dangling claim.
+        if wobbles:
+            tpl = (tube_template if tube_template is not None
+                   else sol.tube_template(donor_sol))
+            prims += [sol.tube_at(tpl, trackgen.to_viper(w.position),
+                                  radius=w.radius, ident=i)
+                      for i, w in enumerate(wobbles)]
+        if getattr(scene, "walls", None):
+            template = sol.wall_template(donor_sol)
+            segments = []
+            for quad in scene.walls:
+                base_a, base_b = quad[0], quad[1]
+                top = max(c[2] for c in quad) - min(c[2] for c in quad)
+                segments.append((trackgen.to_viper(base_a),
+                                 trackgen.to_viper(base_b), top))
+            height = segments[0][2] or 1.5
+            prims += [sol.box_from_segment(template, a, b, height=height)
+                      for a, b, _h in segments]
+        index, tail = sol.build_spatial_index(prims)
+        built = sol.Sol(primitives=prims, index=index, tail=tail,
+                        version=SOL_VERSION)
         add("track.sol", SOL_TAG, SOL_VERSION, envelope.parse(sol.build(built)).payload)
     else:
         add("track.sol", SOL_TAG, SOL_VERSION,

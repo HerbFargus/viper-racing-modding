@@ -91,6 +91,16 @@ DROP_MATERIALS = tuple(m for m in os.environ.get("ARENA_DROP", "").split(",") if
 # the most any shipped track carries, because the pool is fixed ("Too many
 # wobjects allocated--increase MAX_OBJECTS").
 WOBBLE_COWS = int(os.environ.get("ARENA_WOBBLE", "50"))
+# ARENA_PLACED=8 emits that many cow billboards as PLACED MODELS in our own
+# .grf, each paired with a .sol tube of the same id and an `obj wobble pole N`
+# record. ANSWERED: a facing registers from a flat chain, hung off the root's
+# +08 -- no node tree needed. Eight of these drive and topple in game.
+PLACED_COWS = int(os.environ.get("ARENA_PLACED", "0"))
+# The facing model's name in scene.meshes. It is NOT in scene.driveables or
+# scene.scenery, so it is never drawn as ordinary geometry -- registering it
+# here is purely what makes its texture ship, since trackbuild sweeps every
+# material of every scene mesh.
+FACING_MESH = "cowface.mod"
 
 # THE OTHER DOOR: `obj obstacle <ball|cube|prism> <mesh.mod> <x>,<y>:<z> <r>`.
 # The .obt parser accepts it, no shipped track uses it, and it places a NAMED
@@ -100,7 +110,11 @@ WOBBLE_COWS = int(os.environ.get("ARENA_WOBBLE", "50"))
 # Where the wobble route needs a record type nobody has decoded, this one needs
 # only a name to resolve.
 OBSTACLE_COWS = int(os.environ.get("ARENA_OBSTACLE", "50"))
-OBSTACLE_KIND = os.environ.get("ARENA_OBSTACLE_KIND", "ball")   # ball | cube | prism
+# ball | cube | prism -- the collision shape the Ball phob is given. PRISM by
+# default: driven in game, a prism cow topples when hit and SETTLES, where a
+# ball cow drops and keeps rolling away like the horn ball it is built from.
+# Same record, same mesh, one word; nothing in the file says which is better.
+OBSTACLE_KIND = os.environ.get("ARENA_OBSTACLE_KIND", "prism")
 # ARENA_OBSTACLE_MESH=ball.mod isolates the mechanism from the mesh: ball.mod is
 # hardcoded in the engine and lives in race.res, so it certainly resolves. If
 # balls appear at the cows, `obj obstacle` works and only our mesh lookup is
@@ -126,11 +140,11 @@ COW_TUBES = os.environ.get("ARENA_COW_TUBES", "1") != "0"
 # -- "Bad obstacle type", "Bad static record" -- so even silence is evidence.
 TEST_ROW = os.environ.get("ARENA_TEST_ROW", "0") == "1"
 COW_TUBE_RADIUS = 1.4         # the cow is 1.85 x 2.74 m; a tube splits the difference
-# The template comes from a track whose tubes ARE wobbles. Diffing nfield's 50
-# wobble tubes against its 249 plain ones, the only systematic differences are
-# the id and two sign flips in the orientation matrix -- so a plain tube copied
-# from bemidji is the wrong starting point, however little else it changes.
-TUBE_DONOR = "hastings.trk"
+# The donor's own tube is fine as a carrier now: sol.tube_at WRITES the
+# orientation rather than inheriting it. The two sign flips this used to work
+# around are not noise -- there are exactly two tube matrices, and which one a
+# tube gets depends on whether it is a wobble (931 tubes, 7 tracks, 0
+# exceptions). See sol.TUBE_MATRIX_WOBBLE.
 # Measured from the model itself (AP225 is 14.58 m square and 43.75 m tall),
 # not guessed: the first pass used a 6 m box 18 m tall, so a car clipped the
 # tower's corners and anything above 18 m was thin air.
@@ -235,6 +249,18 @@ def prop_boxes(stats: dict) -> list[tuple[float, float, float, float, float, flo
             for tid, (x, y, z) in stats.get("prop_at", []) if tid == TOWER_ID]
 
 
+def to_source_point(g):
+    """Game frame -> source frame: the inverse of trackgen.to_viper.
+
+    to_viper((x, y, elev)) is (-x, elev, -y), so a game point (gx, gy, gz) came
+    from source (-gx, -gz, gy). scene.wobbles are declared in the SOURCE frame,
+    like the centreline, the walls and the grid, and trackbuild flips them once
+    for both the tube and the facing so the two cannot drift. The arena's cow
+    positions arrive already in the game's frame, hence this.
+    """
+    return (-g[0], -g[2], g[1])
+
+
 def cows_near_route(cows, stations, n: int) -> tuple[list, list]:
     """Split the cows into (knockable, solid): the `n` nearest the racing line
     become obstacles, the rest keep their .sol tubes.
@@ -260,8 +286,13 @@ def cow_positions(stats: dict) -> list:
     return [tuple(p) for p in stats.get("cow_at", [])]
 
 
-def split_per_instance(mesh: "mod.Mesh", centres) -> list["mod.Mesh"]:
+def split_per_instance(mesh: "mod.Mesh", centres, drop=()) -> list["mod.Mesh"]:
     """One mesh per placed instance, by which centre each face is nearest.
+
+    `drop` names centre indices to leave out of the drawn mesh entirely. A cow
+    that becomes a wobble must NOT also keep its solid prop: the static model
+    stands in the very spot its billboard does and body-blocks it, so the car
+    hits a cow that cannot move and the wobble behind it is never reached.
 
     A WobbleObject draws a SINGLE model: every shipped wobble tube has its own
     small render chunk about a metre from it (nfield's are 4-corner `Rtbig.tex`
@@ -277,6 +308,8 @@ def split_per_instance(mesh: "mod.Mesh", centres) -> list["mod.Mesh"]:
         buckets.setdefault(k, []).append(face)
     out = []
     for k in sorted(buckets):
+        if k in drop:
+            continue
         remap: dict[int, int] = {}
         verts, faces = [], []
         for face in buckets[k]:
@@ -373,7 +406,8 @@ def split_to_cap(mesh: "mod.Mesh") -> list["mod.Mesh"]:
     return pieces
 
 
-def build_scene(work: Path, line, gates, grid, prop_materials, cows=()) -> tuple["trackgen.TrackScene", dict]:
+def build_scene(work: Path, line, gates, grid, prop_materials, cows=(),
+                drop_cows=()) -> tuple["trackgen.TrackScene", dict]:
     """The scene, and the original-material -> member-name texture map.
 
     The map has to be taken BEFORE scene_from_meshes runs: it renames every
@@ -401,8 +435,8 @@ def build_scene(work: Path, line, gates, grid, prop_materials, cows=()) -> tuple
         role = trackgen.PROP if prop else trackgen.SURFACE
         if not prop:
             turned[0] += faces_up(piece)
-        parts = (split_per_instance(piece, cows) if material == COW_MATERIAL and cows
-                 else split_to_cap(piece))
+        parts = (split_per_instance(piece, cows, drop_cows)
+                 if material == COW_MATERIAL and cows else split_to_cap(piece))
         for k, part in enumerate(parts):
             name = f"{'obj' if prop else 'ta'}{stem}x{k:03d}.mod"
             meshes[name] = part
@@ -419,47 +453,38 @@ def build_scene(work: Path, line, gates, grid, prop_materials, cows=()) -> tuple
     return scene, tex_names
 
 
-def cow_tube(template: "sol.Primitive", at, ident: int) -> "sol.Primitive":
-    """One cow's collision, as a TUBE carrying `ident` in its id field.
-
-    Only the fields whose meaning is established get written -- the centre at
-    +0x24, the radius at +0x5c, the id at +0x30 -- and everything undecoded
-    rides along from the shipped record, the same rule box_from_segment works
-    by. The orientation is left as the template's: every shipped TUBE, on every
-    track, carries the identical matrix.
-    """
-    raw = bytearray(template.raw)
-    x, y, z = at
-    struct.pack_into("<3f", raw, sol.POSITION_OFFSET, x, y + 0.5, z)
-    struct.pack_into("<3f", raw, 0x5c, COW_TUBE_RADIUS, 0.0, 0.0)
-    struct.pack_into("<i", raw, sol.ID_OFFSET, ident)
-    struct.pack_into("<4s", raw, sol.TYPE_OFFSET, sol.TUBE[::-1])
-    return sol.Primitive(raw=bytes(raw))
+# cow_tube lived here. It is now sol.tube_at, which additionally writes the
+# orientation rather than inheriting it -- this version's claim that "every
+# shipped TUBE carries the identical matrix" was wrong. There are two, and
+# which one a tube gets depends on whether it is a wobble.
 
 
-def our_sol(donor: Path, cows, boxes) -> tuple[bytes, int]:
-    """track.sol: a TUBE per cow (ids 0..n-1) first, then a BOX per tower.
+def our_sol(donor: Path, cows, boxes, id_count: int = 0) -> tuple[bytes, int]:
+    """track.sol: a TUBE per cow first, then a BOX per tower.
 
-    The cows come first so their ids and their positions in the list agree --
-    the wobble record's integer is being tested against one or the other, and
-    this way the test does not depend on which.
+    ONLY THE FIRST `id_count` TUBES CARRY AN ID; every other primitive gets -1,
+    as every plain primitive does on every shipped track. An id is not
+    decoration -- it names the facing model a wobble draws -- so a tube holding
+    id N while no wobble N exists is a dangling claim on that slot. Stock hands
+    out exactly as many ids as the track has wobbles: hastings 15 of 15,
+    uptown 47 of 47, nfield 50 of 299, dundas 170 of 349. Giving all 200 cows
+    an id while declaring 8 wobbles is what left seven of the eight missing.
+
+    The cows come first so their ids and their positions in the list agree.
     """
     src = {e.name.lower(): e for e in archive.read(donor)}
     e = src["track.sol"]
     donor_sol = sol.parse(envelope.build(e.tag, e.version, e.payload))
-    tube_template = None
-    wobble_src = donor.parent / TUBE_DONOR
-    if wobble_src.exists():
-        other = {x.name.lower(): x for x in archive.read(wobble_src)}["track.sol"]
-        for p in sol.parse(envelope.build(other.tag, other.version, other.payload)).primitives:
-            if p.type == sol.TUBE and struct.unpack_from("<i", p.raw, sol.ID_OFFSET)[0] >= 0:
-                tube_template = p
-                break
-    if tube_template is None:
-        tube_template = next((p for p in donor_sol.primitives if p.type == sol.TUBE), None)
-    if tube_template is None:
-        raise ValueError(f"no TUBE primitive to copy from {donor.name} or {TUBE_DONOR}")
-    prims = [cow_tube(tube_template, at, i) for i, at in enumerate(cows)]
+    # sol.tube_at writes the orientation itself, so ANY shipped TUBE serves as a
+    # carrier and there is no more borrowing one from a track that happens to
+    # have wobbles. That borrowing was concealing a real bug: a tube's matrix
+    # depends on whether it is a wobble, and the documented fallback here -- the
+    # donor's own first TUBE -- would have inherited the wrong one, because
+    # bemidji's single tube is a plain one.
+    tube_template = sol.tube_template(donor_sol)
+    prims = [sol.tube_at(tube_template, at, radius=COW_TUBE_RADIUS,
+                         ident=i if i < id_count else -1)
+             for i, at in enumerate(cows)]
     wall = sol.wall_template(donor_sol)
     prims += [sol.box_from_segment(wall, (cx - sx / 2, cy, cz), (cx + sx / 2, cy, cz),
                                    height=h, thickness=sz)
@@ -467,6 +492,44 @@ def our_sol(donor: Path, cows, boxes) -> tuple[bytes, int]:
     index, tail = sol.build_spatial_index(prims)
     built = sol.Sol(primitives=prims, index=index, tail=tail, version=trackbuild.SOL_VERSION)
     return sol.build(built), len(cows)
+
+
+def billboard_mesh(width: float, height: float, texture: str, cross: bool = False):
+    """A flat board standing on the origin -- the stock chevron's own shape.
+
+    NOT USED BY DEFAULT: the arena's wobbles are the real 3D cow mesh, built by
+    cow_facing_mesh. This is kept because a flat board is the more forgiving
+    style where a wobble should FLATTEN as well as topple, which a rigid mesh
+    cannot. `cross=True` builds the crossed pair that was tried first and read
+    badly going over -- one of its two planes is always edge-on to the fall.
+
+    A FACING model's local up is -z, not +y. Every stock chevron runs z from 0
+    at its base to about -2.5 at its top, with x and y spanning the board, and
+    the node's own centre puts that base on the ground at the .sol tube. Built
+    standing in +y instead, the cow would lie flat.
+    """
+    pts, uvs = [], []
+    planes = [(1.0, 0.0), (0.0, 1.0)] if cross else [(1.0, 0.0)]
+    for ax, ay in planes:
+        w = width / 2
+        pts += [(-w*ax, -w*ay, 0.0), (w*ax, w*ay, 0.0),
+                (w*ax, w*ay, -height), (-w*ax, -w*ay, -height)]
+        uvs += [(0.0, 1.0), (1.0, 1.0), (1.0, 0.0), (0.0, 0.0)]
+    vs = [mod.Vertex(x, y, z, 0.0, 0.0, 1.0, u, v) for (x, y, z), (u, v) in zip(pts, uvs)]
+    faces = []
+    for q in range(len(planes)):
+        b = q * 4
+        faces += [(b, b + 1, b + 2), (b, b + 2, b + 3)]
+    m = mod.Mesh(vertices=vs, faces=faces, materials=[])
+    m.materials = [mod.Material(name=texture, vertex_start=0, vertex_end=len(vs),
+                                face_start=0, face_end=len(faces))]
+    return m
+
+
+# append_placed_models lived here. It is now grf.append_facings, reached through
+# trackbuild.assemble from scene.wobbles -- so the ids on the facing, the tube
+# and the record are assigned once, from one list, instead of by three loops
+# that had to be kept counting the same way.
 
 
 def our_obt(scene, wobbles: int, obstacles=(), extra=()) -> bytes:
@@ -482,7 +545,7 @@ def our_obt(scene, wobbles: int, obstacles=(), extra=()) -> bytes:
         records.append(obt.checkpoint(-x1, -y1, -x2, -y2))
     for x, y, _ in scene.grid:
         records.append(obt.car(-x, -y))
-    records += [f"obj wobble pole {i}" for i in range(wobbles)]
+    records += [obt.wobble(i) for i in range(wobbles)]
     # Obstacles carry their own coordinates, in the game's frame (x, height, z)
     # rather than the flipped one the gates and grid use -- they name a mesh and
     # a place, not a line on the ground.
@@ -562,6 +625,42 @@ def cow_mesh_member(work: Path, cows, prop_materials) -> bytes | None:
     return mod.build(one)
 
 
+def cow_facing_mesh(work: Path, cows) -> "mod.Mesh | None":
+    """One cow in a FACING model's own frame: origin at its feet, up along -z.
+
+    A facing's local up is -z -- every stock chevron runs z from 0 at its base
+    to about -2.5 at its top -- and a wobble topples by rotating about its
+    origin, so the cow has to stand ON that origin or it pivots about its
+    middle. The rotation is -90 degrees about x, (x, y, z) -> (x, z, -y), which
+    is proper, so the winding survives it and no face turns inside out.
+
+    A REAL COW, not a billboard: a facing node carries an arbitrary
+    mrModelInfo, so there is no reason for it to be flat. Stock facings are
+    tiny -- 28 vertices is the largest in any shipped track, and this cow is
+    328 -- but that is chevrons being chevrons, not an engine limit. The same
+    mrModelBuildLit path builds car models of 1,200 to 20,000 vertices, and a
+    wobble's physics comes from its `.sol` tube, not from its mesh.
+    """
+    if not cows:
+        return None
+    full = read_arena_obj(work / "arena.obj")
+    pieces = trackgen.split_by_material(full)
+    cow_piece = next((p for p in pieces.values()
+                      if p.materials and p.materials[0].name == COW_MATERIAL), None)
+    if cow_piece is None:
+        return None
+    one = split_per_instance(cow_piece, cows)[0]
+    cx = sum(v.x for v in one.vertices) / len(one.vertices)
+    cy = min(v.y for v in one.vertices)          # stand it on its own feet
+    cz = sum(v.z for v in one.vertices) / len(one.vertices)
+    for v in one.vertices:
+        x, y, z = v.x - cx, v.y - cy, v.z - cz
+        v.x, v.y, v.z = x, z, -y
+    for mat in one.materials:
+        mat.name = trackgen.fit_texture_names([mat.name])[mat.name]
+    return one
+
+
 def our_textures(work: Path, tex_names: dict) -> dict[str, bytes]:
     """The preview's PNGs as .tex files, keyed by the member name each becomes."""
     out = {}
@@ -582,19 +681,20 @@ def our_textures(work: Path, tex_names: dict) -> dict[str, bytes]:
 
 
 def patch_wobble_centres(path: Path, cows, wobbles: int) -> tuple[int, int]:
-    """Give each wobble cow's render chunk a centre record sitting at its tube.
+    """VESTIGIAL, and it never did anything. Kept only so the pre-facing path
+    still runs; the facing path skips it entirely.
 
-    THE LINK, read off hastings: its 15 wobble tubes and its 15 chunks carrying
-    a non-zero centre correspond exactly -- same x, same y, same z, 0.00 m
-    apart, all fifteen -- while every other chunk it draws has a centre of
-    (0, 0, 0). That is what `WobbleObject::Draw` follows to find the model it
-    draws. Ours had 556 chunks and not one centre, so the draw call got nothing
-    and the game died in `direct_model_draw`.
+    The observation behind it was real -- hastings' 15 wobble tubes and its 15
+    chunks "carrying a non-zero centre" do correspond exactly -- but the reading
+    was wrong twice over. Those 15 records are the type-4 FACING nodes, and the
+    "centre" was their +0x3c seen 24 bytes out of true by grf.parse()'s resync.
+    A type-3 chunk has no centre field at all: +36 is the ptr2 slot the loader
+    fills in, so what this writes is overwritten at load.
 
-    Two writes are needed, not one. Moving `layout[i].center` makes to_bytes
-    rewrite that chunk's corners as (position - centre), which leaves the cow
-    exactly where it stands; the centre RECORD is outside that patch path and
-    is written here afterwards.
+    And `WobbleObject::Draw` does not follow a centre. It draws a model HANDLE,
+    resolved once in the constructor by GrafLookupDynoModel from the wobble's
+    id -- see file-formats.md §4.3, and grf.build_facing_chunk for the node
+    that actually registers it.
     """
     entries = archive.read(path)
     ent = next(e for e in entries if e.name.lower() == "track.grf")
@@ -682,9 +782,35 @@ def main(argv):
     line = [route_mod.to_source(p) for p in r["stations"]]
     gates = [(name, i, [route_mod.to_source(p) for p in pts]) for name, i, pts in r["gates"]]
     cows = cow_positions(stats)
+    # Choose the wobble cows BEFORE the geometry is built. Each one gets a
+    # billboard, and its solid prop has to come out of the drawn mesh: left in,
+    # it stands in front of its own wobble and there is nothing to knock over.
+    placed_cows, rest_cows = cows_near_route(cows, r["stations"], PLACED_COWS)
+    placed_set = set(placed_cows)
+    drop_cows = {i for i, c in enumerate(cows) if c in placed_set}
     scene, tex_names = build_scene(
         work, line, gates, [route_mod.to_source(p) for p in r["grid"]],
-        set(stats.get("prop_materials", ())), cows)
+        set(stats.get("prop_materials", ())), cows, drop_cows)
+
+    # THE WOBBLES, declared on the scene so trackbuild emits all three pieces --
+    # the facing node, the `.sol` tube and the `obj wobble` record -- from one
+    # list, with the ids agreeing by construction rather than by three separate
+    # loops happening to count the same way.
+    if placed_cows:
+        facing = cow_facing_mesh(work, cows)
+        if facing is None:
+            raise SystemExit("no cow mesh to use as a facing model")
+        wrong = [c for c in placed_cows
+                 if trackgen.to_viper(to_source_point(c)) != tuple(c)]
+        if wrong:
+            raise SystemExit(f"frame conversion is wrong for {len(wrong)} wobbles")
+        scene.meshes[FACING_MESH] = facing
+        scene.wobbles = [trackgen.Wobble(position=to_source_point(c),
+                                         mesh=FACING_MESH, radius=COW_TUBE_RADIUS)
+                         for c in placed_cows]
+        print(f"  facing model: one cow, {len(facing.vertices)} verts, "
+              f"{len(facing.faces)} faces, texture {facing.materials[0].name} "
+              f"(largest facing in any shipped track is 28 verts)")
 
     st = r["stations"]
     cum, total = [0.0], 0.0
@@ -713,10 +839,17 @@ def main(argv):
         print("  built with strict=False")
 
     boxes = prop_boxes(stats)
-    wobbles = min(WOBBLE_COWS, len(cows))
-    knockable, solid = cows_near_route(cows, r["stations"], OBSTACLE_COWS)
+    # The placed-model experiment takes the cows nearest the racing line, so
+    # they are met early. They get a tube carrying their own id and a wobble
+    # record; they must NOT also be obstacles, or two mechanisms fight over one
+    # animal, and the tube must be the one whose id the wobble names.
+    knockable, solid = cows_near_route(rest_cows, r["stations"], OBSTACLE_COWS)
+    wobbles = len(placed_cows) if PLACED_COWS else min(WOBBLE_COWS, len(cows))
     payloads = {k.lower(): v for k, v in our_textures(work, tex_names).items()}
-    sol_payload, tube_count = our_sol(donor, solid if COW_TUBES else [], boxes)
+    # Tube ids are positional, so the placed cows must come FIRST: wobble N
+    # names tube id N, and that tube has to be the one under placed model N.
+    tube_cows = list(placed_cows) + (list(solid) if COW_TUBES else [])
+    sol_payload, tube_count = our_sol(donor, tube_cows, boxes, wobbles)
     payloads["track.sol"] = sol_payload
     obstacles = [(x, y, z) for x, y, z in knockable]
     extra = test_row_records(r["stations"]) if TEST_ROW else []
@@ -736,7 +869,20 @@ def main(argv):
     if cow_member and obstacles:
         add_member(out_path, OBSTACLE_MESH, cow_member, mod.TAG, 1)
 
-    centred, no_centre = patch_wobble_centres(out_path, cows, wobbles)
+    # The facing nodes were emitted by trackbuild.assemble from scene.wobbles,
+    # through grf.append_facings -- nothing is appended to the archive here.
+    placed_count = len(scene.wobbles)
+
+    if placed_cows:
+        # The facing nodes ARE the wobble models, so the old centre patch is now
+        # not just unnecessary but destructive: it rewrites the whole .grf
+        # through grf.parse()/to_bytes(), whose resync has never seen a type-4
+        # node and would mangle the ones just appended. Its premise is dead too
+        # -- the "chunks carrying a centre" it matched in hastings were these
+        # very facings, read 24 bytes out of true.
+        centred, no_centre = 0, 0
+    else:
+        centred, no_centre = patch_wobble_centres(out_path, cows, wobbles)
 
     swept, reports = dekey.sweep_bytes(out_path.read_bytes())
     lifted = sum(r.lifted for r in reports)
@@ -745,15 +891,22 @@ def main(argv):
 
     # The meshes and the placed objects must share a frame. They did not once,
     # and nothing said so until the game drew an empty sky.
-    verts = [(v.x, v.y, v.z) for m in scene.meshes.values() for v in m.vertices]
+    # The facing mesh is in its own LOCAL frame, so it would wreck this bbox.
+    verts = [(v.x, v.y, v.z) for name, m in scene.meshes.items()
+             if name != FACING_MESH for v in m.vertices]
     print(f"  meshes   {bbox(verts)}")
     print(f"  grid+gates {bbox([trackgen.to_viper(p) for p in scene.grid] + [trackgen.to_viper(p) for g in scene.markers.values() for p in g])}")
     print(f"  {out_path.name}  {out_path.stat().st_size:,} bytes")
     print(f"  {len(scene.driveables)} driveable chunks, {len(scene.scenery)} scenery, "
           f"{max((len(m.vertices) for m in scene.meshes.values()), default=0)} vertices in the biggest")
     print(f"  {result.triangles:,} collision triangles, {result.nodes:,} nodes")
-    print(f"  collision: {tube_count} cow TUBEs (ids 0..{max(tube_count - 1, 0)}) "
-          f"+ {len(boxes)} tower BOXes, {wobbles} of the cows given wobble records")
+    print(f"  collision: {tube_count} cow TUBEs + {len(boxes)} tower BOXes; "
+          f"{wobbles} tubes carry ids 0..{max(wobbles - 1, 0)}, "
+          f"{max(tube_count - wobbles, 0)} carry -1 like every stock plain primitive")
+    if placed_count:
+        print(f"  WOBBLES: {placed_count} cow facings emitted by trackbuild from "
+              f"scene.wobbles (ids 0..{placed_count-1}), each with a tube of the "
+              f"same id and an `obj wobble pole` record")
     print(f"  wobble models: {centred} cow chunks given a centre at their tube"
           + (f", {no_centre} skipped (no patchable chunk)" if no_centre else ""))
     print(f"  cows: {len(knockable)} knockable (obstacles, no tube), {len(solid)} solid (tubes)")

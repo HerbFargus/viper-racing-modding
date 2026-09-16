@@ -139,10 +139,14 @@ reference for the record itself; what matters here:
   before the obstacle registers, so a knockable cow must NOT also have one. The
   other 160 keep their tubes and stay solid.
 - **`obj obstacle` builds a `Ball`** -- a free rigid body that drops under
-  gravity and rolls off, the horn ball's own machinery. It is the right
-  mechanism for something that should tumble away and the wrong one for
-  something rooted in the ground, which is why every knockable object the game
-  ships is a sign or a chevron panel held by a `wobble` instead.
+  gravity, the horn ball's own machinery. It is the right mechanism for
+  something that should tumble away and the wrong one for something rooted in
+  the ground, which is why every knockable object the game ships is a sign or a
+  chevron panel held by a `wobble` instead.
+- **The shape word matters, and only a drive shows it.** With `ball` a hit cow
+  keeps rolling away across the arena; with `prism` it topples and settles where
+  it fell, which is what a cow should do. Same record, same mesh, one word --
+  `prism` is the default for that reason alone.
 - **The object budget is real.** `number of objects` runs 218-275 on the stock
   tracks, was 207 with four obstacles here and 253 with fifty, and the engine
   panics with `Too many objects allocated--increase MAX_OBJECTS`. 40 is a

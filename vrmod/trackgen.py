@@ -294,6 +294,31 @@ class SceneObject:
 
 
 @dataclass
+class Wobble:
+    """A knock-over object: `obj wobble` + a `.sol` TUBE + a `.grf` facing node.
+
+    `mesh` names an entry in `TrackScene.meshes`, so the wobble's texture is
+    swept up by the same pass that ships every other scene material. The model
+    must stand on its own origin with up along **-z**: a wobble topples by
+    rotating about that origin, and a facing's local up is -z (see
+    file-formats.md §4.3).
+
+    `position` is in the SOURCE frame, like centreline, walls and grid;
+    trackbuild puts it through to_viper() for both the tube and the facing so
+    the two cannot drift apart. The id is assigned by trackbuild from list
+    order, because three files have to agree on it.
+
+    Anything drawn as ordinary scenery at this spot must be left out of the
+    geometry -- a solid mesh standing where the wobble is body-blocks it.
+    """
+
+    position: Point
+    mesh: str
+    kind: str = "pole"
+    radius: float = 2.0       # stock wobble tubes run 1.875 to 5.651
+
+
+@dataclass
 class TrackScene:
     """Everything both scene files are written from.
 
@@ -307,6 +332,7 @@ class TrackScene:
     markers: dict[str, list[Point]] = field(default_factory=dict)
     walls: list[list[Point]] = field(default_factory=list)
     grid: list[Point] = field(default_factory=list)
+    wobbles: list[Wobble] = field(default_factory=list)
     meshes: dict[str, "mod.Mesh"] = field(default_factory=dict)
     wall_texture: str = "wall.tga"
 
@@ -641,6 +667,11 @@ def build_obt(scene: "TrackScene") -> bytes:
         records.append(obt_mod.checkpoint(-x1, -y1, -x2, -y2))
     for x, y, _ in scene.grid:
         records.append(obt_mod.car(-x, -y))
+    # Wobbles carry no coordinates -- only the id their tube and facing node
+    # share -- so they need no frame flip. The id is list order, which is what
+    # trackbuild assigns their tubes and facings too.
+    for i, _w in enumerate(getattr(scene, "wobbles", ()) or ()):
+        records.append(obt_mod.wobble(i, _w.kind))
     return obt_mod.build(obt_mod.create(records))
 
 
