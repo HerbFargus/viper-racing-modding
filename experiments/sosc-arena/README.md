@@ -5,11 +5,11 @@ scale and in the game's own art, as the first half of turning it into a *Viper
 Racing* track. The target is the **Continuous Fire** scenario ("Arena Death
 Match"), which loads `Cities/Arena.sc2`.
 
-**Status: phase 1, the preview, is done.** The arena matches the game in
-screenshots taken side by side: roads, floor panels, the diagonal edges, the
-berm and islands, the sand and grass pattern, the dark grass patches, the
-towers and the cows. **Phase 2, exporting it as a Viper track, has not
-started.**
+**Status: it loads, drives and laps in Viper Racing.** Phase 1, the preview,
+matches the game in screenshots taken side by side: roads, floor panels, the
+diagonal edges, the berm and islands, the sand and grass pattern, the dark
+grass patches, the towers and the cows. Phase 2, the track, is confirmed in
+game (2026-09-15) -- see "The track" below for what is still open.
 
 ## Running it
 
@@ -31,6 +31,113 @@ never be committed — it is full of it.
 | `sc2.py` | Reads a SimCity 2000 `.sc2` city: altitude, water, terrain slopes, buildings, zones |
 | `arena.py` | Builds the city as an OBJ from the `.sc2` and the SoSC install |
 | `view.html` | A three.js viewer for the result, lit so flat ground shows its texture's true colour |
+| `route.py` | The lap: the perimeter ring as a route line, with the timing gates and the starting grid |
+| `arena_track.py` | The city plus the route, assembled into a loadable `.trk` |
+
+## The track
+
+```
+python route.py       <sosc_dir> <city.sc2> <out_dir>          # the lap, and a map of it
+python arena_track.py <sosc_dir> <city.sc2> <work_dir> <donor.trk> <out.trk>
+```
+
+`donor.trk` is a stock track, which supplies the configuration, the sky and the
+cameras. Installing means copying the result over one of the eight stock track
+slots **and emptying `drivers.res`** -- the stock file bakes an AI line per
+track, so on an add-on the AI drives the old track's line and can crash the
+game (`vrmod`'s `doctor.empty_drivers_res` writes the empty archive and keeps a
+backup).
+
+**The lap** (the user's decisions): clockwise round the perimeter ring, 2,930 m,
+733 stations every 4 m. Start/finish mid-side on the north side, at the far end
+of the 32 m flat at the bottom of that side's dip; the grid's eight slots sit on
+that flat in rows 8 m apart, which is tighter than trackgen's default 10 m
+because the flat is short. Gates at the start and just past each corner, five in
+all: a gate AT a dip would sit on the ramp junction, where a car coming up from
+the arena floor may or may not cross it, while a gate past a corner cannot be
+reached without driving that corner -- so a shortcut across the floor always
+misses one. No barriers; the floor is drivable.
+
+**What the toolkit does, and what this had to do itself.** `trackgen` and
+`trackbuild` write every member natively -- no MKWORLD, no `nhmkworld`. Three
+things did not fit a city:
+
+- **Its own textures.** `trackbuild.assemble` maps every material onto a member
+  of the DONOR archive, which is right for a generated track and wrong here.
+  Each texture is handed a donor stand-in to satisfy that map, and its payload
+  replaced afterwards with SoSC's own art.
+- **Its own `.sol`.** `assemble` builds barrier boxes at one height for the
+  whole track. A 1.9 m cow and a 43.75 m tower cannot share that.
+- **Its own gates and grid**, per the lap above.
+
+### What broke, and what each one taught
+
+Every one of these looked fine in the preview and failed in the game.
+
+**A render chunk is not a `.mod` object.** The 5,000-vertex ceiling everyone
+quotes is per `.mod`; a `.grf` render chunk's limit is far lower. No chunk in
+any shipped track exceeds 864 vertex records (nfield's biggest is 148, every
+track's median is 4). The first build ran to 3,492 and the game died with an
+access violation while loading. Chunks are now split until each is under 480,
+whatever that does to the count -- 556 chunks is well inside stock range.
+
+**`mod.read_obj` mirrors Z.** It is the inverse of `to_obj`, for round-tripping
+a `.mod` through a modeller. `arena.py` writes world coordinates directly, so
+that mirror put the city at negative Z while the route, gates and grid stayed
+positive: in game the car spawned 1,300 m away, fell through empty sky at 0 mph,
+and the world rendered as nothing. `read_arena_obj()` negates Z back and swaps
+the winding with it, since a mirror turns every face inside out.
+
+**Viper culls backfaces, and the preview hid it.** `arena.py` emits its tile
+quads in the order whose normal points DOWN, and `view.html` draws double-sided,
+so the ground looked right in every preview and was invisible in game. Measured
+against the shipped tracks, ground faces there are up (bemidji 1,055 up against
+3 down). All 14,396 ground faces are now turned; the props keep SoSC's own
+winding, which is arbitrary in a game that renders two-sided.
+
+**Naming cannot tell a prop from the ground.** Classifying by texture name put
+the towers' own geometry in the collision tree -- 8,374 fragments where a tower
+body at 97 m sat above the berm at 55 m -- and the fix for that nearly dropped
+the dark grass patch (`p5c52`) as a prop, which would have left holes in the
+ground. `arena.py` now records which materials its models, trees and cows use,
+and that is what decides.
+
+**The colour-key trap, again.** A texel whose colour quantises to raw `0x0000`
+sits on the reserved transparency marker, and drivers honour it in opaque
+textures too: the cows' black markings rendered as holes. The finished archive
+goes through `dekey.sweep_bytes`, which lifted 11,431 texels in the cow hide
+and 476 in `p136`, and leaves colorkey and alpha textures alone.
+
+**Collision volumes have to be measured, not guessed.** The first tower box was
+6 m square and 18 m tall against a tower that is 14.58 m square and 43.75 m
+tall, so a car clipped its corners and drove through everything above 18 m.
+
+**Not our bug:** `lost surface on flip` / `DDERR_WRONGMODE` /
+`EXCEPTION_ACCESS_VIOLATION in end_deferred_surfs` is the 1998 DirectDraw
+renderer losing its surfaces when the display mode changes. Alt-tabbing does
+that, on this track and any other.
+
+### Scale, checked three ways
+
+The arena is at true SoSC scale, and the question came up because the towers
+loom in Viper's chase camera. Viper's world units are metres: its stock car
+measures 1.81 x 4.43 x 1.10 m against a real Viper GTS's 1.92 x 4.45 x 1.17.
+SoSC's units are confirmed by its own furniture -- a trash can 0.92 m, a phone
+booth 1.50 m, a one-tile lot exactly 16.00 m. The cow model is
+1.85 x 2.74 x 1.92 m and every one of the 200 instances in the built world
+measures the same (their footprints differ only because each is turned at a
+random angle). The towers really are 43.75 m tall, 48 m apart, beside a 16 m
+road. What differs between the two games is the camera, not the world.
+
+### Open
+
+- The props keep SoSC's arbitrary winding, so some tower and tree faces are
+  see-through.
+- The minimap and the cameras are the donor's, not this track's.
+- The off-track corridor is 16 m (the road's full width) and untested against a
+  car that drives out onto the arena floor deliberately.
+- `obj wobble` -- the tip-over record -- is still unexplored; a cow is the
+  obvious test subject.
 
 ## What was established
 

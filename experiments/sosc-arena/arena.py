@@ -315,8 +315,15 @@ def load_named(geo: Path, file: str, name: str):
     return max2obj.read_model(blob, addr, nf, nv)
 
 
-def place_model(obj: Obj, mtl, out, verts, faces, pal, atl, at, yaw=0.0, tag="m"):
-    """Drop a SoSC model into the scene at `at` (metres), textured like the game."""
+def place_model(obj: Obj, mtl, out, verts, faces, pal, atl, at, yaw=0.0, tag="m",
+                seen=None):
+    """Drop a SoSC model into the scene at `at` (metres), textured like the game.
+
+    `seen` collects the materials used. A model stands ON the ground rather than
+    being ground, and only this knows which materials are its: naming alone does
+    not say, and a tower body taken for a driving surface lands in the collision
+    tree above the berm it stands on.
+    """
     build_car.unit_uvs(faces)
     c, s = math.cos(yaw), math.sin(yaw)
     for f in faces:
@@ -344,6 +351,8 @@ def place_model(obj: Obj, mtl, out, verts, faces, pal, atl, at, yaw=0.0, tag="m"
         for i in f["idx"]:
             x, y, z = (a / UNITS_PER_M for a in verts[i])
             pts.append((at[0] + c * x - s * z, at[1] + y, at[2] + s * x + c * z))
+        if seen is not None:
+            seen.add(name)
         obj.face(name, pts, uvs)
 
 
@@ -643,6 +652,10 @@ def build(sosc: Path, city_path: Path, out: Path) -> dict:
     # SoSC's own props, by tile id
     models = {k: load_named(geo, *v) for k, v in PROPS.items()}
     placed = {}
+    # Where each prop and cow stands, for anything downstream that has to put
+    # something at the same spot -- the track build gives them collision boxes.
+    prop_at: list[tuple[int, tuple[float, float, float]]] = []
+    prop_materials: set[str] = set()      # materials belonging to things ON the ground
     for x in range(x0, x1 + 1):
         for y in range(y0, y1 + 1):
             tid = B[x][y]
@@ -651,8 +664,10 @@ def build(sosc: Path, city_path: Path, out: Path) -> dict:
             centre = ((x + 0.5) * TILE, ground, (y + 0.5) * TILE)
             if tid in models:
                 verts, faces = models[tid]
-                place_model(obj, mtl, out, verts, [dict(f) for f in faces], pal, atl, centre)
+                place_model(obj, mtl, out, verts, [dict(f) for f in faces], pal, atl, centre,
+                            seen=prop_materials)
                 placed[tid] = placed.get(tid, 0) + 1
+                prop_at.append((tid, tuple(round(a, 1) for a in centre)))
             elif tid in TREE_IDS:
                 rnd = random.Random(x * 131 + y)
                 for k in range(3):
@@ -684,12 +699,16 @@ def build(sosc: Path, city_path: Path, out: Path) -> dict:
         at = (px * TILE, lo * (1 - fy) + hi * fy, py * TILE)
         cow_at.append(tuple(round(a, 1) for a in at))
         place_model(obj, mtl, out, cow_verts, [dict(f) for f in cow_faces], pal, atl, at,
-                    yaw=rnd.uniform(0, 2 * math.pi))
+                    yaw=rnd.uniform(0, 2 * math.pi), seen=prop_materials)
 
     obj.write(out, mtl)
     return {"city": city.name, "level_m": level, "tiles": (x1 - x0 + 1, y1 - y0 + 1),
             "size_m": ((x1 - x0 + 1) * TILE, (y1 - y0 + 1) * TILE), "skirts": skirts,
-            "props": placed, "cows": len(cow_at), "cow_at": cow_at[:3],
+            "props": placed, "cows": len(cow_at),
+            "cow_at": cow_at, "prop_at": prop_at,
+            # the tree sprites are this script's own billboards, and the only
+            # materials it names "tree"
+            "prop_materials": sorted(prop_materials | {n for n in mtl if n.startswith("tree")}),
             "island_sand": len(island), "dark_patch_tiles": len(dark_tiles),
             "materials": len(mtl), "vertices": len(obj.v)}
 
@@ -700,7 +719,10 @@ def main(argv):
     r = build(Path(argv[0]), Path(argv[1]), Path(argv[2]))
     shutil.copy(HERE / "view.html", Path(argv[2]) / "view.html")
     for k, v in r.items():
-        print(f"  {k:12} {v}")
+        if isinstance(v, list) and len(v) > 4:
+            print(f"  {k:12} {len(v)} placed, first {v[0]}")
+        else:
+            print(f"  {k:12} {v}")
     return 0
 
 
