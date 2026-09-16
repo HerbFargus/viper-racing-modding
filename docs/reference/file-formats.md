@@ -597,11 +597,14 @@ approximately costs nothing.
 > | `IdealLine::load_res`, `nearest_node_to`, `get_nearest_bead`, `segloop_count` | `ai:ideal.obj` | the `.ili` reader; its records are **`ILSeg`**, a position along one is **`ILinePos`** |
 > | `SphereVolume`, `CubeVolume`, **`MoveableSphereVolume`**, `CollisionVolume::ApplyForce` | `physics:volume.obj` | the `.sol` primitive classes — and some are *moveable* |
 > | `BPPFinder::bpp_find(bpp_node*)`, `point_in_poly`, `test_poly` | `world:bpp.obj` | the `.bpp` traversal, over `bpp_tri`/`bpp_node` |
+> | `GrafLoad`, `fixup_graf`, `fixup_ptr`, `fixup_objs`, `cleanup_objs`, `draw_tree` | `world:graf.obj` | the `.grf` node graph — these **solved** it outright (§4.7) |
+> | `GrafLookupDynoModel(int)` | `world:graf.obj` | what `obj wobble`'s integer reaches: a model by id (§4.3) |
 >
 > The addresses are that build's, not `race.bin`'s, so they do not transfer directly — but the names,
 > the class layouts they imply, and the module boundaries do. Anything in this document still marked
-> unsolved (the `.sol` spatial tail, the `.bpp` writer, what `obj wobble`'s integer indexes) now has a
-> named function to work from rather than a hex dump.
+> unsolved (the `.sol` spatial tail, the `.bpp` writer) now has a named function to work from rather than
+> a hex dump. That is not hypothetical: the `.grf` node graph (§4.7) and `obj wobble`'s integer (§4.3)
+> were both solved exactly this way, by disassembling the `world:graf.obj` functions a crash trace named.
 >
 > The map is not reproduced here: it is derived from a copyrighted binary, and anyone holding a copy
 > can extract it with a regex for `^\s*0001:[0-9a-f]{8}` over the file's printable strings.
@@ -750,10 +753,17 @@ the executable itself.
 ```
 obj car       <x>, <z>
 obj checkpoint <mesh> <x>,<z> <x>,<z>                        -- mesh is checkpt1.mod
-obj obstacle  <ball|cube|prism> <mesh.mod> <x>,<y>:<z> <r>   -- e.g. cube ball.mod (the horn ball)
+obj obstacle  <ball|cube|prism> <mesh.mod> <x>,<z>:<y> <r>   -- e.g. cube ball.mod (the horn ball)
 obj static    <box> <x,y,z> <x,y,z> <x,y,z>
 obj wobble    <pole|flap> <int>
 ```
+
+**The obstacle record's comma pair is a GROUND position, and the colon introduces the HEIGHT** —
+`x,z:y`, the same convention as `obj checkpoint`'s two ground points, not the `x,y:z` the format
+string's letters suggest. Written the other way the engine parses the line without complaint, builds
+the object (the `number of objects was %d` line rises by exactly the record count) and puts it off
+the map sideways and hundreds of metres up: invisible, intangible, and silent in the log. That cost
+three in-game tests to find.
 
 The physics object types it builds from these: `Ball`, `PhobStatic`, `Obstacle`, `Wobble`,
 `CheckPoint`, `PlayCar`, `AICar`, `NetCar`, `GhostCar`. Wobble objects have their own pool —
@@ -761,17 +771,70 @@ The physics object types it builds from these: `Ball`, `PhobStatic`, `Obstacle`,
 
 Three things follow that are not visible from the shipped data:
 
-- **`obstacle` places a named mesh at a position with a radius.** That is per-instance collision with
-  arbitrary geometry, authored directly in a file `vrmod` already writes — no `.sol`, no MKWORLD.
+- **`obstacle` places a named mesh at a position with a radius — ✅ CONFIRMED IN GAME 2026-09-15.**
+  Per-instance physics with arbitrary geometry, authored in a file `vrmod` already writes: no `.sol`,
+  no MKWORLD, no scene graph. A generated track carrying 40 `obj obstacle ball cow.mod` records spawns
+  40 knockable cows that a car can shove around. **It builds a `Ball`: a free rigid body that drops
+  under gravity and rolls**, the horn ball's own machinery — so it suits things meant to tumble away,
+  not things rooted in the ground. The mesh is resolved BY NAME from any loaded archive, and a `.mod`
+  member added to the track's own archive (tag `FNIM`, version 1, like every other `.mod`) resolves
+  fine; it must sit at its own origin, since the record supplies the position.
+- **`static` is NOT counted among the objects** and produced nothing in the same test, where the
+  obstacles in the same table worked. Still unexercised.
 - **`flap` is a second wobble subtype that nothing ships.** Every `obj wobble` record in every track
   is `pole`.
-- **Neither `obstacle` nor `static` appears in ANY shipped track.** They are parser-supported but
-  unexercised, so they are an opportunity and an untested path in equal measure.
 
-`obj wobble` is the one record carrying no coordinates, so its integer must reference something
-placed elsewhere. The best candidate is the `.sol` TUBE list: across every track the wobble count is
-≤ the TUBE count, the indices run contiguously from 0, and the only track with no wobble records
-(limbo) is also the only one with no TUBEs. Untested.
+**`obj wobble`'s integer names the `.sol` TUBE with that id — ✅ CONFIRMED from the shipped data.**
+Every tube carries an id at `+0x30`: `-1` on ordinary ones, and `0…n-1` on exactly `n` of them, where
+`n` is that track's wobble count. Measured across all six tracks that ship wobbles — hastings 15/15,
+uptown 47/47, kenyon 59/59, heaven 72/72, nfield 50 ids among 299 tubes, dundas 170 among 349 — with a
+perfect one-to-one match every time. The game confirms the binding from the other side: a generated
+track carrying wobble records builds `WobbleObject`s from them rather than rejecting them.
+
+**A wobble's MODEL is a type-4 `.grf` node — ✅ CONFIRMED IN GAME 2026-09-15.** The binding runs end
+to end, and every link of it is read off the loader rather than inferred:
+
+```
+obj wobble pole N  ->  WobbleData +0x18 = N
+                   ->  WobbleObject::WobbleObject calls GrafLookupDynoModel(N)
+                   ->  returns dyno_model_table[N]        (512 entries, at 0x559168)
+                   ->  stored at WobbleObject +0x3c
+                   ->  WobbleObject::Draw calls mrModelDraw(handle, Frame at this+4)
+```
+
+That table is filled at load by `fixup_objs` (§4.7), which registers every node that is type 4 **and**
+carries `4` at `+0x38`, filing its built handle under the id at `+0x48`. A duplicate id is fatal
+(`"two models with same id"`), as is one outside 0..511 (`"wrong facing id"`). So a wobble needs three
+things agreeing on one integer: a `.sol` TUBE with id N, an `obj wobble pole N` record, and a
+registered type-4 node with id N. Its centre equals the tube's position **exactly** — 0.000 m apart on
+all 15 of hastings' — and the model hangs upward from it in local **−z**.
+
+Checked against the shipped data: registered type-4 nodes equal the wobble count on every track that
+has them — hastings 15, nfield 50 (of 284 type-4 nodes; the other 234 carry `2` at `+0x38` and are
+never registered), uptown 47 of 48. Then checked from the other side by building one: a generated
+track carrying eight authored wobbles loads, drives, and the cows topple.
+
+**Both earlier theories failed for one underlying reason, and are now explained rather than merely
+refuted.** "The model is any chunk with a non-zero centre" (bemidji has 51 such chunks and no wobbles)
+and "placed models are the type-2 records" (hastings has 27 against 15 wobbles) were artefacts of
+locating records by resync scanning, which lands **24 bytes early** on a type-4 node and reports its
+`ptr2` slot as its centre. Type 2 is not a placed model at all: it is an **LOD node**, whose two floats
+at `+0x18`/`+0x1c` the loader squares in place at load (with `-1.0f` as a skip sentinel) so range tests
+can avoid a square root.
+
+**Two model styles both work.** A real 3D mesh (the 328-vertex SoSC cow) and a flat billboard each
+build and topple. The largest facing in any shipped track is 28 vertices, but that is chevrons being
+chevrons rather than an engine limit — the same `mrModelBuildLit` path builds 1,200–20,000-vertex car
+models. A flat board is the more forgiving style where a wobble should *flatten* as well as fall; a 3D
+mesh stays rigid.
+
+Two traps worth naming. The static scenery at a wobble's position must be **removed**: left in, a solid
+mesh stands in the same spot and body-blocks its own wobble, so there is nothing to hit. And ids are not
+decoration — hand them only to wobble tubes, as every shipped track does, since a tube claiming id N
+with no wobble N is a dangling claim on that slot.
+
+`obj obstacle` remains the simpler route where an object should tumble away rather than stay rooted: it
+needs no `.grf` node, no `.sol` tube, and no id.
 
 - **`track.obt`** (placed-object table): `fieldsPerRecord = 1` in every sample (i.e. one big text field per
   record), `recordCount` matched the number of `obj ...` string occurrences exactly. Real extracted
@@ -1271,22 +1334,55 @@ candidate chunk is real and computes its exact end, so chunk boundaries are deri
 for. A chunk routinely carries **several** materials; assuming one texture per chunk silently discards
 every secondary material's geometry, which is enough to make whole categories of scenery invisible.
 
-**The main header is a scene graph, and is not mapped.** Beyond the chunks, 10–16% of every real `.grf`
-sits in variable-size node records in the gaps *between* chunks, threaded with pointers. A 40-byte gap is
-exactly one node header `[count, nextPtr, 0, -1, 4, 0, 1, 0, K, 0]`; larger gaps prepend a variable-size
-record (a 68-byte one carries floats that look like a bounding box). Gap sizes are discrete and all
-multiples of 4 (40/60/72/76/96/108/112/144/268/280/400/568/760). The tempting rule "the last 40 bytes of
-each gap is a node header" holds for only 30–50% of gaps, so this is a real reverse-engineering job, not a
-small extension.
+**The main header is a scene graph, and it is now mapped — ✅ CONFIRMED from the loader.** `GrafLoad`
+calls `fixup_graf(GrafNode*, void* base, unsigned char)`, which runs two passes over the loaded image:
+`fixup_ptr` turns stored offsets into real pointers, then `fixup_objs` builds each node's model. Both were
+disassembled from the build carrying the embedded linker map (§4.2), so the fields below are read rather
+than inferred.
 
-**Practical consequence — writing.** Because chunk extents are computed exactly and chunk parsing reaches
-end-of-payload precisely (zero trailing bytes on all 8 stock tracks), a `.grf` can be edited by **patching
-values in place** without understanding the scene graph at all: the header, the node records and every
-pointer are copied through untouched. This supports changing any *value* (vertex positions, UVs, texture
-names, face indices — so move/rotate/scale/retexture/remap an existing object) but no *size* (no adding or
-removing vertices, faces or materials, and a face cannot be repointed into another chunk since its indices
-are chunk-local). An unmodified round-trip is byte-identical on all 8 stock tracks (and on every add-on track
-tested, §9). Building a `.grf` from scratch still requires the scene graph.
+```
+every node
+  +00  int32   type -- 0, 1, 2, 3, 4 and 7 occur
+  +04  int32   FIRST CHILD   -- offset from payload start; fixup_ptr RECURSES into it
+  +08  int32   NEXT SIBLING  -- same; fixup_ptr ITERATES it in a loop
+  +0c  int32   model handle  -- -1 in the file; the loader overwrites it
+
+type 2 -- an LOD node
+  +18  float   switch distance, SQUARED IN PLACE at load
+  +1c  float   second distance, likewise; -1.0f (0xbf800000) means "skip"
+
+types 3 and 4 -- geometry. +10 begins an mrModelInfo: a .mod payload (§4.1), field for field
+  +10  count, +14 ptr   vertices,  32 bytes each
+  +18  count, +1c ptr   materials, 32 bytes each
+  +20  count, +24 ptr   faces,      8 bytes each
+  +28  count, +2c ptr   16 bytes each -- 0 in every chunk measured
+  +30  count, +34 ptr   (last)
+       every ptr is 0 in the file; the loader fills it, packing the arrays
+       consecutively from +38 (type 3) or +4c (type 4)
+
+type 4 only -- a "facing": a model the engine registers and can draw by id
+  +38  int32   4 registers it; 2 does not
+  +3c  float×3 centre, world space
+  +48  int32   id, 0..511
+```
+
+A registered facing's handle is filed in a 512-entry table at `0x559168`, which `GrafLookupDynoModel(int)`
+reads — the mechanism behind `obj wobble` (§4.3). `cleanup_objs` mirrors it, destroying the handle at
+`+0c` for types 3 and 4 only. Node types 0, 1 and 7 are walked by the same child/sibling threading but
+their payloads are still undecoded; nothing yet needed them.
+
+**Practical consequence — writing.** Editing values in place needs none of this and remains the safe
+default: chunk extents are computed exactly, parsing reaches end-of-payload precisely, and an unmodified
+round-trip is byte-identical on all 8 stock tracks and every add-on tested (§9). But **nodes can now be
+appended.** `vrmod` writes new facing models into a generated `.grf` by building the node and hanging it
+off the root's `+08` — the field the loader *iterates* rather than recurses, so any number of them costs
+no stack. Getting that wrong is instructive: an early attempt put a face count at `+08`, and the loader
+added the load base to it, called the result a node, and died dereferencing it inside `fixup_ptr`.
+
+> **The resync trap.** Locating records by scanning for a plausible centre-and-corner pattern lands
+> **24 bytes early** on a type-4 node, reporting its `ptr2` slot as its centre. Two theories about wobble
+> models (§4.3) were built on that error and both were wrong. Walk the chain by pointer instead — our own
+> writer's output is walkable directly, with no scanning at all.
 
 > **Negative zero.** Real corner records store `-0.0` offsets. Since parsing computes
 > `position = center + offset`, a `-0.0` yields `position == center`, and writing back `position - center`
@@ -3200,16 +3296,17 @@ has shifted almost entirely to *payload* internals.
    already solved the video-mode, VRAM and HUD paths there, so the approach is proven: load it as a normal
    PE at ImageBase `0x400000`, find a diagnostic string, scan for the 4-byte little-endian VA that
    references it, and disassemble backwards from the reference. Every remaining ⚪/❓ item in §4 (`.sol`,
-   `.adr`, `.dnt`, `.ugs`, `.grf`'s scene-graph header, `.stp`'s compressed variant) is parsed by exactly this binary at load
+   `.adr`, `.dnt`, `.ugs`, `.stp`'s compressed variant) is parsed by exactly this binary at load
    time — and `.bpp` (§4.9) is now a worked example of exactly this method paying off — searching for the `"0SER"`/`"0TSR"` strings and the FourCC constants from §2 as call-site anchors
    should get you to the real struct layouts fast, far faster than continued black-box guessing. Also worth
    it specifically for `.tex`: confirming whether real `flags=0x03` alpha textures truly use the same
    ARGB4444 packing a synthetic `flags=0x02` test confirmed (currently only visually, not byte-exactly,
    verified). (`.ens` and `.sfx`'s PCM path no longer need this — both solved black-box, see §4.14/§4.15.)
-2. **`.grf`'s scene-graph header is now the biggest track-side unknown.** `.bpp` (§4.9) and `.sol` (§4.8)
-   are both solved — the collision layer is fully mapped — so the remaining gap in a track is the `.grf`
-   scene-graph/instancing header, which is what would be needed to add or remove geometry rather than edit
-   values in place (see §4.7). The loader-reading template that cracked `.bpp` and `.sol` applies here too.
+2. ~~**`.grf`'s scene-graph header**~~ — **SOLVED** (§4.7), by exactly the loader-reading template that
+   cracked `.bpp` and `.sol`. Nodes can now be appended, not just patched in place, and `vrmod` uses that
+   to author wobble models (§4.3). What remains is much narrower: node types 0, 1 and 7 are walked but
+   their payloads are undecoded, and the fourth and fifth `mrModelInfo` arrays (`+28`, `+30`) are zero in
+   every chunk measured, so they are unexercised rather than understood.
 3. **`.ccs` field mapping** — deferred until custom test tracks and tooling exist to isolate single-field
    changes with a controlled before/after comparison; ad hoc in-game and cross-track diffing so far has
    been inconclusive or confounded.

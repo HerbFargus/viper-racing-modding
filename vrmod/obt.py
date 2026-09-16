@@ -133,6 +133,21 @@ def checkpoint(x1: float, y1: float, x2: float, y2: float) -> str:
     return f"obj checkpoint flag {x1:.6f},{y1:.6f} {x2:.6f},{y2:.6f}"
 
 
+def wobble(ident: int, kind: str = "pole") -> str:
+    """A knock-over object, named by the integer THREE files have to agree on.
+
+    The record carries no coordinates: `ident` names both the `.sol` TUBE that
+    is hit (its id at +0x30) and the `.grf` facing node that is drawn (its id at
+    +0x48). See file-formats.md §4.3. `kind` is `pole` on every shipped track;
+    `flap` parses but nothing ships one.
+    """
+    if kind not in ("pole", "flap"):
+        raise ObtError(f"wobble kind {kind!r} is not pole or flap")
+    if not 0 <= ident < 512:
+        raise ObtError(f"wobble id {ident} outside 0..511")
+    return f"obj wobble {kind} {ident}"
+
+
 def create(objects: list[str]) -> Obt:
     """Build a table from placed objects, adding the boilerplate and terminator."""
     return Obt(records=[*PREAMBLE, *objects, TERMINATOR])

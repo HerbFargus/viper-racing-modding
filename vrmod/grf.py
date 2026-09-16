@@ -823,16 +823,89 @@ def build_chunk(mesh, texture: str, *, centre=(0.0, 0.0, 0.0),
     return bytes(body)
 
 
-def build(chunks: list[tuple], version: int = 3) -> bytes:
-    """Build a complete `.grf` from (mesh, texture) pairs, envelope included.
+FACING_TYPE = 4             # a registered, id-addressable model
+FACING_HEADER = 0x4c        # data starts here, against CHUNK_HEADER's 56
+FACING_MARKER = 4           # +38 must be 4 or the loader never registers it
+MAX_FACING_ID = 0x200       # the dyno-model table holds 512 entries
 
-    Each pair becomes one chunk. Sizes are computed first so each chunk header
-    can name the offset of the next, and the last is terminated with 0.
+
+def build_facing_chunk(mesh, texture: str, *, centre, index: int,
+                       next_offset: int = 0, colours=None) -> bytes:
+    """One FACING model: geometry the engine registers by id and draws on demand.
+
+    This is what a wobble draws. The layout is read off the loader itself --
+    `fixup_objs` at race.exe 0x0046e1a0 -- not inferred from record shapes:
+
+        +00  4              node type
+        +04  child          0; a facing has none
+        +08  sibling        THE CHAIN FIELD -- see the note below
+        +0c  -1             model handle, filled in at load
+        +10  V   +14 0      vertices, 32 bytes each
+        +18  M   +1c 0      materials, 32 bytes each
+        +20  F   +24 0      faces, 8 bytes each
+        +28  0   +2c 0
+        +30  0   +34 0
+        +38  4              registration marker; 2 here means "never registered"
+        +3c  centre x,y,z   world position, equal to the `.sol` TUBE's own
+        +48  id             0..511, unique; the integer in `obj wobble pole N`
+        +4c  vertices, then materials, then faces
+
+    Vertex positions are LOCAL, not centre-relative-by-subtraction: the centre
+    at +3c places the model, and a facing's local up is -z (every stock chevron
+    runs z from 0 at the base to about -2.5 at the top).
+
+    At load the handle goes into a 512-entry table at 0x559168, which
+    `GrafLookupDynoModel(id)` reads and `WobbleObject`'s constructor calls,
+    storing it at +3c of the object for `mrModelDraw`. Two nodes sharing an id
+    is fatal ("two models with same id"); so is an id out of range ("wrong
+    facing id").
+
+    CHAIN THROUGH +08, NOT +04. `fixup_ptr` RECURSES into +04 and ITERATES +08,
+    so facings hung off +08 cost no stack. The first attempt at this record put
+    a face count at +08; the loader added the load base to it, treated the sum
+    as a node, and died dereferencing it.
+    """
+    n, f = len(mesh.vertices), len(mesh.faces)
+    if n > 0xFFFF:
+        raise GrfWriteError(f"chunk has {n:,} corners; face indices are u16")
+    if not 0 <= index < MAX_FACING_ID:
+        raise GrfWriteError(f"facing id {index} outside 0..{MAX_FACING_ID - 1}")
+    head = bytearray(FACING_HEADER)
+    struct.pack_into("<i", head, 0x00, FACING_TYPE)
+    struct.pack_into("<i", head, 0x04, 0)
+    struct.pack_into("<i", head, 0x08, next_offset)
+    struct.pack_into("<i", head, 0x0c, -1)
+    struct.pack_into("<i", head, 0x10, n)
+    struct.pack_into("<i", head, 0x18, 1)
+    struct.pack_into("<i", head, 0x20, f)
+    struct.pack_into("<i", head, 0x38, FACING_MARKER)
+    struct.pack_into("<3f", head, 0x3c, *centre)
+    struct.pack_into("<i", head, 0x48, index)
+
+    body = bytearray(head)
+    for i, vert in enumerate(mesh.vertices):
+        colour = colours[i] if colours else WHITE
+        body += _corner(vert.x, vert.y, vert.z, vert.u, vert.v, colour)
+    body += _material(texture, n, f)
+    for a, b, c in mesh.faces:
+        body += struct.pack("<4H", a, b, c, 0)
+    return bytes(body)
+
+
+def build(chunks: list[tuple], version: int = 3) -> bytes:
+    """Build a complete `.grf`, envelope included.
+
+    Each entry is `(mesh, texture)`. Sizes are computed first so each chunk
+    header can name the offset of the next, and the last is terminated with 0.
+
+    Facing models are NOT built here. They chain through `+08`, not the `+04`
+    this function patches, and they hang off the root as siblings rather than
+    extending its child chain -- see build_facing_chunk().
     """
     if not chunks:
         raise GrfWriteError("a .grf needs at least one chunk")
 
-    blobs = [build_chunk(m, t) for m, t in chunks]
+    blobs = [build_chunk(entry[0], entry[1]) for entry in chunks]
     offsets = []
     at = FILE_HEADER
     for b in blobs:
@@ -846,3 +919,46 @@ def build(chunks: list[tuple], version: int = 3) -> bytes:
         struct.pack_into("<i", patched, 4, nxt)
         out += patched
     return envelope.build(TAG, version, bytes(out))
+
+
+def append_facings(payload: bytes, facings) -> bytes:
+    """Append facing models to a built `.grf` PAYLOAD (no envelope).
+
+    `facings` is a sequence of `(mesh, texture, centre, id)`. Each becomes a
+    type-4 node (see build_facing_chunk) hung off the ROOT'S `+08`, the sibling
+    field: `fixup_ptr` iterates siblings in a loop and recurses only into `+04`,
+    so any number of facings costs no stack, while the chunk chain stays where
+    it is.
+
+    Appended as raw bytes and never re-parsed. The offsets are known exactly
+    because build() produced the payload, and grf.parse() locates records by a
+    resync that lands 24 bytes early on a facing -- the error behind two wrong
+    theories about wobble models (file-formats.md §4.7).
+    """
+    out = bytearray(payload)
+    root = struct.unpack_from("<3i", out, 0)[2]
+    taken = struct.unpack_from("<i", out, root + 8)[0]
+    if taken:
+        raise GrfWriteError(
+            f"the root node already has a sibling at {taken}; appending would "
+            f"orphan whatever hangs off it")
+    seen: set[int] = set()
+    blobs, at = [], len(out)
+    for mesh, texture, centre, ident in facings:
+        if ident in seen:
+            raise GrfWriteError(
+                f"facing id {ident} used twice; the loader rejects that with "
+                f'"two models with same id"')
+        seen.add(ident)
+        blob = bytearray(build_facing_chunk(mesh, texture, centre=centre,
+                                            index=ident))
+        blobs.append((at, blob))
+        at += len(blob)
+    for n, (_start, blob) in enumerate(blobs):
+        struct.pack_into("<i", blob, 8,
+                         blobs[n + 1][0] if n + 1 < len(blobs) else 0)
+    if blobs:
+        struct.pack_into("<i", out, root + 8, blobs[0][0])
+        for _start, blob in blobs:
+            out += blob
+    return bytes(out)
