@@ -14,7 +14,7 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from . import aifield, archive, aspectfix, backups, bpp as bppmod, bundle, car, carshot, catalog as catalog_mod, cf, cockpit_tab, dekey, doctor, envelope, hornball, mapfile, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon, drawdistance, surface, writepaths, modassert, carlist
+from . import aifield, archive, aspectfix, backups, bpp as bppmod, bundle, car, carshot, catalog as catalog_mod, ccs, cf, cockpit_tab, dekey, doctor, envelope, hornball, mapfile, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon, drawdistance, surface, writepaths, modassert, carlist
 
 COMMIT_PATH = "/__vrmod_commit__"
 
@@ -1130,6 +1130,36 @@ def main(argv: list[str] | None = None) -> int:
         help="one or more field=value pairs, e.g. power_max=500 num_gears=5",
     )
 
+    p_ccsdump = sub.add_parser(
+        "ccsdump",
+        help="Dump a .ccs/.csu car setup as name/value text. The stored values are "
+             "0..1 slider positions, so pass --cf to resolve them into the numbers "
+             "the garage shows",
+    )
+    p_ccsdump.add_argument("ccs_file", type=Path, help="a .ccs or .csu")
+    p_ccsdump.add_argument(
+        "txt_file", type=Path, nargs="?", default=None,
+        help="write to this file instead of stdout",
+    )
+    p_ccsdump.add_argument(
+        "--cf", type=Path, default=None,
+        help="the .cf of the car this setup is for -- a setup is meaningless "
+             "without it, since each value is a position between limits that "
+             "differ car to car",
+    )
+
+    p_ccsset = sub.add_parser(
+        "ccsset",
+        help="Edit named fields of a .ccs/.csu, writing a new file with everything "
+             "else unchanged",
+    )
+    p_ccsset.add_argument("in_file", type=Path)
+    p_ccsset.add_argument("out_file", type=Path)
+    p_ccsset.add_argument(
+        "set", nargs="+", metavar="field=value",
+        help="one or more field=value pairs, e.g. fsprings=0.75 aero_kit=2",
+    )
+
     p_cockpitdump = sub.add_parser(
         "cockpitdump", help="Dump a cockpit.tab (camera/wheel/gauge positions) as name/value text"
     )
@@ -2113,6 +2143,30 @@ def main(argv: list[str] | None = None) -> int:
         new_raw = cf.build(base_raw, values)
         args.out_file.write_bytes(new_raw)
         print(f"wrote {args.out_file} ({len(values)} field(s) from {args.txt_file})")
+    elif args.command == "ccsdump":
+        values = ccs.parse_file(args.ccs_file)
+        if args.cf is not None:
+            values = ccs.resolve(values, cf.parse_file(args.cf))
+        text = ccs.to_text(values)
+        if args.txt_file is not None:
+            args.txt_file.write_text(text)
+            print(f"wrote {args.txt_file}")
+        else:
+            print(text, end="")
+            kit = int(ccs.parse_file(args.ccs_file)["aero_kit"])
+            print(f"# aero_kit {kit} = {ccs.AERO_KIT.get(kit, 'unknown')}")
+            if args.cf is None:
+                print("# values are 0..1 slider positions -- pass --cf to resolve them")
+    elif args.command == "ccsset":
+        raw = args.in_file.read_bytes()
+        values = {}
+        for pair in args.set:
+            if "=" not in pair:
+                raise SystemExit(f"error: expected field=value, got {pair!r}")
+            k, v = pair.split("=", 1)
+            values[k.strip()] = float(v)
+        args.out_file.write_bytes(ccs.build(raw, values))
+        print(f"wrote {args.out_file} ({len(values)} field(s) changed)")
     elif args.command == "cockpitdump":
         records = cockpit_tab.parse_file(args.tab_file)
         text = cockpit_tab.to_text(records)
