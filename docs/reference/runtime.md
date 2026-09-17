@@ -771,7 +771,7 @@ and that is a `camera.tab` record.
 |-----|------|
 | numpad `7` / `9` | yaw left / right |
 | numpad `8` / `2` | pitch — **inverted**: `8` looks *down*, `2` looks *up* |
-| numpad `4` / `6` | rotate left / right — almost certainly roll, the third axis, though that has not been isolated on the HUD the way yaw and pitch have |
+| numpad `4` / `6` | roll left / right — rotation about the view axis, the third of the three. Named by inference from the other two rather than read off the HUD separately |
 | numpad `1` / `3` | move left / right |
 | `A` / `Z` | zoom in / out |
 
