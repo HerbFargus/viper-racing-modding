@@ -935,13 +935,94 @@ This is genuinely one of the more modder-friendly formats in the game — the pa
   full-detail. Genuine decimation (see `vrmod moddecimate`) is what actually helps a heavy custom car in
   the near-camera pack.
 
-### 4.4 `CCS0` — `.ccs` — semantics unconfirmed — 🟡 WELL-SUPPORTED (header only)
+### 4.4 `CCS0` — `.ccs` — ✅ CONFIRMED — a **car setup**
 
-Fixed **160 bytes** in every single sample across every track — no exceptions. Every track ships an
-`aidef.ccs` (same name everywhere) plus one or more evocatively-named zone files (`bemidji.ccs`,
-`heaven.ccs`, `limbo.ccs`, `dundas.ccs`, `uptown.ccs`, `kenyon.ccs`, `288g_sim.ccs`, `lanc_sim.ccs`,
-`vipe_sim.ccs`...) — these read like nicknamed track sections/corners. Every car also ships its own
-`.ccs` file alongside its `.cf`/`.ens`/`.tab` files.
+> **Revised, and the earlier reading was wrong.** This section previously called the semantics
+> unconfirmed and guessed the filenames "read like nicknamed track sections/corners". They are not
+> track data at all. `race.exe`'s only reference to the `0SCC` tag is inside
+> `CarFileLoadSetupRes(char const*) -> CarSetupData*` (`world:carfile.obj`), which checks
+> `version == 2` and `size == 0x8c` and then `rep movsd` all 35 dwords straight into a
+> `CarSetupData`. So `.ccs` is a **saved car setup**, `288g_sim`/`lanc_sim`/`vipe_sim` are *cars*,
+> and `aidef.ccs` is the setup the AI runs at that track — which is exactly why it varies track to
+> track while every car ships an identical one.
+
+**The values are slider positions, not physical quantities.** `CarFileCombine` consumes the struct
+with the same shape about twenty times over:
+
+```
+fld  [cf + HIGH]    ; a maximum from the car's .cf
+fsub [cf + LOW]     ; minus its minimum
+fmul [setup + N]    ; times .ccs field N          <- 0.0 .. 1.0
+fadd [cf + LOW]
+fstp [CarData + ..]
+```
+
+That is `lerp(min, max, field)`. It explains why every value except the gearbox sits in 0.0–1.0, and
+it means **a setup is meaningless without the car it was made for**: the same 0.5 is a different
+spring rate on a different `.cf`. The garage shows some fields as the raw value × 100 and others as
+the interpolated physical value — both conventions appear on screen.
+
+```
+0x00  "0SER" + "0SCC"(on disk) + int32 version(=2) + reserved + "!IGM"   -- envelope
+0x14  35 × float32   -- the payload the loader copies verbatim, 0x8c bytes
+```
+
+| # | meaning | shown as |
+|---|---|---|
+| 0 | final drive | `lerp(rear_end_ratio1..2)` |
+| 1 | drivetrain scale — `1.0` in every shipped file | — |
+| 2 | brake bias | `(v − 0.5) × 100` with an `F`/`R` suffix |
+| 3, 5, 7, 9, 11 | **not physics** — see below | never displayed |
+| 4, 6 | bump, front / rear | `× 100` |
+| 8, 10 | rebound, front / rear | `× 100` |
+| 12, 13 | anti-roll, front / rear | `× 100` |
+| 14, 15 | springs, front / rear | `× 100` |
+| 16, 17 | ride height, front / rear | `lerp(*ground_clearance1..2)` |
+| 18, 19 | spoiler size, front / rear | `× 100` |
+| 20–25 | gear ratios 1–6 | as stored |
+| 26 | a 7th gear slot — `0.0` everywhere; nothing ships 7 gears | — |
+| 27 | a ratio, `2.66` in every shipped file; **not** the displayed final drive | — |
+| 28 | aero kit, an **int enum**: 0 Adjustable · 1 Low Drag · 2 High Downforce | radio buttons |
+| 29 | fuel load | `× fuel_capacity` |
+| 30, 31 | camber, front / rear | `lerp(*camber1..2)` |
+| 32, 33 | toe, front / rear | `lerp(*toe1..2)` |
+| 34 | wheel lock | `× wheel_lock` |
+
+**Fields 3, 5, 7, 9 and 11 never reach the car.** `CarFileCombine` never reads them and
+`export_setup` never prints them; the only code that touches them is `ChassisControl::Draw`, which
+loads them beside the literals `40`, `±25.0` and `±1000.0` — a plot of 40 samples over those axes.
+They are the shock-curve graph's own state. They do vary between shipped tracks, so they are live
+data, but changing one cannot alter how a car behaves.
+
+**How this was confirmed — three independent ways.** The field list above came from disassembling
+`CarFileCombine`; it was then checked against `export_setup` (`world:mcar.obj`), which writes a
+labelled HTML table and independently agrees on every offset; and finally against a real saved setup,
+with all **25 displayed rows** reproduced exactly from the raw bytes through the map and the car's
+own `.cf`. The garage's four tabs corroborate 26 of the 35 directly.
+
+**`.csu` — a saved setup — is the same 35 floats, unwrapped.** `Config\setups\<track>.csu` is 212
+bytes: the 140-byte payload, `int32 version(=1)`, `int32 size(=212)`, then 64 bytes for a description
+string (blank in a default save). That trailing description is the difference between `CarSetup` and
+`CarSetupData` in the symbol names. `export_setup` also writes a human-readable
+`Config\setups\<track>.html` beside it, which is the single best oracle for this format.
+
+Still true from the earlier pass, and worth keeping: all 5 car archives ship a **byte-identical**
+payload (retail never differentiates a car's default setup); the per-track `aidef.ccs` files are all
+distinct; and Kenyon is the only track shipping more than one named setup — four of them, which now
+reads as four *car* setups rather than four corners.
+
+**The aero kit is where the shipped setups disagree, and it reads as deliberate.** Four player setups
+carry a non-default kit — `bemidji`, `hastings` and `uptown` on **high downforce**, `dundas` on
+**low drag** — while all eight `aidef.ccs` files and every car default stay on **adjustable**. Dundas
+is the fastest circuit in the set and the one that gets low drag; the three on high downforce are the
+tighter ones. That is the field doing exactly what its name says, on evidence entirely independent of
+the garage screen.
+
+> **A trap worth recording.** An earlier pass called fields 26–29 "hard constants … likely
+> schema/version markers". That came from unpacking all 35 slots as `float32`. Field 28 is an
+> **int32**, and read as a float its values 1 and 2 are denormals that print as `0.000` — so a field
+> that varies across four shipped tracks looked constant. `scripts/check_ccs.py` now asserts its
+> domain is `{0, 1, 2}` rather than asserting it never changes.
 
 ```
 0x00  "0SER" + "0SCC"(on disk) + int32 version(=2) + reserved + "!IGM"   -- envelope
