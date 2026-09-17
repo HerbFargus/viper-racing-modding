@@ -8,13 +8,17 @@ Header (0SER payload, first 12 bytes): recordCount, fieldsPerRecord, reserved
 "field" plus 3 numeric fields per record).
 
 Between the header and the first record sits a short block of int32 values
-(33, 42, 51, 60 in every sample seen) whose meaning isn't confirmed -- they
-line up suspiciously well with the byte offsets of a record's field1/field2/
-field3 slots and the record length derived independently below, but that's
-an unconfirmed coincidence, not a verified fact, so build() below never tries
-to regenerate this block: it's carried over byte-for-byte from a real base
-file, the same "patch only what's named, preserve the rest" approach cf.py
-uses for its own reserved/unidentified byte ranges.
+(33, 42, 51, 60 in every sample seen). These ARE the byte offsets of each
+field within a record, followed by the record length -- no longer a suspected
+coincidence: camera.tab uses the identical layout with seven fields instead of
+four (offsets 0, 13, 22, 31, 40, 49, 58 then its record size 67), and a writer
+built on that reading reproduces all eight shipped camera.tab files
+byte-identically. See camtab.py and file-formats.md §4.3.
+
+build() below still does not regenerate the block, carrying it over from a real
+base file instead -- the same "patch only what's named, preserve the rest"
+approach cf.py uses. That is now a conservative choice rather than a necessary
+one.
 
 RECORD LAYOUT (60 bytes each, confirmed byte-exact against every record in a
 real cockpit.tab by reconstructing all 6 and diffing against the original):
