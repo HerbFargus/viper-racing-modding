@@ -762,7 +762,26 @@ wrong as a multiplayer parameter.
 
 For track work this is the most immediately useful thing in §8: it flies anywhere, and
 page `6` reports the camera's position and angles in `camera.tab`'s own units while it
-does so.
+does so. Fly to a spot, aim at what you want framed, read the six numbers off the HUD,
+and that is a `camera.tab` record.
+
+**The controls ✅ CONFIRMED IN GAME:**
+
+| Key | Does |
+|-----|------|
+| numpad `4` / `6` | **yaw** left / right — the view swings round in place and the world sweeps past horizontally. A *pan*, in camera terms |
+| numpad `8` / `2` | **pitch** — **inverted**: `8` looks *down*, `2` looks *up*. A *tilt* |
+| numpad `7` / `9` | **roll** — the horizon rotates clockwise / anticlockwise. A *dutch angle* |
+| numpad `1` / `3` | **strafe** left / right — the camera slides sideways without turning. A *truck* or *crab* |
+| `A` / `Z` | **dolly** in / out — moves the camera along its view axis, rather than a true zoom, which would narrow the field of view and leave the position alone. Page `6`'s position readout is the way to be certain |
+
+That pitch inversion is worth knowing before you spend twenty minutes fighting it.
+
+This page is also what settled `camera.tab`'s rotation format (§4.3 of the format
+reference). Holding a heading while pitching up and down shows the first and third
+fields moving in equal and opposite amounts — the signature of an axis-angle vector
+rather than three Euler angles, which is not something the shipped data alone makes
+obvious.
 
 ### 8.2 The log ✅ CONFIRMED — it is running right now
 

@@ -737,13 +737,13 @@ text-encoded records" format used for two different purposes:
 
 Confirmed by extracting printable strings directly from the payload:
 
-- **`camera.tab`** (broadcast camera definitions): `fieldsPerRecord = 7`. Each record is a keyword —
-  `FIXED` or `PAN_ZOOM` observed — followed by 6 space-padded ASCII numeric fields (position X, Y-height,
-  Z, then FOV/zoom-speed/hold-time-shaped values), e.g.:
+- **`camera.tab`** (the track's TV cameras): `fieldsPerRecord = 7` — a type keyword then six
+  space-padded ASCII numbers. Now fully solved; see *`camera.tab` — the TV cameras* at the end of
+  this section. The earlier reading of the last three fields as "FOV / zoom-speed / hold-time" was
+  a guess and is wrong: for a `FIXED` camera they are an axis-angle rotation in degrees.
   ```
   PAN_ZOOM   185   0.4   -160   0.8   5.0   0.0
   ```
-  `recordCount` matched the number of camera keyword occurrences exactly in every sample checked.
 
 **The complete `.obt` grammar — ✅ CONFIRMED from `race.bin`'s own parser.** The game's format
 strings spell out every record it accepts, which is the only documentation this feature has: no
@@ -934,6 +934,80 @@ This is genuinely one of the more modder-friendly formats in the game — the pa
   `Viper1..7` satisfies the loader but gives **zero** performance benefit, since every level is then
   full-detail. Genuine decimation (see `vrmod moddecimate`) is what actually helps a heavy custom car in
   the near-camera pack.
+
+#### `camera.tab` — the TV cameras — ✅ CONFIRMED IN GAME
+
+Read by `load_tv_cameras()` (`physics:phystask.obj`), which parses the file as a generic
+StringTable and fills a **static `TVCamera[32]`** at `0x520cb8`, count at `0x521084`.
+
+```
+header   int32 recordCount, int32 fieldsPerRecord (=7),
+         int32 x 7  the byte offset of each field within a record
+         int32 x 9  zero
+         int32      record size (67), at header offset 72
+         records begin at 76
+
+record   field 0   type name, 13 bytes
+         fields 1-6  numbers, 9 bytes each, space-wrapped and NUL-padded
+
+TVCamera  +0x00 int32 type  +0x04 x  +0x08 y  +0x0c z  +0x10 a1  +0x14 a2  +0x18 a3
+```
+
+The type is matched case-insensitively against **`fixed`, `pan`, `pan_zoom`, `chase`** —
+anything else is `LogPanic("Unknown camera type %s")`. Across all eight shipped tracks:
+99 `pan_zoom`, 10 `fixed`, 2 `pan`, and **no `chase` at all**. `chase` parses but
+`update_camera` has no branch for it (`cmp 2` / `cmp 1` / else skip), so it falls through
+with an identity matrix — parser-supported and unimplemented, like `obj static` and the
+`flap` wobble.
+
+**Fields 1–3 are a position in the GAME frame, NOT flipped.** That is the trap: `obj
+checkpoint` and `obj car` in the `.obt` — the same STAB family, often the same archive —
+store negated coordinates, and these do not. Measured across all eight tracks, cameras
+sit a median 20–34 m from the racing line with 111 of 111 inside the track's bounding
+box; negated they scatter hundreds of metres out.
+
+**Fields 4–6 are an axis-angle rotation in degrees, for `fixed` only.** `update_camera`
+multiplies all three by π/180, takes the vector's length as the rotation angle and its
+direction as the axis, and builds a Rodrigues matrix — so they are *not* three Euler
+angles. **Forward is column 2 of that matrix**, which for the near-vertical axis every
+shipped camera uses reduces to `(sin yaw, 0, cos yaw)`: a compass heading with 0° looking
+`+Z` and 90° looking `+X`. A zero triple takes the `VectorLength < 0.0001` path to
+`MatrixMakeIdentity`, so it looks exactly `+Z`.
+
+Confirmed three independent ways: read off the disassembly; checked against all ten
+shipped `fixed` cameras, which aim at their own racing line to a **6.7 m median** (worst
+13.3 m — about half a road width, where you would aim to frame a car); and in game, where
+a camera built with `yaw +90` looks along `+X` and one with `(0,0,0)` looks along `+Z`.
+
+Free-roam readings taken from the engine's own HUD (§8 of `runtime.md`) confirm the
+axis-angle reading directly — holding a heading near +90° while pitching moves fields 1
+and 3 in equal and opposite amounts, which is an axis swinging out of vertical, not a
+pitch field changing:
+
+```
+(  0, 90,   0)  ->  heading  +90.0    pitch    0.0
+( 33, 86, -33)  ->  heading  +90.6    pitch  -42.1
+(-37, 87,  37)  ->  heading  +93.4    pitch  +47.1
+```
+
+**For `pan` and `pan_zoom` the last three fields mean something else entirely.** A
+tracking camera derives its aim from the car, so `update_camera` uses `+0x10` as a gain
+and `+0x14` as a distance threshold: it measures how far the car lies along the view axis,
+subtracts the threshold, multiplies by the gain and dollies the camera along its own aim
+vector by that much. `+0x18` is never read for these types, and is `0.0` in all 101 of
+them. `pan` skips the distance term and applies the gain alone. Nearly every shipped
+`pan_zoom` carries `(0.8, 5.0, 0.0)`; only nfield varies it.
+
+**Selection scans from index 1**, keeping the nearest camera by squared distance — so
+**slot 0 is never chosen automatically**, and every shipped track puts a `fixed` camera
+there. And the 32-slot array is *not* bounds-checked by the loader, which trusts
+`StringTableNumRows`; more than 32 records would overrun it. nfield ships the most, at 20.
+
+`vrmod/camtab.py` reads and writes these, with `aim()` for the awkward part — computing
+the rotation that points a camera at a target, height included. Note a direction does not
+determine a rotation uniquely (any roll about the view axis aims the same), so `aim()`
+returns the minimal rotation and the game's own free-roam numbers will differ while
+looking at the same thing.
 
 ### 4.4 `CCS0` — `.ccs` — ✅ CONFIRMED — a **car setup**
 
