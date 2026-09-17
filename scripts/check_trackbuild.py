@@ -20,6 +20,7 @@ this, both of which parse-everything catches and eyeballing does not:
 """
 from __future__ import annotations
 
+import struct
 import sys
 import tempfile
 from pathlib import Path
@@ -66,6 +67,24 @@ def main() -> int:
     trackgen.add_checkpoints(scene, 3, half_width=trackgen.DEFAULT_ROAD_HALF_WIDTH)
     trackgen.add_grid(scene, 8)
     trackgen.add_ground(scene)
+
+    # A wobble is three files agreeing on one integer -- a .grf facing node, a
+    # .sol TUBE and an `obj wobble` record -- so what is worth guarding is that
+    # they STILL agree after assemble() has written all three separately.
+    # The board reuses asphalt.tex so it needs no texture plumbing of its own;
+    # it stands along -z, which is a facing model's local up.
+    from vrmod import mod as _mod
+    board = _mod.Mesh(
+        vertices=[_mod.Vertex(-1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0),
+                  _mod.Vertex(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0),
+                  _mod.Vertex(1.0, 0.0, -2.0, 0.0, 0.0, 1.0, 1.0, 0.0),
+                  _mod.Vertex(-1.0, 0.0, -2.0, 0.0, 0.0, 1.0, 0.0, 0.0)],
+        faces=[(0, 1, 2), (0, 2, 3)], materials=[])
+    board.materials = [_mod.Material(name="asphalt.tex", vertex_start=0,
+                                     vertex_end=4, face_start=0, face_end=2)]
+    scene.meshes["wobble.mod"] = board
+    scene.wobbles = [trackgen.Wobble(position=p, mesh="wobble.mod")
+                     for p in ring(n=5, rx=280.0, rz=180.0)]
 
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "generated.trk"
@@ -216,6 +235,53 @@ def main() -> int:
               all(i in _sol.find(ws, pr.position[0], pr.position[2])
                   for i, pr in enumerate(ws.primitives)),
               f"{len(ws.primitives)}/{len(ws.primitives)}")
+
+        # ---- wobbles -----------------------------------------------------
+        # Each of these was a separate in-game failure while the first wobble
+        # was being built: a node chained through the wrong field, ids handed
+        # to plain tubes, a centre out of register with its tube. Cheap to
+        # assert here, expensive to rediscover one drive at a time.
+        from vrmod import sol as _wsol
+        gp = got["track.grf"].payload
+        n_wob = len(scene.wobbles)
+        facings, stack, walked = [], [struct.unpack_from("<3i", gp, 0)[2]], set()
+        while stack:
+            off = stack.pop()
+            while off and off not in walked and 0 < off <= len(gp) - 0x4c:
+                walked.add(off)                     # the loader's own walk:
+                t, child, sib = struct.unpack_from("<3i", gp, off)
+                if t == 4 and struct.unpack_from("<i", gp, off + 0x38)[0] == 4:
+                    facings.append((struct.unpack_from("<i", gp, off + 0x48)[0],
+                                    struct.unpack_from("<3f", gp, off + 0x3c)))
+                if child:
+                    stack.append(child)             # RECURSE +04 ...
+                off = sib                           # ... ITERATE +08
+        check("every facing is reachable by the loader's own traversal",
+              len(facings) == n_wob, f"{len(facings)}/{n_wob} registered type-4 nodes")
+        check("facing ids are 0..n-1, unique and inside the 512-entry table",
+              sorted(i for i, _c in facings) == list(range(n_wob)),
+              f"ids 0..{n_wob - 1}")
+
+        ws2 = _wsol.parse(env("track.sol"))
+        tubes = [p for p in ws2.primitives if p.type == _wsol.TUBE]
+        ided = sorted(p.id for p in tubes if p.id >= 0)
+        check("an id goes only to a wobble tube, never a plain primitive",
+              ided == list(range(n_wob)), f"{len(ided)} of {len(tubes)} tubes")
+        at = {p.id: p.position for p in tubes if p.id >= 0}
+        check("each facing's centre sits exactly on its own tube",
+              all(c == at.get(i) for i, c in facings),
+              "0.000 m apart, as every shipped wobble is")
+        check("a tube's orientation follows whether it is a wobble",
+              all(struct.unpack_from("<9f", p.raw, 0)
+                  == (_wsol.TUBE_MATRIX_WOBBLE if p.id >= 0
+                      else _wsol.TUBE_MATRIX_PLAIN) for p in tubes),
+              f"{len(tubes)} tubes")
+
+        recs = [r for r in obt_mod.parse(env("track.obt")).records
+                if r.startswith("obj wobble")]
+        check("one obj wobble record per wobble, numbered to match",
+              recs == [f"obj wobble pole {i}" for i in range(n_wob)],
+              f"{len(recs)} records")
 
         # A donor with no stand-in for a texture must fail loudly, not quietly
         # drop the member.
