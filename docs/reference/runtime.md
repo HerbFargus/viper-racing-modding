@@ -773,7 +773,7 @@ and that is a `camera.tab` record.
 | numpad `8` / `2` | **pitch** — **inverted**: `8` looks *down*, `2` looks *up*. A *tilt* |
 | numpad `7` / `9` | **roll** — the horizon rotates clockwise / anticlockwise. A *dutch angle* |
 | numpad `1` / `3` | **strafe** left / right — the camera slides sideways without turning. A *truck* or *crab* |
-| `A` / `Z` | zoom in / out — whether this changes the field of view or moves the camera has not been checked; page `6` would say, since a dolly moves the reported position and a zoom does not |
+| `A` / `Z` | **dolly** in / out — moves the camera along its view axis, rather than a true zoom, which would narrow the field of view and leave the position alone. Page `6`'s position readout is the way to be certain |
 
 That pitch inversion is worth knowing before you spend twenty minutes fighting it.
 
