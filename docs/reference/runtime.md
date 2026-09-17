@@ -769,11 +769,11 @@ and that is a `camera.tab` record.
 
 | Key | Does |
 |-----|------|
-| numpad `7` / `9` | yaw left / right |
-| numpad `8` / `2` | pitch — **inverted**: `8` looks *down*, `2` looks *up* |
-| numpad `4` / `6` | roll left / right — rotation about the view axis, the third of the three. Named by inference from the other two rather than read off the HUD separately |
-| numpad `1` / `3` | move left / right |
-| `A` / `Z` | zoom in / out |
+| numpad `4` / `6` | **yaw** left / right — the view swings round in place and the world sweeps past horizontally. A *pan*, in camera terms |
+| numpad `8` / `2` | **pitch** — **inverted**: `8` looks *down*, `2` looks *up*. A *tilt* |
+| numpad `7` / `9` | **roll** — the horizon rotates clockwise / anticlockwise. A *dutch angle* |
+| numpad `1` / `3` | **strafe** left / right — the camera slides sideways without turning. A *truck* or *crab* |
+| `A` / `Z` | zoom in / out — whether this changes the field of view or moves the camera has not been checked; page `6` would say, since a dolly moves the reported position and a zoom does not |
 
 That pitch inversion is worth knowing before you spend twenty minutes fighting it.
 
