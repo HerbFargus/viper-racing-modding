@@ -92,6 +92,39 @@ def main() -> int:
         check("the ranges reach exactly the end of the index list", not bad,
               "so they tile it" if not bad else str(bad))
 
+        # ---- TUBEs, the wobble primitives ---------------------------------
+        # Which orientation a tube carries is decided entirely by whether it is
+        # a wobble: 931 tubes across every shipped track, 0 exceptions. That is
+        # why sol.tube_at WRITES the matrix instead of inheriting it -- bemidji's
+        # only tube is a plain one, so copying a donor's would hand a wobble the
+        # wrong orientation, and nothing would say so.
+        tubes = [(n, p) for n, s in loaded for p in s.primitives
+                 if p.type == sol.TUBE]
+        if tubes:
+            wrong = [(n, p.id) for n, p in tubes
+                     if struct.unpack_from("<9f", p.raw, 0)
+                     != (sol.TUBE_MATRIX_WOBBLE if p.id >= 0
+                         else sol.TUBE_MATRIX_PLAIN)]
+            check("a tube's orientation follows whether it is a wobble",
+                  not wrong, f"{len(tubes)} tubes" if not wrong else str(wrong[:3]))
+
+            odd = [(n, struct.unpack_from("<3f", p.raw, 0x5c)) for n, p in tubes
+                   if struct.unpack_from("<3f", p.raw, 0x5c)[0] <= 0.0
+                   or struct.unpack_from("<3f", p.raw, 0x5c)[2] != 0.0]
+            check("a tube is ONE radius at +0x5c, with +0x64 zero", not odd,
+                  "no height field" if not odd else str(odd[:3]))
+
+            # An id names the facing model a wobble draws, so a track hands out
+            # exactly as many as it has wobbles -- never one more.
+            gaps = []
+            for n, s in loaded:
+                ids = sorted(p.id for p in s.primitives
+                             if p.type == sol.TUBE and p.id >= 0)
+                if ids and ids != list(range(len(ids))):
+                    gaps.append((n, ids[:4]))
+            check("wobble ids run contiguously from 0 on every track", not gaps,
+                  f"{len(loaded)} tracks" if not gaps else str(gaps))
+
         # INTERNAL nodes carry primitives too -- a solid too big to fit any one
         # quadrant is parked on the ancestor. That is why a query accumulates
         # index ranges along its whole path instead of reading the leaf alone.

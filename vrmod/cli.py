@@ -782,6 +782,16 @@ def main(argv: list[str] | None = None) -> int:
     p_trackgen.add_argument(
         "--bpp-lossy", action="store_true",
         help="accept a .bpp that answers wrongly somewhere, and report where")
+    p_trackgen.add_argument(
+        "--trk", type=Path, default=None,
+        help="also assemble a complete, loadable .trk from the same scene -- "
+             "the native path, which needs neither MKWORLD nor any part of the "
+             "1998 toolchain. Requires --donor")
+    p_trackgen.add_argument(
+        "--donor", type=Path, default=None,
+        help="a stock .trk to take configuration and art from when assembling "
+             "with --trk: three members are configuration rather than compiled "
+             "output, and a real track is where they come from")
 
     p_bppinfo = sub.add_parser(
         "bppinfo",
@@ -1534,8 +1544,27 @@ def main(argv: list[str] | None = None) -> int:
                       f"surface code or height.")
             print(f"Next: run make-track.bat in {args.out_dir} for the rest, "
                   f"then `vrmod pack`. The .bpp is already done.")
-        else:
+        elif not args.trk:
             print(f"Next: run make-track.bat in {args.out_dir} to compile.")
+
+        # THE NATIVE PATH. Everything above built a real TrackScene, and the
+        # only thing that differs between the two routes is what writes it out.
+        # MKWORLD needs the source set and a 1998 toolchain; assemble() needs
+        # neither -- it writes every member of the archive itself, from this
+        # same scene, and the result loads and drives.
+        if args.trk or args.donor:
+            if not (args.trk and args.donor):
+                raise SystemExit("error: --trk and --donor go together -- "
+                                 "assembling needs a stock track to take "
+                                 "configuration and art from")
+            from . import trackbuild as _tb
+            r = _tb.assemble(scene, donor=args.donor, out_path=args.trk,
+                             slot=args.trk.stem.lower(), closed=closed,
+                             corridor=ili.corridor_for(half * 2.0))
+            print()
+            print(f"  {args.trk.stat().st_size:>9,}  {args.trk.name}   {r.summary()}")
+            print(f"Next: put {args.trk.name} in the game's Data folder and drive it. "
+                  f"No compile step.")
 
     elif args.command == "trackmap":
         opts = {"line_width": args.line_width}
