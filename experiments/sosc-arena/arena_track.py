@@ -139,7 +139,13 @@ COW_TUBES = os.environ.get("ARENA_COW_TUBES", "1") != "0"
 # that names no mesh at all). Whatever the engine refuses, it says so in the log
 # -- "Bad obstacle type", "Bad static record" -- so even silence is evidence.
 TEST_ROW = os.environ.get("ARENA_TEST_ROW", "0") == "1"
-COW_TUBE_RADIUS = 1.4         # the cow is 1.85 x 2.74 m; a tube splits the difference
+# The cow's collider, as confirmed in game 2026-09-15. It was written as
+# `radius=1.4`, but tube_at then put that into the tube's HALF-length and kept
+# the donor's 0.23 m radius -- so what knocked the cows over was a 0.46 m post
+# reaching 1.63 m above their feet. Kept exactly that, now said honestly; a
+# capsule as wide as the cow (radius ~0.9) would be easier to hit, untried.
+COW_TUBE_RADIUS = 0.23
+COW_TUBE_HEIGHT = 1.63        # above the feet, where the wobble pivots
 # The donor's own tube is fine as a carrier now: sol.tube_at WRITES the
 # orientation rather than inheriting it. The two sign flips this used to work
 # around are not noise -- there are exactly two tube matrices, and which one a
@@ -483,6 +489,7 @@ def our_sol(donor: Path, cows, boxes, id_count: int = 0) -> tuple[bytes, int]:
     # bemidji's single tube is a plain one.
     tube_template = sol.tube_template(donor_sol)
     prims = [sol.tube_at(tube_template, at, radius=COW_TUBE_RADIUS,
+                         half_length=COW_TUBE_HEIGHT - COW_TUBE_RADIUS,
                          ident=i if i < id_count else -1)
              for i, at in enumerate(cows)]
     wall = sol.wall_template(donor_sol)
@@ -806,7 +813,8 @@ def main(argv):
             raise SystemExit(f"frame conversion is wrong for {len(wrong)} wobbles")
         scene.meshes[FACING_MESH] = facing
         scene.wobbles = [trackgen.Wobble(position=to_source_point(c),
-                                         mesh=FACING_MESH, radius=COW_TUBE_RADIUS)
+                                         mesh=FACING_MESH, radius=COW_TUBE_RADIUS,
+                                         height=COW_TUBE_HEIGHT)
                          for c in placed_cows]
         print(f"  facing model: one cow, {len(facing.vertices)} verts, "
               f"{len(facing.faces)} faces, texture {facing.materials[0].name} "
