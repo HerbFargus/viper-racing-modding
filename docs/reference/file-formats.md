@@ -907,6 +907,12 @@ the ground to the head's top). Hinged below the ball's path, a head tips back wh
 it, the ball strikes the capsule below the hinge and the head tips forward. Either way it visibly goes
 over, which is what a target needs. The direction tells you where the ball was.
 
+**Size for the throw speed, too.** Physics runs in 16 ms ticks and the ball jumps between them, so a
+fast ball can pass through a thin collider without touching it (runtime.md §3). A 1.2 m head is safe
+head-on up to about 4.2× stock throw speed from a standstill, and less once the car is moving. Bigger
+colliders take faster throws, and so would a bigger ball: its 0.457 m collision radius is a constant in
+the engine (runtime.md §3).
+
 - **`track.obt`** (placed-object table): `fieldsPerRecord = 1` in every sample (i.e. one big text field per
   record), `recordCount` matched the number of `obj ...` string occurrences exactly. Real extracted
   records from `bemidji/track.obt` — this is the starting grid and a checkpoint gate, verbatim:

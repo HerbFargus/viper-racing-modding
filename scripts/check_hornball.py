@@ -110,6 +110,31 @@ def main() -> None:
                   f"{len(moved)} changed" + (f", STRAY at {[hex(s) for s in stray[:4]]}"
                                              if stray else ""))
 
+            # --- size: an immediate in create_ball, not an .rdata constant ------
+            so = hornball._size_offset(blob)
+            check("create_ball's radius store is found, and is stock 18.0 inches",
+                  so is not None and struct.unpack_from("<f", blob, so)[0]
+                  == hornball.STOCK_RADIUS_IN,
+                  f"at {so:#x}" if so is not None else "not found")
+            if so is not None:
+                # It must be the operand of `push 0x40; mov dword [esp+0x28], imm32`
+                # after the 'BALL' tag store -- not some other 18.0 in the image.
+                check("it is the operand of the radius store after the BALL tag",
+                      blob[so - 6:so] == bytes.fromhex("6a40c7442428")
+                      and 0 < so - blob.find(bytes.fromhex("c74424004c4c4142")) < 0x80)
+                t = hornball.apply(tmp, size_mult=3.0)
+                sized = (tmp / name).read_bytes()
+                check("apply(size_mult=3) reports 3x and a 1.37 m radius",
+                      abs(t.size_mult - 3.0) < 1e-6 and abs(t.radius_m - 54 * 0.0254) < 1e-6,
+                      f"{t.size_mult:.2f}x, {t.radius_m:.3f} m")
+                check("the stock 18.0 is GONE from the radius operand",
+                      struct.unpack_from("<f", sized, so)[0] == 54.0)
+                fields = set(range(co, co + 4)) | set(range(sp, sp + 4)) | set(range(so, so + 4))
+                moved = {i for i, (a, b) in enumerate(zip(blob, sized)) if a != b}
+                check("every changed byte lies inside the three located floats",
+                      not (moved - fields), f"{len(moved)} changed")
+                check("a sized ball is not reported as stock", not t.is_stock)
+
             hornball.reset(tmp)
             back = (tmp / name).read_bytes()
             check("reset() restores the binary byte-for-byte", back == blob)

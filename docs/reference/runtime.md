@@ -318,6 +318,52 @@ back, meaning they were struck above the hinge. Heads hinged at 0.8 and 1.0 m ti
 A matching row of plain posts fell from 0.8 m tall upward. Heads 1.4–2.6 m up needed a wheelie. Targets
 meant for the ball should cover roughly 0.5–1 m off the road (file-formats.md §4.3).
 
+**A faster ball misses thin targets: it tunnels.** Physics runs in fixed ticks of **16 ms (62.5 a second)**:
+`PhysTaskUpdate` asks `TimerConditioner::GetTicks` how many are due, which is time owed × 62.5, and runs
+`collide_phobs` then `update_phobs` once per tick. `PhysicsGetTime` is simply the tick count × 0.016. So the
+ball doesn't sweep its path. It jumps from one tick's position to the next, and a collider only registers it
+if one of those positions overlaps it. Observed in game: at raised throw speeds, targets get passed through
+far more often than at stock, unless they're scaled up.
+
+| throw | ball travel per tick |
+|---|---|
+| stock, car stopped | 0.50 m |
+| stock, car at 30 m/s | 0.98 m |
+| 3×, car stopped | 1.49 m |
+| 5×, car stopped | 2.49 m |
+| 5×, car at 30 m/s | 2.97 m |
+
+A head-on pass through a capsule of radius `R` overlaps it along `2 × (R + 0.457)` of the path (0.457 m is
+the ball's collision radius, below). A pass that isn't through the middle overlaps less. A shot can't skip
+a target only while the travel per tick stays under that length:
+
+| collider radius | fastest ball a head-on hit can't skip | from a standstill |
+|---|---|---|
+| 0.05 m (a stock pole) | 63 m/s | 2.0× stock |
+| 0.25 m (a stock sign post) | 88 m/s | 2.8× stock |
+| 0.6 m (a 1.2 m target) | 132 m/s | 4.2× stock |
+| 1.2 m | 207 m/s | 6.7× stock |
+| 3.5 m (a 7 m giant) | 495 m/s | 16× stock |
+
+The car's own speed adds to the ball's. Size targets for the throw speed you play at, or play at stock: a
+1.2 m target that stock never skips is skipped by some head-on shots from 5× even with the car stopped.
+
+**The ball's collision size is a constant, and a patchable one.** The horn ball isn't loaded from any
+file. `create_ball` (`race.exe` `0x4636a0`) builds its `PhobData` on the stack, tagged `BALL`, and
+`Ball::Ball` turns field `+0x24` into the radius of its `SphereVolume` after multiplying it by `0.0254`.
+The ball's physics is authored in **inches**. The value is `18.0`, so the collision sphere is **0.457 m**
+in radius, half as big again as the drawn `ball.mod` (about 0.3 m). It's written as an immediate:
+`mov dword [esp+0x28], 18.0`, whose float sits `0x5d` bytes after the `BALL` tag store. That layout
+holds in both the v1.0 pressing's `race.exe` and its `race.bin`; the community builds haven't been
+checked. The same record holds `3000`, `5000`, `0.6` and `5.0`, whose meanings are not yet read.
+
+`vrmod hornball DATA --size MULT` sets it (0.25–10× stock), and the manager's horn-ball panel has a
+slider for it. It's found by signature like speed and cooldown, and `--reset` puts it back. Only the
+**collision** grows. The ball you see is the car's `ball.mod`, so a model meant to look the part (a
+boulder, say) should be built to the radius the tool reports. The ball still spawns 3.5 m ahead and 0.5 m
+above the car's origin, so a big one starts partly below the road and close to the car's nose. How it
+behaves then is for the game to show.
+
 One car is different: **`plane`**, one of the five cars in the HACKS tab's vehicle picker (`plane.car`
 ships). With it, the ball gets the car's own velocity plus the forward throw, and is placed one unit
 **below** the car. It's dropped rather than thrown: a bomb. Read from the code, not yet seen in game.

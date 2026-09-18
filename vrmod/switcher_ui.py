@@ -1123,7 +1123,7 @@ async function renderGame(){
 
   let hbPanel = '';
   if(hb && hb.available){
-    const b = hb.bounds, sm = hb.speed_mult, cd = hb.cooldown;
+    const b = hb.bounds, sm = hb.speed_mult, cd = hb.cooldown, sz = hb.size_mult;
     const row = (lab, id, valId, val, unit, min, max, step, ends) => `
       <div style="display:flex;align-items:center;gap:14px;margin-top:12px">
         <label class="field-label" style="min-width:150px;margin:0">${lab}
@@ -1137,14 +1137,19 @@ async function renderGame(){
      <div class="panel">
        <div class="panel-head"><h2>Horn-ball</h2>
          <span class="note">${hb.is_stock ? 'Stock throw'
-           : `${sm.toFixed(2)}× · ${cd.toFixed(2)}s`}</span></div>
+           : `${sm.toFixed(2)}× · ${cd.toFixed(2)}s${sz != null && sz !== 1 ? ` · ${sz.toFixed(2)}× size` : ''}`}</span></div>
        <p class="lede">The <b>hacks</b> toy: honk and your car fires a ball out the front.
          Turn <b>Horn ball</b> on in the game's hacks menu to use it; these sliders set how hard it
-         throws and how often. Takes effect next launch.</p>
+         throws, how often, and how big it hits. Takes effect next launch.</p>
        ${row('Throw speed', 'hb-speed', 'hb-sv', sm, '×', b.speed_min, b.speed_max, 0.25,
              `${b.speed_min}× – ${b.speed_max}× (1× stock)`)}
        ${row('Cooldown', 'hb-cd', 'hb-cv', cd, 's', b.cd_min, b.cd_max, 0.05,
              `${b.cd_min}s – ${b.cd_max}s (2s stock)`)}
+       ${sz == null ? '' : row('Size', 'hb-size', 'hb-zv', sz, '×', b.size_min, b.size_max, 0.25,
+             `${b.size_min}× – ${b.size_max}× (1× stock)`) + `
+       <p class="lede" style="margin-top:8px">Size sets what the ball <b>hits</b> with: a
+         <span id="hb-radius">${hb.radius_m.toFixed(2)}</span> m radius (0.46 m stock). The ball you
+         see is the car's <b>ball.mod</b>, which doesn't grow, so scale that model to match.</p>`}
        <div class="ai-row" style="margin-top:14px">
          <button class="mini on" onclick="applyHornball()">Apply</button>
          ${hb.is_stock ? '' : `<button class="mini" onclick="resetHornball()">Reset to stock</button>`}
@@ -1237,17 +1242,20 @@ async function setHeadon(disable){
 
 async function applyHornball(){
   const speed_mult = +el$('hb-speed').value, cooldown = +el$('hb-cd').value;
-  const r = await api('/api/hornball', {speed_mult, cooldown});
+  const body = {speed_mult, cooldown};
+  if(el$('hb-size')) body.size_mult = +el$('hb-size').value;
+  const r = await api('/api/hornball', body);
   if(!r.ok) return toast(r.error, 'bad');
-  toast(`Horn-ball: ${r.speed_mult.toFixed(2)}× speed, ${r.cooldown.toFixed(2)}s cooldown `
-        + `— takes effect next launch.`);
+  toast(`Horn-ball: ${r.speed_mult.toFixed(2)}× speed, ${r.cooldown.toFixed(2)}s cooldown`
+        + (r.size_mult != null ? `, ${r.size_mult.toFixed(2)}× size` : '')
+        + ` — takes effect next launch.`);
   renderGame();
 }
 
 async function resetHornball(){
   const r = await api('/api/hornball', {reset:true});
   if(!r.ok) return toast(r.error, 'bad');
-  toast('Horn-ball reset to stock (1× speed, 2s cooldown).');
+  toast('Horn-ball reset to stock (1× speed, 2s cooldown, 1× size).');
   renderGame();
 }
 
@@ -1420,9 +1428,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             return self._json({
                 "available": True,
                 "speed_mult": round(t.speed_mult, 3), "cooldown": round(t.cooldown, 3),
+                "size_mult": round(t.size_mult, 3) if t.size_mult is not None else None,
+                "radius_m": round(t.radius_m, 3) if t.radius_m is not None else None,
                 "is_stock": t.is_stock,
                 "bounds": {"speed_min": hornball.SPEED_MIN, "speed_max": hornball.SPEED_MAX,
-                           "cd_min": hornball.COOLDOWN_MIN, "cd_max": hornball.COOLDOWN_MAX},
+                           "cd_min": hornball.COOLDOWN_MIN, "cd_max": hornball.COOLDOWN_MAX,
+                           "size_min": hornball.SIZE_MIN, "size_max": hornball.SIZE_MAX},
             })
         if self.path == "/api/status":
             return self._json(_status_payload(d))
@@ -1697,10 +1708,17 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 if req.get("reset"):
                     t = hornball.reset(d)
                 else:
-                    t = hornball.apply(d, speed_mult=req.get("speed_mult"),
-                                       cooldown=req.get("cooldown"))
+                    try:
+                        t = hornball.apply(d, speed_mult=req.get("speed_mult"),
+                                           cooldown=req.get("cooldown"),
+                                           size_mult=req.get("size_mult"))
+                    except hornball.HornballError as e:
+                        return self._json({"ok": False, "error": str(e)}, 400)
                 return self._json({"ok": True, "speed_mult": round(t.speed_mult, 3),
-                                   "cooldown": round(t.cooldown, 3), "is_stock": t.is_stock})
+                                   "cooldown": round(t.cooldown, 3),
+                                   "size_mult": (round(t.size_mult, 3)
+                                                 if t.size_mult is not None else None),
+                                   "is_stock": t.is_stock})
             if self.path == "/api/car_active":
                 new = switcher.set_car_active(d, req["name"], bool(req["active"]))
                 return self._json({"ok": True, "name": new})

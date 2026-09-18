@@ -261,7 +261,7 @@ class CarryOver:
     writepath_kinds: list[str] = field(default_factory=list)
     modassert: bool = False
     headon_disabled: bool = False
-    hornball: tuple[float, float] | None = None
+    hornball: tuple[float, float, float | None] | None = None
     carlist: object | None = None          # carlist.Geometry, when not stock
     # Menu index -> mode, for entries that are not stock. Resolution IS one of
     # this module's own steps, but it only ever set ONE index, so any other slot
@@ -284,7 +284,9 @@ class CarryOver:
         if self.headon_disabled:
             out.append("head-on panic disabled")
         if self.hornball:
-            out.append(f"horn ball {self.hornball[0]:.2f}x / {self.hornball[1]:.2f}s")
+            size = self.hornball[2]
+            out.append(f"horn ball {self.hornball[0]:.2f}x / {self.hornball[1]:.2f}s"
+                       + (f" / {size:.2f}x size" if size not in (None, 1.0) else ""))
         if self.carlist:
             out.append(f"car list at {self.carlist}")
         return out
@@ -313,7 +315,7 @@ def _capture(d: Path) -> CarryOver:
         if hornball.available(d):
             t = hornball.read(d)
             if not t.is_stock:
-                c.hornball = (t.speed_mult, t.cooldown)
+                c.hornball = (t.speed_mult, t.cooldown, t.size_mult)
     except Exception:
         pass
     try:
@@ -352,10 +354,12 @@ def _reapply(d: Path, c: CarryOver, rep: "Report") -> None:
         except Exception as e:
             rep.notes.append(f"could not re-disable the head-on panic: {e}")
     if c.hornball:
-        speed, cool = c.hornball
+        speed, cool, size = c.hornball
         try:
-            hornball.apply(d, speed_mult=speed, cooldown=cool)
-            rep.add("carried", f"horn ball re-tuned to {speed:.2f}x / {cool:.2f}s")
+            hornball.apply(d, speed_mult=speed, cooldown=cool,
+                           size_mult=size if hornball.size_available(d) else None)
+            rep.add("carried", f"horn ball re-tuned to {speed:.2f}x / {cool:.2f}s"
+                    + (f" / {size:.2f}x size" if size not in (None, 1.0) else ""))
         except Exception as e:
             rep.notes.append(f"could not re-tune the horn ball: {e}")
     if c.carlist:

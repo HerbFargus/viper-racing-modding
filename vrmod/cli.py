@@ -971,8 +971,8 @@ def main(argv: list[str] | None = None) -> int:
 
     p_hb = sub.add_parser(
         "hornball",
-        help="Tune the horn-ball hack: throw speed and re-fire cooldown "
-             "(reads current values; --speed/--cooldown to change, --reset for stock)",
+        help="Tune the horn-ball hack: throw speed, re-fire cooldown and ball size "
+             "(reads current values; --speed/--cooldown/--size to change, --reset for stock)",
     )
     p_hb.add_argument("data_dir", type=Path, help="the game's Data folder")
     p_hb.add_argument("--speed", type=float, default=None, metavar="MULT",
@@ -981,7 +981,11 @@ def main(argv: list[str] | None = None) -> int:
     p_hb.add_argument("--cooldown", type=float, default=None, metavar="SECONDS",
                       help=f"seconds between throws ({hornball.COOLDOWN_MIN}"
                            f"-{hornball.COOLDOWN_MAX}; stock 2.0)")
-    p_hb.add_argument("--reset", action="store_true", help="restore stock (1.0x, 2.0s)")
+    p_hb.add_argument("--size", type=float, default=None, metavar="MULT",
+                      help=f"collision radius as a multiplier of stock ({hornball.SIZE_MIN}"
+                           f"-{hornball.SIZE_MAX}x; 1.0 = 0.457 m). The drawn ball.mod "
+                           f"does not grow with it")
+    p_hb.add_argument("--reset", action="store_true", help="restore stock (1.0x, 2.0s, 1.0x)")
 
     p_ho = sub.add_parser(
         "headon",
@@ -1991,15 +1995,22 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         if args.reset:
             hornball.reset(args.data_dir)
-        elif args.speed is not None or args.cooldown is not None:
-            hornball.apply(args.data_dir, speed_mult=args.speed, cooldown=args.cooldown)
+        elif args.speed is not None or args.cooldown is not None or args.size is not None:
+            try:
+                hornball.apply(args.data_dir, speed_mult=args.speed,
+                               cooldown=args.cooldown, size_mult=args.size)
+            except hornball.HornballError as e:
+                print(f"  {e}")
+                return 1
         t = hornball.read(args.data_dir)
+        size = (f", size {t.size_mult:.2f}x (collision radius {t.radius_m:.3f} m; stock 0.457)"
+                if t.size_mult is not None else ", size not adjustable in this build")
         print(f"horn-ball: speed {t.speed_mult:.2f}x (stock 1.0), "
-              f"cooldown {t.cooldown:.2f}s (stock 2.0)"
+              f"cooldown {t.cooldown:.2f}s (stock 2.0){size}"
               + ("  [stock]" if t.is_stock else ""))
-        if args.speed is None and args.cooldown is None and not args.reset:
-            print("  --speed MULT / --cooldown SECONDS to change, --reset for stock. "
-                  "Enable the hack in-game from the HACKS tab in Options.")
+        if args.speed is None and args.cooldown is None and args.size is None and not args.reset:
+            print("  --speed MULT / --cooldown SECONDS / --size MULT to change, --reset for "
+                  "stock. Enable the hack in-game from the HACKS tab in Options.")
     elif args.command == "headon":
         try:
             if args.disable and args.enable:
