@@ -50,6 +50,18 @@ code section. Only the COLLISION grows: what is drawn is whatever ball.mod the
 car carries, so a model meant to look the part should be scaled to match
 (read().radius_m gives the size to build to).
 
+THE SPAWN POINT MOVES WITH THE SIZE. Ball::Throw places the ball 3.5 m ahead of
+the car's origin along its forward axis and 0.5 m above it, two .rdata floats
+that nothing else in the image references. A bigger ball spawned there starts
+partly under the road and against the car's nose, so setting the size also
+pushes both out by however much the radius grew: the ball's back and bottom stay
+where a stock ball's are. They are read by
+
+    8B 44 24 18  D8 05 <abs32>    mov eax, [esp+0x18]; fadd dword [ahead]
+    D9 45 28     D8 05 <abs32>    fld [ebp+0x28];      fadd dword [up]
+
+each unique in the whole image, in race.exe and race.bin alike.
+
 REVERSIBLE with no backup file: the changes are three floats, and stock is a known
 constant, so `reset()` simply writes the stock values back. Builds that don't
 carry the horn-ball launch code (or a future build whose launch differs) fail
@@ -72,6 +84,8 @@ STOCK_SPEED = 31.11111068725586      # velocity boost + cap
 STOCK_COOLDOWN = 2.0                 # seconds between throws
 
 STOCK_RADIUS_IN = 18.0              # collision radius, inches (0.457 m)
+STOCK_AHEAD = 3.5                    # spawn, metres ahead of the car's origin
+STOCK_UP = 0.5                       # spawn, metres above it
 INCH = 0.0254                        # Ball::Ball's scale from inches to metres
 
 # Sane slider bounds. Speed and size are multipliers of stock; cooldown is seconds.
@@ -88,6 +102,8 @@ _FMUL_ABS = 0x0D                                    # fmul dword [abs32]  -> D8 
 _BALL_TAG_STORE = bytes.fromhex("c74424004c4c4142")  # mov dword [esp+0], 'BALL'
 _RADIUS_STORE = bytes.fromhex("6a40c7442428")        # push 0x40; mov dword [esp+0x28], imm32
 _RADIUS_WINDOW = 0x80                               # create_ball is short; stock gap is 0x57
+_AHEAD_LOAD = bytes.fromhex("8b442418d805")         # mov eax,[esp+0x18]; fadd dword [abs32]
+_UP_LOAD = bytes.fromhex("d94528d805")              # fld [ebp+0x28];     fadd dword [abs32]
 
 
 class HornballError(RuntimeError):
@@ -102,6 +118,8 @@ class Tuning:
     is_stock: bool
     size_mult: float | None = None   # x stock collision radius; None if not locatable
     radius_m: float | None = None    # the collision radius in metres
+    spawn_ahead: float | None = None  # metres ahead of the car's origin
+    spawn_up: float | None = None     # metres above it
 
 
 # Engine binaries, live one first -- the v1.0 pressing runs race.exe and ships a
@@ -170,6 +188,28 @@ def _size_offset(blob: bytes) -> int | None:
     return off
 
 
+def _spawn_offsets(blob: bytes) -> tuple[int, int] | None:
+    """File offsets of Ball::Throw's (ahead, up) spawn floats, or None.
+
+    Each load must be unique in the image and sit inside the launch routine,
+    just after the speed anchor -- the same routine, so the same build.
+    """
+    a = blob.find(_SPEED_ANCHOR)
+    if a < 0:
+        return None
+    out = []
+    for pat in (_AHEAD_LOAD, _UP_LOAD):
+        h = blob.find(pat)
+        if h < 0 or blob.find(pat, h + 1) >= 0 or not 0 < h - a < 0x120:
+            return None
+        va = struct.unpack_from("<I", blob, h + len(pat))[0]
+        off = pe.va_to_offset(blob, va)
+        if off is None or off > len(blob) - 4:
+            return None
+        out.append(off)
+    return out[0], out[1]
+
+
 def _tuning(blob: bytes) -> Tuning:
     co, sp = _offsets(blob)
     cd = struct.unpack_from("<f", blob, co)[0]
@@ -178,17 +218,25 @@ def _tuning(blob: bytes) -> Tuning:
     so = _size_offset(blob)
     radius_in = struct.unpack_from("<f", blob, so)[0] if so is not None else None
     size = radius_in / STOCK_RADIUS_IN if radius_in is not None else None
+    sp_off = _spawn_offsets(blob)
+    ahead, up = ((struct.unpack_from("<f", blob, sp_off[0])[0],
+                  struct.unpack_from("<f", blob, sp_off[1])[0]) if sp_off else (None, None))
     is_stock = (abs(speed - STOCK_SPEED) < 1e-3 and abs(cd - STOCK_COOLDOWN) < 1e-4
-                and (size is None or abs(size - 1.0) < 1e-6))
+                and (size is None or abs(size - 1.0) < 1e-6)
+                and (ahead is None or (abs(ahead - STOCK_AHEAD) < 1e-5
+                                       and abs(up - STOCK_UP) < 1e-5)))
     return Tuning(speed_mult=mult, cooldown=cd, speed_raw=speed, is_stock=is_stock,
                   size_mult=size,
-                  radius_m=radius_in * INCH if radius_in is not None else None)
+                  radius_m=radius_in * INCH if radius_in is not None else None,
+                  spawn_ahead=ahead, spawn_up=up)
 
 
 def size_available(data_dir: str | Path) -> bool:
-    """True if this build's create_ball can be found, so the size can be set."""
+    """True if this build's create_ball AND Ball::Throw's spawn offsets can be
+    found -- the size is never changed without moving the spawn to match."""
     try:
-        return _size_offset(_race_bin(data_dir).read_bytes()) is not None
+        blob = _race_bin(data_dir).read_bytes()
+        return _size_offset(blob) is not None and _spawn_offsets(blob) is not None
     except HornballError:
         return False
 
@@ -216,12 +264,16 @@ def apply(data_dir: str | Path, *, speed_mult: float | None = None,
     blob = bytearray(f.read_bytes())
     co, sp = _offsets(blob)
     if size_mult is not None:
-        so = _size_offset(blob)
-        if so is None:
-            raise HornballError("this build's create_ball is not where the size "
-                                "patch expects it; speed and cooldown still work")
+        so, spawn = _size_offset(blob), _spawn_offsets(blob)
+        if so is None or spawn is None:
+            raise HornballError("this build's create_ball or ball spawn is not where "
+                                "the size patch expects it; speed and cooldown still work")
         m = max(SIZE_MIN, min(SIZE_MAX, float(size_mult)))
         struct.pack_into("<f", blob, so, STOCK_RADIUS_IN * m)
+        # keep the ball's back and bottom where a stock ball's are
+        grow = STOCK_RADIUS_IN * INCH * (m - 1.0)
+        struct.pack_into("<f", blob, spawn[0], STOCK_AHEAD + grow)
+        struct.pack_into("<f", blob, spawn[1], STOCK_UP + grow)
     if speed_mult is not None:
         m = max(SPEED_MIN, min(SPEED_MAX, float(speed_mult)))
         struct.pack_into("<f", blob, sp, STOCK_SPEED * m)

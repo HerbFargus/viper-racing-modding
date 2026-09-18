@@ -129,9 +129,20 @@ def main() -> None:
                       f"{t.size_mult:.2f}x, {t.radius_m:.3f} m")
                 check("the stock 18.0 is GONE from the radius operand",
                       struct.unpack_from("<f", sized, so)[0] == 54.0)
-                fields = set(range(co, co + 4)) | set(range(sp, sp + 4)) | set(range(so, so + 4))
+                ah, up = hornball._spawn_offsets(blob)
+                check("the spawn constants are the stock 3.5 m ahead / 0.5 m up",
+                      struct.unpack_from("<f", blob, ah)[0] == 3.5
+                      and struct.unpack_from("<f", blob, up)[0] == 0.5)
+                grow = 18 * 0.0254 * 2
+                check("the spawn moved out by the radius's growth, on both axes",
+                      abs(t.spawn_ahead - (3.5 + grow)) < 1e-5
+                      and abs(t.spawn_up - (0.5 + grow)) < 1e-5,
+                      f"{t.spawn_ahead:.3f} m ahead, {t.spawn_up:.3f} m up")
+                fields = (set(range(co, co + 4)) | set(range(sp, sp + 4))
+                          | set(range(so, so + 4)) | set(range(ah, ah + 4))
+                          | set(range(up, up + 4)))
                 moved = {i for i, (a, b) in enumerate(zip(blob, sized)) if a != b}
-                check("every changed byte lies inside the three located floats",
+                check("every changed byte lies inside the five located floats",
                       not (moved - fields), f"{len(moved)} changed")
                 check("a sized ball is not reported as stock", not t.is_stock)
 

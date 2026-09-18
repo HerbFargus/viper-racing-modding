@@ -360,9 +360,22 @@ checked. The same record holds `3000`, `5000`, `0.6` and `5.0`, whose meanings a
 `vrmod hornball DATA --size MULT` sets it (0.25–10× stock), and the manager's horn-ball panel has a
 slider for it. It's found by signature like speed and cooldown, and `--reset` puts it back. Only the
 **collision** grows. The ball you see is the car's `ball.mod`, so a model meant to look the part (a
-boulder, say) should be built to the radius the tool reports. The ball still spawns 3.5 m ahead and 0.5 m
-above the car's origin, so a big one starts partly below the road and close to the car's nose. How it
-behaves then is for the game to show.
+boulder, say) should be built to the radius the tool reports.
+
+**The spawn point moves with the size.** `Ball::Throw` reads its 3.5 m-ahead and 0.5 m-up offsets from
+two `.rdata` floats that nothing else in the image references. A bigger ball spawned there would start
+partly below the road and against the car's nose. So `--size` pushes both out by however much the radius
+grew, which keeps the ball's back and bottom where a stock ball's are: 3× puts it 4.41 m ahead and 1.41 m
+up. A bigger ball therefore also flies higher, and its lowest point stays where a stock ball's is.
+
+**Observed in game: a bigger ball is worse at knocking signs over.** At 3×, it hits more targets but
+tips fewer of the ones it hits. Not traced; two likely reasons. First, the size doesn't make it heavier:
+`Ball::Ball` works out the ball's mass properties from other fields (`+0x28`, `+0x2c`), not from the
+radius, so the push is no stronger. Second, its centre now flies about 1.9 m up, level with or above
+the tops of most target heads. It meets their capsules from above, on the rounded top, so the push
+points mostly down the post. A wobble only turns from the part of the push that goes across the post
+(file-formats.md §4.3), and that part is now small. Targets whose tops sit well above the ball's centre
+should tip more easily.
 
 One car is different: **`plane`**, one of the five cars in the HACKS tab's vehicle picker (`plane.car`
 ships). With it, the ball gets the car's own velocity plus the forward throw, and is placed one unit

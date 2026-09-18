@@ -983,8 +983,8 @@ def main(argv: list[str] | None = None) -> int:
                            f"-{hornball.COOLDOWN_MAX}; stock 2.0)")
     p_hb.add_argument("--size", type=float, default=None, metavar="MULT",
                       help=f"collision radius as a multiplier of stock ({hornball.SIZE_MIN}"
-                           f"-{hornball.SIZE_MAX}x; 1.0 = 0.457 m). The drawn ball.mod "
-                           f"does not grow with it")
+                           f"-{hornball.SIZE_MAX}x; 1.0 = 0.457 m). The spawn point moves "
+                           f"out to match; the drawn ball.mod does not grow with it")
     p_hb.add_argument("--reset", action="store_true", help="restore stock (1.0x, 2.0s, 1.0x)")
 
     p_ho = sub.add_parser(
@@ -2003,8 +2003,10 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  {e}")
                 return 1
         t = hornball.read(args.data_dir)
-        size = (f", size {t.size_mult:.2f}x (collision radius {t.radius_m:.3f} m; stock 0.457)"
-                if t.size_mult is not None else ", size not adjustable in this build")
+        size = (f", size {t.size_mult:.2f}x (collision radius {t.radius_m:.3f} m; stock 0.457; "
+                f"spawns {t.spawn_ahead:.2f} m ahead, {t.spawn_up:.2f} m up)"
+                if t.size_mult is not None and t.spawn_ahead is not None
+                else ", size not adjustable in this build")
         print(f"horn-ball: speed {t.speed_mult:.2f}x (stock 1.0), "
               f"cooldown {t.cooldown:.2f}s (stock 2.0){size}"
               + ("  [stock]" if t.is_stock else ""))
