@@ -206,7 +206,8 @@ def assemble(scene, *, donor: str | Path, out_path: str | Path,
             tpl = (tube_template if tube_template is not None
                    else sol.tube_template(donor_sol))
             prims += [sol.tube_at(tpl, trackgen.to_viper(w.position),
-                                  radius=w.radius, ident=i)
+                                  radius=w.radius, half_length=w.half_length,
+                                  ident=i)
                       for i, w in enumerate(wobbles)]
         if getattr(scene, "walls", None):
             template = sol.wall_template(donor_sol)
