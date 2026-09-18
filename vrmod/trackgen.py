@@ -303,6 +303,16 @@ class Wobble:
     rotating about that origin, and a facing's local up is -z (see
     file-formats.md §4.3).
 
+    The collider is a capsule centred on the model's origin, which is also
+    where it pivots, so half of it is buried; it reaches `height` above the
+    foot. It has to be a capsule -- the engine cannot move a box (see
+    sol.tube_at) -- so a flat sign takes one as wide as it is.
+
+    The pivot does not have to be on the ground: `position`'s third value is
+    a height, and a target head hinged at its bottom edge on a scenery stick
+    knocks back off the stick (confirmed in game). It turns only for hits AWAY
+    from the pivot -- see file-formats.md §4.3.
+
     `position` is in the SOURCE frame, like centreline, walls and grid;
     trackbuild puts it through to_viper() for both the tube and the facing so
     the two cannot drift apart. The id is assigned by trackbuild from list
@@ -315,7 +325,14 @@ class Wobble:
     position: Point
     mesh: str
     kind: str = "pole"
-    radius: float = 2.0       # stock wobble tubes run 1.875 to 5.651
+    radius: float = 0.25      # the capsule's radius; stock runs 0.05 to 0.5
+    height: float = 2.5       # how high it reaches above the foot
+
+    @property
+    def half_length(self) -> float:
+        """The capsule is centred on the foot, so its cylinder is buried to the
+        same depth it stands and a hemispherical cap of `radius` tops it."""
+        return max(self.height - self.radius, 0.0)
 
 
 @dataclass

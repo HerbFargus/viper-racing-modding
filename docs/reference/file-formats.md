@@ -599,6 +599,9 @@ approximately costs nothing.
 > | `BPPFinder::bpp_find(bpp_node*)`, `point_in_poly`, `test_poly` | `world:bpp.obj` | the `.bpp` traversal, over `bpp_tri`/`bpp_node` |
 > | `GrafLoad`, `fixup_graf`, `fixup_ptr`, `fixup_objs`, `cleanup_objs`, `draw_tree` | `world:graf.obj` | the `.grf` node graph — these **solved** it outright (§4.7) |
 > | `GrafLookupDynoModel(int)` | `world:graf.obj` | what `obj wobble`'s integer reaches: a model by id (§4.3) |
+> | `PhysTaskFindStaticObject(int)`, `Wobble::Update` | `physics:` | what a wobble's collider is, and how it turns (§4.3) |
+> | `collide_sphere_box` | `physics:volume.obj` | asserts `"Colliding a dynamic box--not supported"`: a wobble must be a tube (§4.3) |
+> | `TubeVolume::Setup`, `BoxVolume::BoxVolume` | `physics:volume.obj` | the `.sol` TUBE and BOX fields (§4.8) |
 >
 > The addresses are that build's, not `race.bin`'s, so they do not transfer directly — but the names,
 > the class layouts they imply, and the module boundaries do. Anything in this document still marked
@@ -835,6 +838,74 @@ with no wobble N is a dangling claim on that slot.
 
 `obj obstacle` remains the simpler route where an object should tumble away rather than stay rooted: it
 needs no `.grf` node, no `.sol` tube, and no id.
+
+**How a wobble moves — ✅ CONFIRMED IN GAME 2026-09-17.** Read from `Wobble::Wobble` and `Wobble::Update`
+(`race.exe` `0x43d400` / `0x43d4a0`, in the symbolised 1998 build, so they won't match `race.bin`),
+then tested with purpose-built targets on a generated track:
+
+```
+Wobble::Wobble   PhysTaskFindStaticObject(N)  -- scans EVERY .sol primitive for id N at +0x30,
+                                                 whatever its type
+                 copies that primitive's frame (matrix + position) as its rest pose
+                 points the primitive's collision volume at the wobble's own frame and body
+Wobble::Update   runs only while touched: a count at +0x470 (contacts, by its use) arms a 20-step timer
+                 zeroes the linear velocity and puts the position back every step
+                 multiplies the angular velocity by 0.95 every step; zeroes it when the timer ends
+                 stops the tilt where the model's up axis is 85 degrees from vertical
+```
+
+So a wobble **never moves, it only turns**, about its collider's centre, which is also the model's origin
+and the facing's centre. Four consequences, with what the game showed for each:
+
+- **The pivot can be anywhere, including in mid-air.** Stock always puts it at the foot, so the collider
+  is half buried. A target head hinged 1.4 m up on a scenery stick tips back off the stick.
+- **Only a hit away from the pivot can turn it.** The push goes along the contact normal, and the
+  sideways part is thrown away. A head pivoted at its own centre on a near-spherical collider was rigid
+  in game: on a sphere every contact normal passes through the centre, so no hit has any leverage. A
+  foot-pivoted post works because a hit up the post is well above the pivot.
+- **It stops where the hit leaves it**, as far as the code shows: it turns while its spin decays and
+  freezes when the timer runs out, and nothing in `Update` pulls it on over. Whether gravity adds a
+  turning force elsewhere has not been traced. The hinge test's knocked head did stop part-way over.
+- **The collider must be a TUBE.** The lookup would bind a BOX (it doesn't check the type), but
+  `collide_sphere_box` opens with `ASSERT_MSG("Colliding a dynamic box--not supported")` and applies
+  its impulse to the sphere only. In this build the assert does nothing, so the collision runs and the
+  box just stands like a wall. Tried in game: square panels on box colliders drew and blocked, and never
+  fell. Tubes (`collide_sphere_cylinder`) push both bodies.
+
+**Stock signs are posts.** Every wobble on nfield (Sunset Mesa), hastings and kenyon is a TUBE, 124 in
+all. The collider is sized to the post, not the sign, and a sign that faces some other way is rotated
+in its vertices. The tube's frame is always `TUBE_MATRIX_WOBBLE`:
+
+| stock sign | drawn | collider radius, reach |
+|---|---|---|
+| nfield's 2 m square signs (`1/2/3.tex`) | 2.00 wide × 2.02 tall | 0.25 m post, 2.28 m |
+| chevrons (`Rtbig.tex`) | 1 m board, 2 m tall | 0.5 m, 2.5 m |
+| pole-mounted signs | 1 m board on a 3.2–4.7 m pole | 0.05 m, the pole's top |
+
+A car finds a post easily. A horn ball has to hit the post itself, 0.5 m across under a 2 m sign, and
+the face of the sign lets it straight through.
+
+**Three ways to build a knock-down sign**, all driven in game with a 1.2 m head on a stick:
+
+| design | the wobble is | collider | in game |
+|---|---|---|---|
+| **stick** | head + stick, pivot at the foot | a 0.1 m-radius post up to the head's top | head and stick fall together; only the stick is solid |
+| **wide** | head + stick, pivot at the foot | as wide as the head, ground to top | easy to hit, including the face; the air beside the stick is solid too |
+| **hinge** | the head only, pivot at its bottom edge; the stick is render-only scenery | as wide as the head, reaching its top | knocks back off the stick, and the stick stays up |
+
+The hinge's capsule is symmetric about the hinge, so it is as solid below the head as it is tall. A
+low hit there should tip the head over toward the hitter; that follows from the geometry and has not
+been tried. A head pivoted at its own centre (the fourth variant) is the rigid case above.
+
+**Fitting targets to the horn ball.** The ball is thrown level along the car's own forward axis, from
+0.5 m above the car's origin, so on flat ground it can only hit a band of height a little under that
+(runtime.md §3). Measured, it arrives 0.6–0.8 m off the road. A 2 m-high sign is out of reach without a
+wheelie or a crest: heads 1.4–2.6 m up needed one.
+
+**A hinged head works at any hinge from 0.2 m to 1.0 m** (driven in game, 1.2 m heads, collider from
+the ground to the head's top). Hinged below the ball's path, a head tips back when hit; hinged above
+it, the ball strikes the capsule below the hinge and the head tips forward. Either way it visibly goes
+over, which is what a target needs. The direction tells you where the ball was.
 
 - **`track.obt`** (placed-object table): `fieldsPerRecord = 1` in every sample (i.e. one big text field per
   record), `recordCount` matched the number of `obj ...` string occurrences exactly. Real extracted
@@ -1652,9 +1723,9 @@ primitive x n_primitives (224 bytes each)
   +4c  float     0.2           class default, identical in every record
   +50  FourCC    the type again
   +54  i32       100
-  +58..+64       four floats -- extents, type-specific
+  +58..+64       four floats -- extents, type-specific (below)
   +68  i32       0..3 for BOX
-  +6c..+dc       zero (runtime workspace)
+  +6c..+dc       zero on BOX and SPHR; a TUBE's two cap spheres (below)
 
 n1 x 2 bytes                 -- primitive-index list (see below)
 tail                         -- spatial index (partially mapped)
@@ -1665,17 +1736,34 @@ orientation-matrix + centre preamble for every type, and `+48`/`+4c` are the com
 `50000.0`/`0.2` class defaults in all three):
 
 ```
-BOX  (1,739 records)   +58..+64  four floats -- half-extents / size
-                       +68       i32 0..3  (small enum, meaning open; 3 dominates, 1,382 of 1,739)
-SPHR (87 records)      +00..+20  identity orientation (a sphere needs none)
-                       +24..+2c  centre     +58  radius (0.56 .. 6.6)
-TUBE (931 records)     +14,+1c   +-1 orientation terms (axis-aligned)
-                       +24..+2c  centre     +58  radius (0.05 .. 5)   +5c  length (1 .. 30)
-                       +60..+7f  an EMBEDDED SPHR sub-record (own vtable, 'SPHR' tag at +74)
+BOX  (1,739 records)   +58 +5c +60  half-extents along local x, y, z
+                       +64          the LARGEST of the three
+                       +68          i32 0..3  (small enum, meaning open; 3 dominates, 1,382 of 1,739)
+SPHR (87 records)      +00..+20     identity orientation (a sphere needs none)
+                       +24..+2c     centre     +58  radius (0.56 .. 6.6)
+TUBE (931 records)     +14,+1c      +-1 orientation terms (axis-aligned)
+                       +24..+2c     centre
+                       +58          radius (0.05 .. 5)
+                       +5c          HALF-length (1 .. 30); the cylinder runs -h..+h along local z
+                       +60, +a0     two whole cap SphereVolumes, 64 bytes each:
+                                      +00 vtable  +0c/+10 the 50000.0/0.2 defaults  +14 'SPHR'
+                                      +18 100     +1c radius (= the tube's)
+                                      +20 local centre (0, 0, +h) / (0, 0, -h)
+                                      +2c a cached world centre, set to the tube's own position
 ```
 
-The TUBE result is the interesting one: a tube is a **capsule** — a cylinder that carries its own
-cap-sphere as a nested primitive, which is why it uses more of the 224 bytes than a box or a bare sphere.
+**Every one of these is a serialised `CollisionVolume` starting at `+0x3c`**, which is how the fields were
+read: the volume's `+0x1c` onward is the file's `+0x58` onward. `BoxVolume`'s constructor (`race.exe` `0x433990`)
+takes three half-extents and also stores their maximum. That's why a wall's half length "appears twice":
+along is a wall's longest side, and it holds on every stock box. So `+0x58` is a wall's half thickness,
+0.05 m (10 cm walls) on every hastings box. `TubeVolume::Setup` (`race.exe` `0x433830`) writes the radius and
+half-length into the cylinder and each cap in one go, and every one of the 931 shipped tubes agrees
+with it. A tube is a **capsule**: `collide_sphere_tube` tests the cylinder, then both caps.
+
+An earlier `vrmod` read `+0x5c` as a tube's radius. Wobbles it built were posts with the donor tube's
+radius (0.23 m from bemidji), capped 5.75 m above and below. They were hittable by a car and hard for a
+ball. `sol.tube_at` now writes every field a tube's geometry depends on, and `check_sol.py` holds both
+layouts against every stock track.
 
 **Read from the loader at `0x42FEE0`**, which is where the sizes come from rather than from guessing:
 `lea edx,[esi+0x14]` gives the 20-byte header; `shl ecx,3 / sub ecx,eax / shl ecx,5` computes
@@ -1716,9 +1804,9 @@ it. An unrecognised tag is not rejected — the record is disabled by setting `+
 ⚠️ **The physical properties are compiled in per type, not stored per object.** The BOX constructor passes
 constants `1.0` and `0.6` to a shared initialiser; `+0x48` (50000.0) and `+0x4c` (0.2) are class defaults
 that got serialised, and they are byte-identical across **2,670 records in every stock and community track
-examined**. So you cannot make an individual solid behave differently — heavier, bouncier, knock-over-able —
-by editing `.sol`. Whatever governs non-rigid props is a different system; the strings `PhysTask`,
-`phob_list` and `shm_PhysicsShmem` sit beside `track.sol` in `.data` and are the obvious lead.
+examined**. So you cannot make an individual solid heavier or bouncier by editing `.sol`. Making one
+**knock-over-able** is done elsewhere: an `obj wobble N` record in the `.obt` claims the TUBE whose id is
+`N` and drives it as a rigid body (§4.3). Only a TUBE can take this: the engine refuses to push a box.
 
 **Section 3 — a loose quadtree over the XZ plane** ✅ CONFIRMED (from the walker at `0x421180`). An array of
 8-byte nodes:
@@ -3358,12 +3446,12 @@ lives in `.bpp`/`.sol`; the phobs are the live, moving population layered on top
 **0x6c = 108 bytes** (shape and transform — a fixed collider), while a `WOBL` phob allocates
 **0x4b4 = 1,204 bytes**, eleven times larger — the room a rigid body needs for velocity, orientation and
 integration state so it can topple and settle. This is the "a sign knocks over instead of stopping you dead"
-behaviour: such props are `WOBL` phobs, categorically different from the rigid `.sol` solids (whose per-object
-mass is a fixed class default, §4.8) and from `STAT` phobs. There is no per-object mass field to edit in a
-file, because these objects are not in a file — they are created and driven by the physics task.
-
-⚪ Where a track's `OBST`/`WOBL` instances are spawned from (car/mod content, or a scene step at load) is a
-runtime question beyond the file formats, and is not traced here.
+behaviour: such props are `WOBL` phobs, as opposed to `STAT` phobs. The body lives only at runtime, but
+**it is spawned from the track files and wears one of their solids** (✅ confirmed 2026-09-17, §4.3). An
+`obj wobble N` record in `track.obt` builds a `Wobble`. That wobble claims the `.sol` TUBE with id `N` as its
+collider and drives it, and draws the `.grf` facing with id `N`. The 1,204 bytes fit what `Wobble::Update`
+touches, up to its 20-step timer at `+0x4b0`. Mass is still not a field you can edit, but shape and size
+are: they are the tube's radius and length. `obj obstacle` records spawn `Ball` phobs the same way (§4.3).
 
 ### 5.3 Audio
 

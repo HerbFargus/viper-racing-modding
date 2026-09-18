@@ -108,11 +108,32 @@ def main() -> int:
             check("a tube's orientation follows whether it is a wobble",
                   not wrong, f"{len(tubes)} tubes" if not wrong else str(wrong[:3]))
 
-            odd = [(n, struct.unpack_from("<3f", p.raw, 0x5c)) for n, p in tubes
-                   if struct.unpack_from("<3f", p.raw, 0x5c)[0] <= 0.0
-                   or struct.unpack_from("<3f", p.raw, 0x5c)[2] != 0.0]
-            check("a tube is ONE radius at +0x5c, with +0x64 zero", not odd,
-                  "no height field" if not odd else str(odd[:3]))
+            # A tube is a capsule: radius +0x58, HALF-length +0x5c, and two
+            # whole cap spheres that must agree with them. An earlier reading
+            # took +0x5c for the radius, and the wobbles built on it were thin
+            # posts with the template's radius and caps 5.75 m away.
+            odd = []
+            for n, p in tubes:
+                r, h = struct.unpack_from("<2f", p.raw, 0x58)
+                for cap, sign in zip(sol.CAP_OFFSETS, (1.0, -1.0)):
+                    if (p.raw[cap + 0x14:cap + 0x18] != b"RHPS"
+                            or struct.unpack_from("<f", p.raw, cap + 0x1c)[0] != r
+                            or struct.unpack_from("<3f", p.raw, cap + 0x20)
+                            != (0.0, 0.0, sign * h)):
+                        odd.append((n, p.id))
+            check("a tube's cap spheres sit at +-half-length with its radius",
+                  not odd, f"{len(tubes)} tubes, so +0x58 is the radius and "
+                  f"+0x5c the half-length" if not odd else str(odd[:3]))
+
+        boxes = [(n, p) for n, s in loaded for p in s.primitives
+                 if p.type == sol.BOX]
+        if boxes:
+            odd = [(n, p.id) for n, p in boxes
+                   if struct.unpack_from("<f", p.raw, 0x64)[0]
+                   != max(struct.unpack_from("<3f", p.raw, sol.BOX_EXTENTS))]
+            check("a box stores the max of its three half-extents after them",
+                  not odd, f"{len(boxes)} boxes -- BoxVolume's constructor does "
+                  f"this, so +0x58..+0x60 are the extents" if not odd else str(odd[:3]))
 
             # An id names the facing model a wobble draws, so a track hands out
             # exactly as many as it has wobbles -- never one more.
@@ -171,8 +192,7 @@ def main() -> int:
             out = set()
             for j, pr in enumerate(s.primitives):
                 jx, _jy, jz = pr.position
-                ex, ey, ez = struct.unpack_from("<3f", pr.raw, 0x5c)
-                rr = math.sqrt(ex * ex + ey * ey + ez * ez)
+                rr = sol.bounding_radius(pr)
                 if abs(x - jx) <= rr and abs(z - jz) <= rr:
                     out.add(j)
             return out
@@ -199,6 +219,25 @@ def main() -> int:
         check("a built tree returns everything that covers the point",
               ok == probes,
               f"{ok}/{probes} on {name} -- 1,822/1,822 across all eight")
+
+    print("\nsol -- wobble colliders")
+    if loaded:
+        tpl = next((p for _n, s2 in loaded for p in s2.primitives
+                    if p.type == sol.TUBE), None)
+        f32 = lambda v: struct.unpack("<f", struct.pack("<f", v))[0]  # noqa: E731
+        if tpl is not None:
+            t = sol.tube_at(tpl, (1.0, 2.0, 3.0), radius=1.2, half_length=1.3, ident=4)
+            r, h = struct.unpack_from("<2f", t.raw, 0x58)
+            caps = [(struct.unpack_from("<f", t.raw, c + 0x1c)[0],
+                     struct.unpack_from("<3f", t.raw, c + 0x20),
+                     struct.unpack_from("<3f", t.raw, c + 0x2c))
+                    for c in sol.CAP_OFFSETS]
+            check("tube_at writes radius, half-length and both caps together",
+                  (r, h) == (f32(1.2), f32(1.3))
+                  and caps[0][:2] == (f32(1.2), (0.0, 0.0, f32(1.3)))
+                  and caps[1][:2] == (f32(1.2), (0.0, 0.0, -f32(1.3)))
+                  and caps[0][2] == caps[1][2] == (1.0, 2.0, 3.0),
+                  "nothing geometric left over from the template")
 
     print(f"\n{PASS}/{PASS + FAIL} passed")
     return 1 if FAIL else 0
