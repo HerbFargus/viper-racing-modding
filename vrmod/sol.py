@@ -162,32 +162,39 @@ ROOT_EXTENT = 40_000_000      # +/- this, i.e. +/-4,000,000 world units
 MAX_DEPTH = 24                # a leaf at this depth is ~5 world units across
 
 
+def bounding_radius(prim: "Primitive") -> float:
+    """A radius about the primitive's centre that contains all of it.
+
+    Read per type from the serialised volume (see BOX_EXTENTS and tube_at):
+    a BOX's three half-extents at +0x58, a TUBE's radius and half-length at
+    +0x58/+0x5c (a capsule reaches radius + half-length from its centre), and a
+    SPHR's radius at +0x58.
+
+    NOT +0x38, which looks like a float field and is a runtime POINTER --
+    `StaticObjectListGet` overwrites it with `ebp+0x3c` on load, so the shipped
+    bytes there are 1998 heap addresses. (An earlier version read +0x5c..+0x64
+    for every type. For a box that is height, length and the max -- which
+    over-covers, safely -- but for a tube it is the half-length, a vtable and a
+    zero, which misses the radius.)
+    """
+    if prim.type == BOX:
+        hx, hy, hz = struct.unpack_from("<3f", prim.raw, BOX_EXTENTS)
+        return math.sqrt(hx * hx + hy * hy + hz * hz)
+    if prim.type == TUBE:
+        r, h = struct.unpack_from("<2f", prim.raw, 0x58)
+        return r + h
+    return struct.unpack_from("<f", prim.raw, 0x58)[0]
+
+
 def _xz_bounds(prim: "Primitive") -> tuple[float, float, float, float]:
-    """A primitive's footprint in XZ, from its centre and half-extents.
+    """A primitive's footprint in XZ, from its centre and bounding radius.
 
-    THE HALF-EXTENTS ARE AT +0x5c, +0x60, +0x64. Not at +0x38, which looks like
-    a float field and is a runtime POINTER -- `StaticObjectListGet` overwrites it
-    with `ebp+0x3c` on load, so the shipped bytes there are 1998 heap addresses.
-    Reading them as extents gives footprints roughly one primitive wide, and a
-    spatial index built from those duplicates nothing and answers wrongly.
-
-    On bemidji's barrier boxes +0x5c is a constant 2.56 (the half height) while
-    +0x60 and +0x64 run 9.45-11.06, which is half the ~20 m spacing between
-    consecutive wall segments.
+    A CIRCUMSCRIBING radius rather than the exact oriented box: it cannot
+    under-cover whatever the orientation, and a broad phase that under-covers
+    loses a barrier entirely. The cost is duplicate index entries.
     """
     x, _y, z = prim.position
-    ex, ey, ez = struct.unpack_from("<3f", prim.raw, 0x5c)
-    m = struct.unpack_from("<9f", prim.raw, 0x00)
-    # The exact axis-aligned bound of an ORIENTED box: project each half-extent
-    # through the row of the matrix for that world axis. A circumscribing sphere
-    # is also safe but wildly over-covers a long thin barrier -- it took dundas
-    # from 1,498 index entries to 21,009 and overflowed heaven past the u16
-    # field entirely.
-    # A CIRCUMSCRIBING radius rather than the exact oriented box: it cannot
-    # under-cover whatever the orientation, and a broad phase that under-covers
-    # loses a barrier entirely. The cost is duplicate index entries.
-    del m
-    r = math.sqrt(ex * ex + ey * ey + ez * ez)
+    r = bounding_radius(prim)
     return (x - r, z - r, x + r, z + r)
 
 
@@ -319,15 +326,31 @@ def find(sol: "Sol", x: float, z: float) -> list[int]:
 
 
 
+# A BOX is a serialised BoxVolume from +0x3c. Its constructor (0x433990) takes
+# three half-extents and also stores the LARGEST of them, so in the file:
+#
+#   +0x58 +0x5c +0x60   half-extents along local x, y, z
+#   +0x64               the max of the three -- every stock box, no exception
+#
+# which is why a wall's half length "appears twice": along is its longest side.
+BOX_EXTENTS = 0x58
+
+
+def _pack_box_extents(raw: bytearray, hx: float, hy: float, hz: float) -> None:
+    if min(hx, hy, hz) <= 0.0:
+        raise SolError(f"box half-extents {hx}, {hy}, {hz} must all be positive")
+    struct.pack_into("<4f", raw, BOX_EXTENTS, hx, hy, hz, max(hx, hy, hz))
+
+
 def box_from_segment(template: "Primitive", a, b, *, height: float,
-                     thickness: float = 0.25) -> "Primitive":
+                     thickness: float = 0.1) -> "Primitive":
     """A wall BOX spanning `a` to `b`, built by patching a shipped record.
 
     Everything this format needs that nobody has decoded -- the serialised C++
     vtable pointers, the class defaults at +0x48 and +0x4c, the runtime
     workspace -- is carried over from `template` untouched. Only the fields whose
     meaning is established get written: the orientation at +0x00, the centre at
-    +0x24, and the half-extents at +0x5c.
+    +0x24, and the half-extents at +0x58 (see BOX_EXTENTS).
 
     CONFIRMED IN GAME 2026-09-11: a generated track carrying 148 of these stops
     the car, on both sides of the road, from a `.sol` MKWORLD never touched.
@@ -346,11 +369,12 @@ def box_from_segment(template: "Primitive", a, b, *, height: float,
         row 1 of the matrix is (0, 1, 0)        -- up
         row 2 runs ALONG the wall
         row 0 is the normal, perpendicular in XZ
-        extents are (half height, half length, half length)
+        half-extents, local x y z, are (half thickness, half height, half length)
 
-    That last one is odd -- the half length appears twice, at +0x60 and +0x64,
-    identical in every shipped box (2.56 / 9.45 / 9.45 against a ~20 m segment
-    spacing) -- and it is reproduced rather than explained.
+    `thickness` defaults to 0.1 m, which is what stock walls are. Until the
+    BoxVolume constructor was read, +0x58 was not known to be the thickness, so
+    this parameter was accepted and never written, and every generated wall
+    carried the template's.
     """
     import math as _math
 
@@ -371,8 +395,7 @@ def box_from_segment(template: "Primitive", a, b, *, height: float,
     struct.pack_into("<3f", raw, POSITION_OFFSET,
                      (ax + bx) / 2.0, (ay + by) / 2.0 + height / 2.0,
                      (az + bz) / 2.0)
-    struct.pack_into("<3f", raw, 0x5c,
-                     height / 2.0, length / 2.0, length / 2.0)
+    _pack_box_extents(raw, thickness / 2.0, height / 2.0, length / 2.0)
     struct.pack_into("<4s", raw, TYPE_OFFSET, BOX[::-1])
     return Primitive(raw=bytes(raw))
 
@@ -395,21 +418,56 @@ TUBE_MATRIX_PLAIN = (1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 1.0, 0.0)
 TUBE_MATRIX_WOBBLE = (1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, -1.0, 0.0)
 
 
+# A TUBE is a serialised TubeVolume -- a CAPSULE -- starting at +0x3c, the same
+# place every primitive's volume object starts. Read from TubeVolume's
+# constructors (0x4336b0, and 0x4337a0, the one the loader uses, which keeps the
+# serialised fields and only restores vtables) and Setup (0x433830):
+#
+#   +0x58  radius                 volume +0x1c
+#   +0x5c  HALF-length            volume +0x20; the cylinder runs -h..+h on local z
+#   +0x60  cap sphere, 64 bytes   volume +0x24: SphereVolume, centre (0, 0, +h)
+#   +0xa0  cap sphere, 64 bytes   volume +0x64: SphereVolume, centre (0, 0, -h)
+#
+# Each cap is a whole SphereVolume: +0x00 vtable (0x00417210, the tool's), +0x0c
+# and +0x10 the same 50000.0 / 0.2 class defaults as the tube, +0x14 'SPHR',
+# +0x18 100, +0x1c radius, +0x20 local centre, +0x2c a cached world centre that
+# every shipped tube sets to the tube's own position. collide_sphere_tube tests
+# the cylinder, then both caps, so a stale cap is a live collider.
+CAP_OFFSETS = (0x60, 0xa0)
+
+
 def tube_at(template: "Primitive", position, *, radius: float,
-            ident: int = -1) -> "Primitive":
-    """A TUBE at `position`, built by patching a shipped record.
+            half_length: float, ident: int = -1) -> "Primitive":
+    """A TUBE (capsule) at `position`, built by patching a shipped record.
 
-    As with box_from_segment, only the fields whose meaning is established get
-    written and everything undecoded rides along from `template`.
+    The capsule's axis is local z; TUBE_MATRIX_WOBBLE and TUBE_MATRIX_PLAIN both
+    stand it upright. It is centred on `position`, so a wobble centred on the
+    ground buries half its cylinder, and what stands above ground is
+    `half_length` of cylinder plus a hemispherical cap of `radius`.
 
-    A TUBE IS ONE RADIUS, at +0x5c, and there is no height to supply. The two
-    words after it are NOT extents and are deliberately left alone: +0x60 holds
-    the identical raw value 0x00417210 on all 931 shipped tubes across all seven
-    tracks -- an address inside the executable's own image, so a serialised
-    pointer rather than a number -- and +0x64 is exactly 0.0 on all 931. Neither
-    is understood, so both ride along from `template`, under the same rule
-    box_from_segment works by. (An earlier version zeroed both. Wobbles built
-    that way did work in game, so this is discipline rather than a known fault.)
+    A WOBBLE PIVOTS ON THIS POINT. Wobble::Update pins the body's position back
+    to its origin every frame and only lets it rotate, stopping it about 5
+    degrees short of flat. That is why a wobble is centred at its foot.
+
+    THE FRAME IS NEVER TURNED. A wobble draws its model in this tube's frame,
+    so rotating the matrix would turn the model too -- but no stock track does
+    it: every wobble tube carries TUBE_MATRIX_WOBBLE exactly, and a sign that
+    faces some other way has the turn baked into its vertices (nfield's chevrons
+    measure 0.93 x 0.36, 0.48 x 0.87, ... across the same 1 m board).
+
+    A WOBBLE MUST BE A TUBE. The Wobble constructor binds whatever primitive
+    carries its id, so a BOX binds too -- but collide_sphere_box opens with
+    ASSERT_MSG("Colliding a dynamic box--not supported") and only ever pushes
+    the sphere, so a box wobble stands like a wall. Tried in game 2026-09-17:
+    square panels on box colliders drew and blocked but never fell. A flat
+    sign goes on a capsule as wide as it is; stock puts its 2 m square signs on
+    a 0.25 m post, which a car finds and a ball mostly misses.
+
+    An earlier version of this function wrote its `radius` at +0x5c, believing a
+    tube had no height. +0x5c is the half-length: every such wobble was a thin
+    post with the template's radius (0.23 m from bemidji), and its cap spheres
+    stayed at the template's +-5.75 m. Everything a tube's geometry depends on
+    is written here, so nothing can be inherited stale from the template.
 
     `ident` is the wobble id, and -1 means an ordinary solid. Give an id ONLY to
     a tube that has a matching `obj wobble` record and facing node: a tube
@@ -418,11 +476,18 @@ def tube_at(template: "Primitive", position, *, radius: float,
     """
     if ident >= 512:
         raise SolError(f"wobble id {ident} outside 0..511")
+    if radius <= 0.0 or half_length < 0.0:
+        raise SolError(f"tube radius {radius} / half-length {half_length}: "
+                       f"the radius must be positive and the half-length not negative")
     raw = bytearray(template.raw)
     matrix = TUBE_MATRIX_WOBBLE if ident >= 0 else TUBE_MATRIX_PLAIN
     struct.pack_into("<9f", raw, 0x00, *matrix)
     struct.pack_into("<3f", raw, POSITION_OFFSET, *position)
-    struct.pack_into("<f", raw, 0x5c, radius)
+    struct.pack_into("<2f", raw, 0x58, radius, half_length)
+    for cap, sign in zip(CAP_OFFSETS, (1.0, -1.0)):
+        struct.pack_into("<f", raw, cap + 0x1c, radius)
+        struct.pack_into("<3f", raw, cap + 0x20, 0.0, 0.0, sign * half_length)
+        struct.pack_into("<3f", raw, cap + 0x2c, *position)
     struct.pack_into("<i", raw, ID_OFFSET, ident)
     struct.pack_into("<4s", raw, TYPE_OFFSET, TUBE[::-1])
     return Primitive(raw=bytes(raw))

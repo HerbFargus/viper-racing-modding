@@ -296,6 +296,32 @@ velocity added to the ball (**31.111** stock) and the seconds enforced between
 throws (**2.0**). `vrmod hornball` retunes both, confirmed in game on the v1.0
 pressing: a 5× throw with a half-second cooldown behaves as asked.
 
+**Where the ball goes** — read from `Ball::Throw` (`race.exe` `0x4412a0`, the symbolised 1998 build). The throw is refused inside the cooldown.
+Otherwise the ball takes the car's frame and is placed **3.5 m ahead** along the car's forward axis (plus up
+to another 3.1 m for a throw registered late within its 0.1 s window) and **0.5 m above the car's origin**.
+Its velocity is that same forward axis times **the car's speed + 31.111**. Nothing aims it up: on flat
+ground the ball leaves level and drops. The only ways to raise it are to pitch the car (a wheelie, a crest)
+or to throw faster, so it drops less before arriving.
+
+Ball drop below its launch height, by distance, **assuming ordinary gravity** (the engine's own constant
+has not been read):
+
+| throw | 10 m | 20 m | 30 m | 50 m |
+|---|---|---|---|---|
+| stock, car stopped (31 m/s) | 0.5 m | 2.0 m | 4.6 m | 12.7 m |
+| stock, car at 30 m/s (61 m/s) | 0.1 m | 0.5 m | 1.2 m | 3.3 m |
+| 5×, car stopped (156 m/s) | 0.02 m | 0.08 m | 0.2 m | 0.5 m |
+
+**Measured in game: the ball arrives 0.6–0.8 m off the road** after a few metres of flight, fired
+at stock speed from a car stopped on a line 8 m before a row of hinged targets. Heads hinged at 0.2, 0.4 and 0.6 m tipped
+back, meaning they were struck above the hinge. Heads hinged at 0.8 and 1.0 m tipped forward, struck below.
+A matching row of plain posts fell from 0.8 m tall upward. Heads 1.4–2.6 m up needed a wheelie. Targets
+meant for the ball should cover roughly 0.5–1 m off the road (file-formats.md §4.3).
+
+One car is different: **`plane`**, one of the five cars in the HACKS tab's vehicle picker (`plane.car`
+ships). With it, the ball gets the car's own velocity plus the forward throw, and is placed one unit
+**below** the car. It's dropped rather than thrown: a bomb. Read from the code, not yet seen in game.
+
 **It did not work before, and the way it failed is the point.** The constants are
 named by *virtual* address in the instructions that read them, and the code
 converted with `va - IMAGE_BASE`. That is the RVA, not the file offset —
