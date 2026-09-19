@@ -303,8 +303,8 @@ Its velocity is that same forward axis times **the car's speed + 31.111**. Nothi
 ground the ball leaves level and drops. The only ways to raise it are to pitch the car (a wheelie, a crest)
 or to throw faster, so it drops less before arriving.
 
-Ball drop below its launch height, by distance, **assuming ordinary gravity** (the engine's own constant
-has not been read):
+Ball drop below its launch height, by distance. Gravity is **9.81 m/s²**: `PhobDyno::Update` adds
+`mass × −9.81` to every moving body's force each tick, so the drop is the same whatever the ball weighs.
 
 | throw | 10 m | 20 m | 30 m | 50 m |
 |---|---|---|---|---|
@@ -362,20 +362,31 @@ slider for it. It's found by signature like speed and cooldown, and `--reset` pu
 **collision** grows. The ball you see is the car's `ball.mod`, so a model meant to look the part (a
 boulder, say) should be built to the radius the tool reports.
 
-**The spawn point moves with the size.** `Ball::Throw` reads its 3.5 m-ahead and 0.5 m-up offsets from
-two `.rdata` floats that nothing else in the image references. A bigger ball spawned there would start
-partly below the road and against the car's nose. So `--size` pushes both out by however much the radius
-grew, which keeps the ball's back and bottom where a stock ball's are: 3× puts it 4.41 m ahead and 1.41 m
-up. A bigger ball therefore also flies higher, and its lowest point stays where a stock ball's is.
+**The spawn point is its own setting.** `Ball::Throw` reads its 3.5 m-ahead and 0.5 m-up offsets from two
+`.rdata` floats that nothing else in the image references. `--spawn-ahead` and `--spawn-up` set them in
+metres, and the manager has sliders for both. Size never moves them. **Seen in game:** a 3× ball at the
+stock spawn starts partly inside the road, and the game shoves it out, so it **bounces** as it launches.
+That's a legitimate effect for a mod, which is why the two are kept apart. `--spawn-clear`, a button in
+the manager, pushes both offsets out by however much the radius grew. That keeps the ball's back and bottom
+where a stock ball's are, clear of the car and the road, so it flies level. For 3× that's 4.41 m ahead and
+1.41 m up, and its centre flies about 0.9 m higher than stock.
 
-**Observed in game: a bigger ball is worse at knocking signs over.** At 3×, it hits more targets but
-tips fewer of the ones it hits. Not traced; two likely reasons. First, the size doesn't make it heavier:
-`Ball::Ball` works out the ball's mass properties from other fields (`+0x28`, `+0x2c`), not from the
-radius, so the push is no stronger. Second, its centre now flies about 1.9 m up, level with or above
-the tops of most target heads. It meets their capsules from above, on the rounded top, so the push
-points mostly down the post. A wobble only turns from the part of the push that goes across the post
-(file-formats.md §4.3), and that part is now small. Targets whose tops sit well above the ball's centre
-should tip more easily.
+**A big ball flying higher meets targets from above, and tips fewer.** Tested with a 3× ball at the clear
+spawn against five hinged heads. Its centre crossed at about 1.4–1.6 m, against stock's measured 0.6–0.8 m.
+- Heads whose colliders ended below that were struck on their rounded tops, and didn't tip.
+- A head hinged 1.4 m up was struck too close to the hinge to tip.
+- Heads it met on the capsule's straight side, 0.5 m or more above the hinge, tipped: a 1.2 m head on a
+  1.0 m stick, the same with its collider extended 0.6 m past the head, and a 1.2 × 2.4 m panel on a
+  0.5 m stick.
+
+It isn't about mass: the size doesn't change the ball's weight (below). The rule for any ball: **a hinged
+target tips when the ball's centre crosses the straight side of its collider at least ~0.5 m above the
+hinge.**
+
+The ball's record, as `PhobDyno` and `Ball::Ball` read it: mass `+0x08` = **3000 lb** (×0.4545 → 1,364 kg,
+about a car's weight); inertia `+0x0c/+0x10/+0x14` = **5000 lb·ft²** each (×0.04228 → 211 kg·m²); radius
+`+0x24` = 18 in. The last three fields, `+0x28` = 5000, `+0x2c` = 0.6 and `+0x30` = 5.0, go to the
+collision sphere and aren't read yet.
 
 One car is different: **`plane`**, one of the five cars in the HACKS tab's vehicle picker (`plane.car`
 ships). With it, the ball gets the car's own velocity plus the forward throw, and is placed one unit

@@ -261,7 +261,8 @@ class CarryOver:
     writepath_kinds: list[str] = field(default_factory=list)
     modassert: bool = False
     headon_disabled: bool = False
-    hornball: tuple[float, float, float | None] | None = None
+    # speed, cooldown, size, spawn ahead, spawn up (the last three None where unfound)
+    hornball: tuple[float, float, float | None, float | None, float | None] | None = None
     carlist: object | None = None          # carlist.Geometry, when not stock
     # Menu index -> mode, for entries that are not stock. Resolution IS one of
     # this module's own steps, but it only ever set ONE index, so any other slot
@@ -315,7 +316,8 @@ def _capture(d: Path) -> CarryOver:
         if hornball.available(d):
             t = hornball.read(d)
             if not t.is_stock:
-                c.hornball = (t.speed_mult, t.cooldown, t.size_mult)
+                c.hornball = (t.speed_mult, t.cooldown, t.size_mult,
+                              t.spawn_ahead, t.spawn_up)
     except Exception:
         pass
     try:
@@ -354,10 +356,13 @@ def _reapply(d: Path, c: CarryOver, rep: "Report") -> None:
         except Exception as e:
             rep.notes.append(f"could not re-disable the head-on panic: {e}")
     if c.hornball:
-        speed, cool, size = c.hornball
+        speed, cool, size, ahead, up = c.hornball
+        spawn = hornball.spawn_available(d)
         try:
             hornball.apply(d, speed_mult=speed, cooldown=cool,
-                           size_mult=size if hornball.size_available(d) else None)
+                           size_mult=size if hornball.size_available(d) else None,
+                           spawn_ahead=ahead if spawn else None,
+                           spawn_up=up if spawn else None)
             rep.add("carried", f"horn ball re-tuned to {speed:.2f}x / {cool:.2f}s"
                     + (f" / {size:.2f}x size" if size not in (None, 1.0) else ""))
         except Exception as e:
