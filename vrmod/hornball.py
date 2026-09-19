@@ -55,7 +55,10 @@ the ball 3.5 m ahead of the car's origin along its forward axis and 0.5 m above
 it, two .rdata floats that nothing else in the image references. A bigger ball
 spawned there starts partly inside the road, and the game shoves it out: seen in
 game, a 3x ball at the stock spawn bounces as it launches. That is a legitimate
-effect for a mod, so the two are independent knobs. clear_spawn(size) gives the
+effect for a mod, so the two are independent knobs. Deeper launches harder: at the
+stock height a 2-3x ball arcs like a catapult and a 10x ball is fired off the map;
+sunk entirely below the road (under about -0.80 m for a stock ball) it falls
+through instead. See runtime.md section 3. clear_spawn(size) gives the
 offsets that keep a ball's back and bottom where a stock ball's are -- clear of
 the car and the road -- for anyone who wants it to fly level. They are read by
 
