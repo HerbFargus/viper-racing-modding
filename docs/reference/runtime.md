@@ -298,7 +298,8 @@ pressing: a 5× throw with a half-second cooldown behaves as asked.
 
 **Where the ball goes** — read from `Ball::Throw` (`race.exe` `0x4412a0`, the symbolised 1998 build). The throw is refused inside the cooldown.
 Otherwise the ball takes the car's frame and is placed **3.5 m ahead** along the car's forward axis (plus up
-to another 3.1 m for a throw registered late within its 0.1 s window) and **0.5 m above the car's origin**.
+to another 3.1 m for a throw registered late within its 0.1 s window) and **0.5 m above the car's origin**,
+which sits about 0.34 m above the road (measured below, from where a buried ball stops being caught).
 Its velocity is that same forward axis times **the car's speed + 31.111**. Nothing aims it up: on flat
 ground the ball leaves level and drops. The only ways to raise it are to pitch the car (a wheelie, a crest)
 or to throw faster, so it drops less before arriving.
@@ -370,6 +371,31 @@ That's a legitimate effect for a mod, which is why the two are kept apart. `--sp
 the manager, pushes both offsets out by however much the radius grew. That keeps the ball's back and bottom
 where a stock ball's are, clear of the car and the road, so it flies level. For 3× that's 4.41 m ahead and
 1.41 m up, and its centre flies about 0.9 m higher than stock.
+
+**A ball spawned inside the road is launched out of it, and deeper means harder.** Seen in game, all at the
+stock spawn height and throw speed:
+
+| ball | radius | starts buried by (approx.) | what it does |
+|---|---|---|---|
+| 1× | 0.46 m | 0 | a normal level throw |
+| 2–3× | 0.91–1.37 m | 0.2–0.7 m | a catapult arc: up, over and down |
+| 10× | 4.57 m | ~3.9 m | fired skyward, and lands nowhere near where it started |
+
+The mechanism, as far as it's read: every tick, `SphereVolume::CollideGround` asks the terrain how far the
+ball is sunk (`TerrainGetSphereIntersection`, radius minus distance to the surface) and answers with an
+impulse. That's built for a ball that has just touched down, a few centimetres deep. How the depth feeds
+the impulse isn't traced. What the game shows is that the launch grows with how deep the ball starts, and
+a bigger ball at the same height starts deeper. So **spawn height is the launch dial:** a big ball raised
+until it's only slightly buried lobs gently, and a small ball sunk deeper launches hard. At 10× the ball also
+starts wrapped around the car, since its back reaches about 1 m behind the car's origin, which may add to
+the kick.
+
+**Sink it all the way and it falls through.** The stock ball still bounces at a spawn height of −0.80 m and
+drops out of the world below that. The terrain test only catches a ball that still pokes up through the
+surface. So at the cutoff the ball's top is level with the road: origin height − 0.80 + 0.457 ≈ 0, which
+puts **the car's origin about 0.34 m above the road**. That agrees with the level-flight gauge (spawned
+0.84 m up, arriving 0.6–0.8 m after a little drop). A ball of radius *r* should stay catchable down to a
+spawn height of about −(0.34 + *r*); only the stock ball's cutoff has been tried.
 
 **A big ball flying higher meets targets from above, and tips fewer.** Tested with a 3× ball at the clear
 spawn against five hinged heads. Its centre crossed at about 1.4–1.6 m, against stock's measured 0.6–0.8 m.
