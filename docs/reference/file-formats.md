@@ -863,9 +863,11 @@ and the facing's centre. Four consequences, with what the game showed for each:
   sideways part is thrown away. A head pivoted at its own centre on a near-spherical collider was rigid
   in game: on a sphere every contact normal passes through the centre, so no hit has any leverage. A
   foot-pivoted post works because a hit up the post is well above the pivot.
-- **It stops where the hit leaves it**, as far as the code shows: it turns while its spin decays and
-  freezes when the timer runs out, and nothing in `Update` pulls it on over. Whether gravity adds a
-  turning force elsewhere has not been traced. The hinge test's knocked head did stop part-way over.
+- **It stops where the hit leaves it.** It turns while its spin decays and freezes when the timer runs
+  out. Gravity can't pull it on over. `PhobDyno::Update` applies gravity as a plain downward force
+  (`mass × −9.81`) at the body's origin, which is the wobble's pivot, so it has no leverage, and the
+  wobble then discards all movement. `TubeVolume::CollideGround` is a bare `ret`, so a wobble never
+  touches the ground either. The hinge test's knocked head stopped part-way over.
 - **The collider must be a TUBE.** The lookup would bind a BOX (it doesn't check the type), but
   `collide_sphere_box` opens with `ASSERT_MSG("Colliding a dynamic box--not supported")` and applies
   its impulse to the sphere only. In this build the assert does nothing, so the collision runs and the
@@ -906,6 +908,13 @@ wheelie or a crest: heads 1.4–2.6 m up needed one.
 the ground to the head's top). Hinged below the ball's path, a head tips back when hit; hinged above
 it, the ball strikes the capsule below the hinge and the head tips forward. Either way it visibly goes
 over, which is what a target needs. The direction tells you where the ball was.
+
+**Size for the throw speed, too.** Physics runs in 16 ms ticks and the ball jumps between them, so a
+fast ball can pass through a thin collider without touching it (runtime.md §3). A 1.2 m head is safe
+head-on up to about 4.2× stock throw speed from a standstill, and less once the car is moving. Bigger
+colliders take faster throws, and so would a bigger ball: its 0.457 m collision radius is a constant in
+the engine (runtime.md §3). A bigger ball spawned clear of the road flies higher, so fit the targets to
+it: its centre must cross their colliders' straight side, well above the hinge.
 
 - **`track.obt`** (placed-object table): `fieldsPerRecord = 1` in every sample (i.e. one big text field per
   record), `recordCount` matched the number of `obj ...` string occurrences exactly. Real extracted

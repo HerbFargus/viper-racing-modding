@@ -110,6 +110,53 @@ def main() -> None:
                   f"{len(moved)} changed" + (f", STRAY at {[hex(s) for s in stray[:4]]}"
                                              if stray else ""))
 
+            # --- size: an immediate in create_ball, not an .rdata constant ------
+            so = hornball._size_offset(blob)
+            check("create_ball's radius store is found, and is stock 18.0 inches",
+                  so is not None and struct.unpack_from("<f", blob, so)[0]
+                  == hornball.STOCK_RADIUS_IN,
+                  f"at {so:#x}" if so is not None else "not found")
+            if so is not None:
+                # It must be the operand of `push 0x40; mov dword [esp+0x28], imm32`
+                # after the 'BALL' tag store -- not some other 18.0 in the image.
+                check("it is the operand of the radius store after the BALL tag",
+                      blob[so - 6:so] == bytes.fromhex("6a40c7442428")
+                      and 0 < so - blob.find(bytes.fromhex("c74424004c4c4142")) < 0x80)
+                t = hornball.apply(tmp, size_mult=3.0)
+                sized = (tmp / name).read_bytes()
+                check("apply(size_mult=3) reports 3x and a 1.37 m radius",
+                      abs(t.size_mult - 3.0) < 1e-6 and abs(t.radius_m - 54 * 0.0254) < 1e-6,
+                      f"{t.size_mult:.2f}x, {t.radius_m:.3f} m")
+                check("the stock 18.0 is GONE from the radius operand",
+                      struct.unpack_from("<f", sized, so)[0] == 54.0)
+                ah, up = hornball._spawn_offsets(blob)
+                check("the spawn constants are the stock 3.5 m ahead / 0.5 m up",
+                      struct.unpack_from("<f", blob, ah)[0] == 3.5
+                      and struct.unpack_from("<f", blob, up)[0] == 0.5)
+                check("setting the size leaves the spawn where it was",
+                      t.spawn_ahead == 3.5 and t.spawn_up == 0.5,
+                      "size and spawn are independent knobs")
+                fields = (set(range(co, co + 4)) | set(range(sp, sp + 4))
+                          | set(range(so, so + 4)))
+                moved = {i for i, (a, b) in enumerate(zip(blob, sized)) if a != b}
+                check("every changed byte lies inside the three located floats",
+                      not (moved - fields), f"{len(moved)} changed")
+
+                ca, cu = hornball.clear_spawn(3.0)
+                t = hornball.apply(tmp, spawn_ahead=ca, spawn_up=cu)
+                spawned = (tmp / name).read_bytes()
+                check("clear_spawn(3) puts the spawn 0.914 m out on both axes, and it lands",
+                      abs(t.spawn_ahead - 4.414) < 1e-3 and abs(t.spawn_up - 1.414) < 1e-3,
+                      f"{t.spawn_ahead:.3f} m ahead, {t.spawn_up:.3f} m up")
+                moved = {i for i, (a, b) in enumerate(zip(sized, spawned)) if a != b}
+                check("setting the spawn changes only the two spawn floats",
+                      not (moved - set(range(ah, ah + 4)) - set(range(up, up + 4))),
+                      f"{len(moved)} changed")
+                t = hornball.apply(tmp, spawn_up=-1.0)
+                check("a spawn below the car's origin is allowed (a mod may want the bounce)",
+                      abs(t.spawn_up + 1.0) < 1e-6 and abs(t.spawn_ahead - 4.414) < 1e-3)
+                check("a sized ball is not reported as stock", not t.is_stock)
+
             hornball.reset(tmp)
             back = (tmp / name).read_bytes()
             check("reset() restores the binary byte-for-byte", back == blob)

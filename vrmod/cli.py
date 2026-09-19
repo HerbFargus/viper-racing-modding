@@ -971,8 +971,9 @@ def main(argv: list[str] | None = None) -> int:
 
     p_hb = sub.add_parser(
         "hornball",
-        help="Tune the horn-ball hack: throw speed and re-fire cooldown "
-             "(reads current values; --speed/--cooldown to change, --reset for stock)",
+        help="Tune the horn-ball hack: throw speed, re-fire cooldown, ball size and "
+             "spawn point (reads current values; the flags below change them, --reset "
+             "for stock)",
     )
     p_hb.add_argument("data_dir", type=Path, help="the game's Data folder")
     p_hb.add_argument("--speed", type=float, default=None, metavar="MULT",
@@ -981,7 +982,23 @@ def main(argv: list[str] | None = None) -> int:
     p_hb.add_argument("--cooldown", type=float, default=None, metavar="SECONDS",
                       help=f"seconds between throws ({hornball.COOLDOWN_MIN}"
                            f"-{hornball.COOLDOWN_MAX}; stock 2.0)")
-    p_hb.add_argument("--reset", action="store_true", help="restore stock (1.0x, 2.0s)")
+    p_hb.add_argument("--size", type=float, default=None, metavar="MULT",
+                      help=f"collision radius as a multiplier of stock ({hornball.SIZE_MIN}"
+                           f"-{hornball.SIZE_MAX}x; 1.0 = 0.457 m). The drawn ball.mod "
+                           f"does not grow with it, and the spawn point does not move")
+    p_hb.add_argument("--spawn-ahead", type=float, default=None, metavar="METRES",
+                      help=f"where the ball appears, ahead of the car's origin "
+                           f"({hornball.AHEAD_MIN}-{hornball.AHEAD_MAX}; stock "
+                           f"{hornball.STOCK_AHEAD})")
+    p_hb.add_argument("--spawn-up", type=float, default=None, metavar="METRES",
+                      help=f"...and above it ({hornball.UP_MIN}-{hornball.UP_MAX}; stock "
+                           f"{hornball.STOCK_UP}). A big ball near the road bounces as it "
+                           f"launches")
+    p_hb.add_argument("--spawn-clear", action="store_true",
+                      help="set the spawn so the ball's back and bottom sit where a stock "
+                           "ball's do -- clear of the car and the road -- for its size")
+    p_hb.add_argument("--reset", action="store_true",
+                      help="restore stock (1.0x speed, 2.0s, 1.0x size, spawn 3.5/0.5)")
 
     p_ho = sub.add_parser(
         "headon",
@@ -1991,15 +2008,34 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         if args.reset:
             hornball.reset(args.data_dir)
-        elif args.speed is not None or args.cooldown is not None:
-            hornball.apply(args.data_dir, speed_mult=args.speed, cooldown=args.cooldown)
+        else:
+            ahead, up = args.spawn_ahead, args.spawn_up
+            if args.spawn_clear:
+                size = (args.size if args.size is not None
+                        else hornball.read(args.data_dir).size_mult or 1.0)
+                ahead, up = hornball.clear_spawn(size)
+            if any(v is not None for v in (args.speed, args.cooldown, args.size, ahead, up)):
+                try:
+                    hornball.apply(args.data_dir, speed_mult=args.speed,
+                                   cooldown=args.cooldown, size_mult=args.size,
+                                   spawn_ahead=ahead, spawn_up=up)
+                except hornball.HornballError as e:
+                    print(f"  {e}")
+                    return 1
         t = hornball.read(args.data_dir)
+        size = (f", size {t.size_mult:.2f}x (collision radius {t.radius_m:.3f} m; stock 0.457)"
+                if t.size_mult is not None else ", size not adjustable in this build")
+        spawn = (f", spawns {t.spawn_ahead:.2f} m ahead, {t.spawn_up:.2f} m up (stock 3.5 / 0.5)"
+                 if t.spawn_ahead is not None else "")
         print(f"horn-ball: speed {t.speed_mult:.2f}x (stock 1.0), "
-              f"cooldown {t.cooldown:.2f}s (stock 2.0)"
+              f"cooldown {t.cooldown:.2f}s (stock 2.0){size}{spawn}"
               + ("  [stock]" if t.is_stock else ""))
-        if args.speed is None and args.cooldown is None and not args.reset:
-            print("  --speed MULT / --cooldown SECONDS to change, --reset for stock. "
-                  "Enable the hack in-game from the HACKS tab in Options.")
+        if (all(v is None for v in (args.speed, args.cooldown, args.size,
+                                    args.spawn_ahead, args.spawn_up))
+                and not args.reset and not args.spawn_clear):
+            print("  --speed / --cooldown / --size / --spawn-ahead / --spawn-up / --spawn-clear "
+                  "to change, --reset for stock. Enable the hack in-game from the HACKS tab "
+                  "in Options.")
     elif args.command == "headon":
         try:
             if args.disable and args.enable:
