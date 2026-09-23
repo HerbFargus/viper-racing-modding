@@ -3,7 +3,7 @@
 **Purpose:** what the game *does when it runs*, as opposed to what its files contain: **which detail
 level (LOD) you actually see in each camera view** and **how the AI reacts to other cars**, both
 measured in-game; the **command-line parameters** the executable accepts, read out of the binary; and
-**how world objects are created and freed**, which is what the exit panic reports on; and **what the launcher does before the engine starts**, which is a separate program with its own flags. Companions:
+**how world objects are created and freed**, which is what the exit panic reports on; and **what the launcher does before the engine starts**, which is a separate program with its own flags. Also **what a surface above the road does to a car** (§9): the launch pad. Companions:
 [VIPER_RACING_FILE_FORMATS.md](file-formats.md) (byte layouts) and
 [VIPER_RACING_ASSET_TREE.md](asset-tree.md) (what's inside a `.car`/`.trk`).
 
@@ -986,3 +986,101 @@ broske as the author of the 1.2.3 "developer gift" build that every community `r
 hex-edited from; this places him inside the engine source years earlier, writing assertions
 against his own subsystem. The same region carries `Can't create SCO! Grak! This is
 impossible!` and a bare `dolt.`
+
+---
+
+## 9. A surface above the road launches the car ✅ CONFIRMED IN GAME
+
+Put a drivable surface above the road, and a car driving under it is thrown into the air.
+The first time this turned up it was an accident: the edge of a generated bridge deck,
+9 m above the water beside it, launched any car that drove into it. It was then built on
+purpose as a set of **launch pads**, over three test tracks in the bemidji slot:
+
+| set | pads | what happened in game |
+|---|---|---|
+| 1 | 0.25–8 m tall, 10 m long, full road width | every pad launches; the launch grows with height |
+| 2 | 10–65 m tall, 10 m long, outer half and then outer quarter of the road | still launches, with diminishing returns; a launched car can come down **on top of** the pad and sit there |
+| 3 | 20 m tall, 2.5–160 m long, outer quarter | longer pads keep pushing for longer; driving through fast only glances a pad, slowing down gives a bigger launch |
+
+### How it works: the wheels take whatever surface is at their position ✅ CONFIRMED (disassembly + in game)
+
+From `Wheel::Update` (`0x448a60` in the symbolised 1998 build, `physics:wheel.obj`):
+
+1. Each tick, each wheel asks `TerrainGetHeight` for the surface at its own (x, z). It gets
+   the one surface the collision tree holds there, **even when that surface is above the
+   wheel**. The only rejection is a surface steeper than a normal·up of 0.1 (about 84°), plus
+   surface code 14 (meaning not checked).
+2. The distance from the wheel down to that surface becomes suspension compression. A
+   surface above the wheel reads as a very large compression, and compression is **clamped
+   at the suspension's travel + 3.0 m**.
+3. From travel − 0.0254 m (1 inch) onwards a bump stop adds its own force, and the wheel also
+   applies a bump-stop impulse (`get_impulse_magnitude` → `PhobDyno::ApplyImpulse`).
+4. The wheel's total upward force is **capped at 17,800 N** (`0x468b1000`) before
+   `Car::ApplySuspensionForce` applies it.
+5. With damage on, a bump-stop impulse above **2,892.5** (`0x4534c7ff`) flags the wheel broken.
+
+So every pad pushes equally hard in any one tick, whatever its height. What differs is how many
+ticks it pushes for. The push lasts while a wheel is under the pad's footprint **and** below its
+top:
+
+- **Crossing speed** sets the time over the footprint (length ÷ speed): slow = bigger launch.
+- **Height** is only a ceiling. Once the car rises past the top, the push stops, and if it is still
+  over the footprint it lands on the pad. Past the point where a car can clear the top while
+  crossing, extra height adds nothing: set 2's diminishing returns.
+- **Length** sustains the push, up to that same ceiling: set 3.
+- **Width** decides whether the car lifts level. A pad narrower than the car pushes one side's
+  wheels only, and the roll that follows throws the car off before a long lift can build. Set 3's
+  5 m strips did exactly that.
+
+Rough scale, as an estimate not a measurement: four wheels at the cap on a Viper-weight car is
+about 3.8 g net upward. A car that rises all the way through a pad of height H leaves its top at
+about √(2·37·H) m/s and climbs roughly 3.8 × H further.
+
+⚪ **Open: why Ridge Valley's bridge is a wall and not a launch.** Driving into the side of the
+big bridge on `hastings` stops the car dead, with the deck ~50 m above the water. Height alone
+doesn't explain it: set 2's 50 m and 65 m pads both launch. What differs there is unchecked,
+e.g. its surface codes and the two long `.sol` rail boxes along the deck.
+
+### Keep AI cars off launch pads, or the game crashes 🟡 WELL-SUPPORTED
+
+Set 1 spanned the whole road, and a race crashed with an AI car in the trace:
+
+```
+EXCEPTION: Task "BGTask" @ 00421883 : EXCEPTION_ACCESS_VIOLATION
+trace: byte 0x43 of "?advance_bead@IdealLine@@IAEXXZ"
+trace: byte 0x45 of "?update_car_info@IdealLine@@QAEXABUPoint2D@@0@Z"
+trace: byte 0x46 of "?update_line_info@AICar@@IAEXXZ"
+trace: byte 0x13f of "?Update@AICar@@UAEXXZ"
+```
+
+An AI car that goes off course is put back by `AICar::reset` / `teleport_to_track`. That calls
+`IdealLine::reset_bead_position` on the car's own racing line, and the pointer it stores can end up
+null. The next `advance_bead` then reads through it. The lookup (see file-formats.md §4.2.3 for the
+same function at race start) goes null in two ways:
+
+- no segment claims the point, which for a finite position only happens exactly on a segment
+  boundary; or
+- the Newton walk along the line that follows passes **10,000 m** and gives up. Simulated on the
+  test track, that needs a car more than ~5 km from the line; stock kenyon behaves the same.
+
+So the car's position had gone non-finite (NaN or infinity) or kilometres off, not merely a long
+way away. It is an AI car, not the player: `PlayCar` and `AICar` are separate subclasses of `LocalCar`,
+and the player's car never runs this code. Which contact produces the non-finite
+value is not pinned down (the bump-stop impulse divides; so does the wheel-break path). The crash
+stopped once the AI was kept off the pads: moving the pads to the outer half of the road, with the
+AI's line shifted 5 m into the inside lane, held for 0.25–8 m pads. At 10–65 m that crashed again,
+and the outer quarter (10 m clear of the AI's line) has run without a crash since.
+
+### Building one
+
+A launch pad is two meshes over a hole in the road:
+
+- **The pad:** a quad raised to the pad's height, with the ROAD surface code, textured with a
+  colour-keyed texture that is entirely black, so it collides and draws nothing. The collision
+  tree holds one surface per point, so the road faces under it have to be cut out, and any part of
+  that cut the pad doesn't cover put back as road.
+- **The marking:** a quad just above the road, drawn but not solid (NO_COLLISION), so drivers can
+  see where the pad is.
+
+Keep it off the AI's line, with room to spare: the AI line is generated from the centreline,
+so shift the centreline passed to `trackbuild.assemble()` over the stretch with pads.
