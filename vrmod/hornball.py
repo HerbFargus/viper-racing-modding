@@ -97,7 +97,10 @@ INCH = 0.0254                        # Ball::Ball's scale from inches to metres
 SPEED_MIN, SPEED_MAX = 0.25, 15.0
 COOLDOWN_MIN, COOLDOWN_MAX = 0.05, 5.0
 SIZE_MIN, SIZE_MAX = 0.25, 10.0
-AHEAD_MIN, AHEAD_MAX = 0.0, 30.0     # spawn, metres ahead of the car's origin
+AHEAD_MIN, AHEAD_MAX = -30.0, 30.0   # spawn, metres ahead of the car's origin; negative is
+                                     # BEHIND it -- Ball::Throw just adds the value, so a ball
+                                     # spawned behind still leaves at car speed + boost and
+                                     # rolls up into the car from behind
 UP_MIN, UP_MAX = -2.0, 10.0          # spawn, metres above it
 
 # Instruction anchors (see module docstring). x87: D8 /r with a mod=00 disp32
