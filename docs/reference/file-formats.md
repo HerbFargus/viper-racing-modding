@@ -844,6 +844,14 @@ things agreeing on one integer: a `.sol` TUBE with id N, an `obj wobble pole N` 
 registered type-4 node with id N. Its centre equals the tube's position **exactly** — 0.000 m apart on
 all 15 of hastings' — and the model hangs upward from it in local **−z**.
 
+**So a reader has to stand it up.** The corners are stored in the model's own frame, lying on its back, and
+the engine turns it upright to draw it: world offset = (x, −z, y) for a stored (x, y, z), about the centre.
+`grf.parse` does this for every registered facing, and `grf.to_bytes` turns it back. Until 2026-09-23 it
+didn't, so the viewer, the track thumbnails and the gallery drew every wobble already knocked over.
+The records it rotates are exactly the registered ones, which is the wobble count on every stock track
+(`check_track_formats.py`). Uptown's four 3 m posts sit about 0.18 m below their pivot, planted on a
+sloping road; that is authored, not a misread.
+
 Checked against the shipped data: registered type-4 nodes equal the wobble count on every track that
 has them — hastings 15, nfield 50 (of 284 type-4 nodes; the other 234 carry `2` at `+0x38` and are
 never registered), uptown 47 of 48. Then checked from the other side by building one: a generated

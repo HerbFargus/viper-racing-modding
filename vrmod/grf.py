@@ -314,6 +314,41 @@ class _RawChunk:
     # False for the legacy single-tag fallback, whose footer layout is only
     # located by search -- those chunks still render but are not writable.
     exact: bool
+    # A FACING (type-4 node: a wobble's model). Its corners are stored in the
+    # model's own frame, up along -z, and the engine stands it up when it
+    # draws it; see _is_facing_at and _facing_to_world.
+    facing: bool = False
+
+
+def _is_facing_at(data: bytes, pos: int) -> bool:
+    """Is the record whose centre sits at `pos` a FACING rather than scenery?
+
+    A facing's centre is at +3c of its node (build_facing_chunk), so its node
+    type is 0x3c back, its registration marker 4 back and its id right after
+    the centre. All three must agree. Measured: exactly the 15 wobble models
+    in stock hastings and nothing else in its 838 chunks.
+    """
+    if pos < 0x3c:
+        return False
+    kind = struct.unpack_from("<i", data, pos - 0x3c)[0]
+    marker = struct.unpack_from("<i", data, pos - 4)[0]
+    ident = struct.unpack_from("<i", data, pos + 12)[0]
+    return kind == FACING_TYPE and marker == FACING_MARKER and 0 <= ident < MAX_FACING_ID
+
+
+def _facing_to_world(ox: float, oy: float, oz: float) -> tuple[float, float, float]:
+    """A facing's local offset, turned upright: local -z is up.
+
+    The inverse of the (x, y, z) -> (x, z, -y) that places a standing model
+    into a facing's frame -- the conversion the knockable totems were built
+    with and confirmed standing in game. Without it every wobble renders
+    lying on its side, which is how the viewer used to draw them.
+    """
+    return ox, -oz, oy
+
+
+def _facing_to_local(wx: float, wy: float, wz: float) -> tuple[float, float, float]:
+    return wx, wz, -wy
 
 
 def _read_chunk_at(data: bytes, pos: int):
@@ -335,12 +370,15 @@ def _read_chunk_at(data: bytes, pos: int):
     if not _looks_like_chunk_start(data, pos):
         return None
     cx, cy, cz, _ = struct.unpack_from("<4f", data, pos)
+    facing = _is_facing_at(data, pos)
     p = pos + CENTER_SIZE
     corners: list[tuple[float, float, float, float, float]] = []
     corner_offsets: list[int] = []
     while _looks_like_corner(data, p):
         ox, oy, oz = struct.unpack_from("<3f", data, p)
         u, v = struct.unpack_from("<2f", data, p + 24)
+        if facing:
+            ox, oy, oz = _facing_to_world(ox, oy, oz)
         corners.append((cx + ox, cy + oy, cz + oz, u, v))
         corner_offsets.append(p)
         p += CORNER_SIZE
@@ -382,6 +420,7 @@ def _read_chunk_at(data: bytes, pos: int):
                     face_offsets=face_offsets,
                     next_pos=faces_end,
                     exact=True,
+                    facing=facing,
                 )
 
     # Fall back to the older single-tag path for anything that doesn't
@@ -407,6 +446,7 @@ def _read_chunk_at(data: bytes, pos: int):
         face_offsets=[],
         next_pos=next_pos,
         exact=False,
+        facing=facing,
     )
 
 
@@ -449,6 +489,7 @@ class ChunkLayout:
     vertex_base: int
     face_base: int
     exact: bool
+    facing: bool = False      # corners are model-frame, up -z (see _facing_to_world)
 
 
 @dataclass
@@ -525,6 +566,7 @@ def parse(data: bytes) -> GrfMesh:
             vertex_base=chunk_start_corner,
             face_base=chunk_face_start,
             exact=result.exact,
+            facing=result.facing,
         ))
 
         if triangles is not None:
@@ -667,10 +709,22 @@ def to_bytes(grf_mesh: GrfMesh) -> bytes:
         lay = grf_mesh.layout[ci]
         off = lay.corner_offsets[i - lay.vertex_base]
         cx, cy, cz = lay.center
+        # An unmoved corner keeps its stored bytes. Re-deriving the offset from
+        # the absolute position is lossy wherever the offset is tiny against
+        # the centre: a lathe-turned idol's 1e-16 rounding noise, paired with a
+        # 100 m centre once a facing is stood up, would come back as 0.
+        sx, sy, sz = struct.unpack_from("<3f", buf, off)
+        if lay.facing:
+            sx, sy, sz = _facing_to_world(sx, sy, sz)
+        moved = (cx + sx, cy + sy, cz + sz) != (v.x, v.y, v.z)
+        ox, oy, oz = v.x - cx, v.y - cy, v.z - cz
+        if lay.facing:
+            ox, oy, oz = _facing_to_local(ox, oy, oz)     # parse stood it up; store it as it was
         try:
-            _patch_f32(buf, off, v.x - cx)
-            _patch_f32(buf, off + 4, v.y - cy)
-            _patch_f32(buf, off + 8, v.z - cz)
+            if moved:
+                _patch_f32(buf, off, ox)
+                _patch_f32(buf, off + 4, oy)
+                _patch_f32(buf, off + 8, oz)
             _patch_f32(buf, off + 24, v.u)
             _patch_f32(buf, off + 28, v.v)
         except (OverflowError, struct.error) as exc:
