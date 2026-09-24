@@ -372,6 +372,11 @@ the manager, pushes both offsets out by however much the radius grew. That keeps
 where a stock ball's are, clear of the car and the road, so it flies level. For 3× that's 4.41 m ahead and
 1.41 m up, and its centre flies about 0.9 m higher than stock.
 
+**It can spawn behind the car.** `Ball::Throw` just adds the offset, so a negative `--spawn-ahead` (down to
+−30 m) puts the ball behind the car. It still leaves at the car's speed plus the throw boost, so it rolls up
+into the car from behind. **Seen in game,** it hits your own car. In an arena that is part of the game: the
+ball has to get past you before it can hit anyone else.
+
 **A ball spawned inside the road is launched out of it, and deeper means harder.** Seen in game, all at the
 stock spawn height and throw speed:
 

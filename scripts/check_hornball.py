@@ -156,6 +156,12 @@ def main() -> None:
                 check("a spawn below the car's origin is allowed (a mod may want the bounce)",
                       abs(t.spawn_up + 1.0) < 1e-6 and abs(t.spawn_ahead - 4.414) < 1e-3)
                 check("a sized ball is not reported as stock", not t.is_stock)
+                t = hornball.apply(tmp, spawn_ahead=-6.0)
+                check("a spawn behind the car is allowed (the ball runs up into it from behind)",
+                      abs(t.spawn_ahead + 6.0) < 1e-6, f"{t.spawn_ahead:.2f} m ahead")
+                t = hornball.apply(tmp, spawn_ahead=-99.0)
+                check("and it clamps at AHEAD_MIN like the far end",
+                      abs(t.spawn_ahead - hornball.AHEAD_MIN) < 1e-6, f"{t.spawn_ahead:.2f} m ahead")
 
             hornball.reset(tmp)
             back = (tmp / name).read_bytes()
