@@ -263,6 +263,42 @@ def check_grf(compiled: Path | None) -> None:
           len(ours.mesh.faces) == len(ref.mesh.faces), f"{len(ours.mesh.faces):,} faces")
 
 
+def check_facings(data: Path) -> None:
+    """A wobble's model (a type-4 FACING in track.grf) is stored lying down --
+    up is local -z -- and the engine stands it up to draw it. grf.parse must do
+    the same, or every viewer and thumbnail shows knockable objects already
+    knocked over, and to_bytes must undo it on the way back."""
+    print("track.grf -- facings (wobble models)")
+    import re
+    seen = 0
+    for p, by in tracks(data):
+        need = ("track.grf", "track.obt")
+        if not all(n in by for n in need):
+            continue
+        e = by["track.grf"]
+        raw = envelope.build(e.tag, e.version, e.payload)
+        g = grf.parse(raw)
+        facings = [lay for lay in g.layout if lay.facing]
+        wobbles = len(re.findall(r"obj\s+wobble", by["track.obt"].payload.decode("latin-1")))
+        if not wobbles and not facings:
+            continue
+        seen += 1
+        standing = 0
+        for lay in facings:
+            ys = [g.mesh.vertices[lay.vertex_base + k].y - lay.center[1]
+                  for k in range(len(lay.corner_offsets))]
+            # Upright means most of it rises above the pivot. Not "nothing below":
+            # uptown sinks four 3 m posts ~0.18 m into a sloping road. A model left
+            # lying on its side is symmetric about the pivot and fails this.
+            standing += max(ys) > 0.5 and max(ys) > 3 * max(0.0, -min(ys))
+        check(f"{p.name}: one facing per wobble, each standing on its foot",
+              len(facings) == wobbles and standing == len(facings),
+              f"{len(facings)} facings, {wobbles} wobbles, {standing} standing")
+        check(f"{p.name}: to_bytes round-trips the grf byte for byte", grf.to_bytes(g) == raw)
+    if not seen:
+        skip("facings", f"no track with wobbles in {data}")
+
+
 if __name__ == "__main__":
     data = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_DATA
     compiled = Path(sys.argv[2]) if len(sys.argv) > 2 else None
@@ -270,6 +306,7 @@ if __name__ == "__main__":
     check_sol(data, compiled)
     check_obt(data, compiled)
     check_ili(data)
+    check_facings(data)
     check_grf(compiled)
     tail = f" ({len(skipped)} skipped)" if skipped else ""
     print(f"\n{checks - len(failures)}/{checks} passed{tail}")
