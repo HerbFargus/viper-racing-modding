@@ -56,6 +56,24 @@ def ring(n=96, rx=300.0, rz=200.0, cx=900.0, cz=-450.0):
              cz + rz * math.sin(2 * math.pi * i / n), 0.0) for i in range(n)]
 
 
+def stadium(straight=1100.0, radius=120.0):
+    """An oval on 10 m stations with axis-aligned straights, starting AT the origin.
+
+    Exactly the shape that crashed the game at race start: see ili.origin_is_claimed().
+    """
+    import math
+    arc = int(math.pi * radius / 10)
+    pts = [(i * 10.0, 0.0, 0.0) for i in range(int(straight / 10))]
+    pts += [(straight + radius * math.cos(-math.pi / 2 + math.pi * i / arc),
+             radius + radius * math.sin(-math.pi / 2 + math.pi * i / arc), 0.0)
+            for i in range(arc)]
+    pts += [(straight - i * 10.0, 2 * radius, 0.0) for i in range(int(straight / 10))]
+    pts += [(radius * math.cos(math.pi / 2 + math.pi * i / arc),
+             radius + radius * math.sin(math.pi / 2 + math.pi * i / arc), 0.0)
+            for i in range(arc)]
+    return pts
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         print("no donor track given -- pass a stock .trk")
@@ -291,6 +309,58 @@ def main() -> int:
             check("an unmatched texture is refused", False, "built anyway")
         except ValueError as e:
             check("an unmatched texture is refused", True, str(e)[:44])
+
+        # The race-start crash: a line that leaves the world origin unclaimed
+        # must be refused, not written.
+        bad = trackgen.sweep(stadium())
+        trackgen.add_checkpoints(bad, 3, half_width=trackgen.DEFAULT_ROAD_HALF_WIDTH)
+        trackgen.add_grid(bad, 8)
+        try:
+            trackbuild.assemble(bad, donor=donor, out_path=out, slot="bemidji")
+            check("a line that leaves the origin unclaimed is refused", False, "built anyway")
+        except ValueError as e:
+            check("a line that leaves the origin unclaimed is refused",
+                  "origin" in str(e), str(e)[:44])
+
+        # Every stock line claims it, which is why nobody met this before.
+        for n in ("default.ili", "rdefault.ili", "track.ild"):
+            if n in ref:
+                stock = ili.parse_line(envelope.build(ref[n].tag, ref[n].version, ref[n].payload))
+                check(f"the donor's {n} claims the origin", ili.origin_is_claimed(stock))
+
+    # Vertex colours: track geometry is drawn pre-lit, so baked shading has to
+    # land in each corner's colour field (+16 of the 32-byte corner).
+    print("\nvertex colours")
+    from vrmod import mod as modmod
+    quad = modmod.Mesh(
+        vertices=[modmod.Vertex(x, 0.0, z, 0.0, 1.0, 0.0, 0.0, 0.0)
+                  for x, z in ((0, 0), (1, 0), (1, 1), (0, 1))],
+        faces=[(0, 1, 2), (0, 2, 3)],
+        materials=[modmod.Material(name="grass.tex", vertex_start=0, vertex_end=4,
+                                   face_start=0, face_end=2)])
+    greys = [bytes((v, v, v, 0xFF)) for v in (40, 90, 160, 250)]
+    payload = envelope.parse(grf.build([(quad, "grass.tex", greys)])).payload
+    first = grf.FILE_HEADER + grf.CHUNK_HEADER
+    got = [payload[first + 32 * i + 16: first + 32 * i + 20] for i in range(4)]
+    check("each vertex colour lands in its corner's colour field", got == greys,
+          " ".join(g.hex() for g in got))
+    plain = envelope.parse(grf.build([(quad, "grass.tex")])).payload
+    check("a chunk with no colours stays white",
+          all(plain[first + 32 * i + 16: first + 32 * i + 20] == grf.WHITE for i in range(4)))
+
+    # The race-start lookup (ili.origin_is_claimed): the engine asks which
+    # segment claims (0, 0) before it has seen any car, and a null answer is a
+    # crash. Axis-aligned straights on round stations through the origin put it
+    # exactly on a boundary of every segment.
+    print("\nrace-start origin lookup")
+    ground = lambda pts: [(p[0], p[1]) for p in pts]      # generate() reads (x, z) pairs
+    check("a stadium on 10 m stations through the origin leaves it unclaimed",
+          not ili.origin_is_claimed(ili.generate(ground(stadium()))))
+    slid = [(x - 5.0, z) for x, z in ground(stadium())]
+    check("the same stadium slid half a station claims it",
+          ili.origin_is_claimed(ili.generate(slid)))
+    check("an off-origin ring claims it",
+          ili.origin_is_claimed(ili.generate(ground(ring()))))
 
     print(f"\n{PASS}/{PASS + FAIL} passed")
     return 1 if FAIL else 0

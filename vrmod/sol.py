@@ -493,6 +493,38 @@ def tube_at(template: "Primitive", position, *, radius: float,
     return Primitive(raw=bytes(raw))
 
 
+def sphere_at(template: "Primitive", position, *, radius: float) -> "Primitive":
+    """A static SPHR primitive at `position` -- a boulder, a barrel, a tree trunk.
+
+    Read off kenyon's twenty (radius 1.5-6.6 m, the rocks beside its road) and
+    dundas's sixty-seven (0.56 m). A sphere is the simplest volume in the file:
+    identity orientation, centre at +0x24, radius at +0x58, a zero LOCAL centre
+    at +0x5c, and the world centre cached again at +0x68.
+
+    `template` can be any shipped primitive of any type, because the loader
+    dispatches on the FourCC and writes the running build's vtable itself; the
+    serialised one is 1998's. Every field a sphere reads is written here, and
+    the runtime workspace past +0x74 is cleared, which is how stock spheres ship.
+
+    Static only: `id` is -1. An id belongs to a wobble, and a wobble must be a
+    TUBE (see tube_at).
+    """
+    if radius <= 0.0:
+        raise SolError(f"sphere radius {radius} must be positive")
+    raw = bytearray(template.raw)
+    struct.pack_into("<9f", raw, 0x00, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+    struct.pack_into("<3f", raw, POSITION_OFFSET, *position)
+    struct.pack_into("<i", raw, ID_OFFSET, -1)
+    struct.pack_into("<4s", raw, TYPE_OFFSET, SPHERE[::-1])
+    struct.pack_into("<4s", raw, 0x50, SPHERE[::-1])
+    struct.pack_into("<i", raw, 0x54, 100)
+    struct.pack_into("<f", raw, 0x58, radius)
+    struct.pack_into("<3f", raw, 0x5c, 0.0, 0.0, 0.0)      # local centre
+    struct.pack_into("<3f", raw, 0x68, *position)          # cached world centre
+    raw[0x74:] = bytes(len(raw) - 0x74)
+    return Primitive(raw=bytes(raw))
+
+
 def tube_template(donor: "Sol") -> "Primitive":
     """A shipped TUBE to patch. Raises if the donor has none."""
     for prim in donor.primitives:

@@ -351,6 +351,16 @@ class TrackScene:
     grid: list[Point] = field(default_factory=list)
     wobbles: list[Wobble] = field(default_factory=list)
     meshes: dict[str, "mod.Mesh"] = field(default_factory=dict)
+    # Per-vertex colour for a mesh, by name: one 4-byte corner colour per vertex,
+    # written straight into the .grf. Track geometry is drawn PRE-LIT, so this is
+    # where lighting goes -- every stock track bakes grey shading into it
+    # (hastings uses 13 levels, bemidji 36 colours). Meshes not listed stay white.
+    # Keep to greys (v, v, v, 0xff): the channel order of tinted colours is unread.
+    colours: dict[str, list[bytes]] = field(default_factory=dict)
+    # Static solid spheres: (position, radius) in the SOURCE frame, for boulders
+    # and the like. They cost a .sol primitive each and no collision triangles,
+    # so they are far cheaper than modelling a solid in the surface mesh.
+    spheres: list[tuple[Point, float]] = field(default_factory=list)
     wall_texture: str = "wall.tga"
 
 
