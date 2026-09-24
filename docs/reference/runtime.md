@@ -3,7 +3,7 @@
 **Purpose:** what the game *does when it runs*, as opposed to what its files contain: **which detail
 level (LOD) you actually see in each camera view** and **how the AI reacts to other cars**, both
 measured in-game; the **command-line parameters** the executable accepts, read out of the binary; and
-**how world objects are created and freed**, which is what the exit panic reports on; and **what the launcher does before the engine starts**, which is a separate program with its own flags. Also **what a surface above the road does to a car** (§9): the launch pad. Companions:
+**how world objects are created and freed**, which is what the exit panic reports on; and **what the launcher does before the engine starts**, which is a separate program with its own flags. Also **what a surface above the road does to a car** (§9): the launch pad; and **when the game draws a car's dash at all** (§10): it is skipped if the car's centre is behind the cockpit camera. Companions:
 [VIPER_RACING_FILE_FORMATS.md](file-formats.md) (byte layouts) and
 [VIPER_RACING_ASSET_TREE.md](asset-tree.md) (what's inside a `.car`/`.trk`).
 
@@ -1084,3 +1084,79 @@ A launch pad is two meshes over a hole in the road:
 
 Keep it off the AI's line, with room to spare: the AI line is generated from the centreline,
 so shift the centreline passed to `trackbuild.assemble()` over the stretch with pads.
+
+---
+
+## 10. The cockpit is drawn in the car's frame, and skipped when the car's centre is behind the camera ✅ CONFIRMED IN GAME
+
+A car's cockpit is four models: the dash `<prefix>c.mod`, the steering wheel `<prefix>w.mod`,
+and `Needle.mod` loaded twice (tacho and speedo), placed by `cockpit.tab`
+([file formats](file-formats.md)). They are loaded only if the car has a `cockpit.tab`. The dash
+is the only one drawn in the **car's own frame**, and that frame's origin (the car's centre) has
+to be in front of the camera, or the whole dash is skipped.
+
+It turned up building 3D cockpits for two jeeps. The Indy Jeep's first in-game test showed the
+steering wheel and both needles hanging in the air, and no dash at all. Its camera was 0.40 m
+forward of the car's centre. Moved to 0.05 m behind it, the dash drew.
+
+### How it works ✅ CONFIRMED (disassembly + in game)
+
+From the symbolised 1998 build (`world:carwob.obj`, `gx:model.obj`, `gx:mr.obj`):
+
+1. `CarObject::load_car_models` (`0x46c300`) checks for `<car>.car/cockpit.tab`. If it is there,
+   it loads `%sw.mod`, `%sc.mod` and `needle.mod` twice, then reads the table's positions and
+   angle ranges.
+2. `CarObject::Draw` (`0x46a4c0`), in the cockpit camera, for the car being followed:
+   - The dash goes to `mrModelDraw` with the car's frame as it is.
+   - Each needle and the wheel get a frame built from their `cockpit.tab` position, turned by
+     the reading or the steering.
+3. `mrModelDraw` (`0x455d00`) first calls `mrPointCanSee` (`0x44f290`) on **the frame's origin**:
+
+   ```
+   dot(origin − camera, camera forward) >= −0.1      (−0.1 is the float at 0x4dcad8)
+   ```
+
+   If that fails, the model is not drawn. Nothing in the test looks at the model's own
+   geometry. Then comes a camera-distance band test, on the same origin.
+
+So the test is a point test on the car's centre. It is fine for a car seen from outside,
+because the centre is inside the body. For the dash it depends on where the driver sits. The
+wheel and needles are tested at their own positions, which are always in front of the eye,
+so they still draw after the dash has vanished.
+
+### What it means for `cockpit.tab`
+
+The `camera` record's z (car frame, +z forward) has to be at most about **+0.1**. In other words
+the eye must not be more than 10 cm in front of the car's centre.
+
+| car | camera z | dash |
+|---|---|---|
+| stock Viper (Val's) | −0.791 | drawn |
+| Willys Jeep | −0.70 | drawn |
+| Indy Jeep, first build | +0.40 | **skipped**: wheel and needles only |
+| Indy Jeep, fixed | +0.05 | drawn |
+
+A car whose driver sits well forward, like a cab-forward van or the Indy Jeep's long ride
+vehicle, has to put the camera back near the car's centre. It can't be at the driver's real head.
+The car's centre can't move instead, because the physics is laid out around it.
+
+### Building a 3D cockpit ✅ CONFIRMED IN GAME
+
+The better community cockpits are a 3D interior with the gauges fitted in, rather than a flat
+panel in front of the camera. Val's Viper cockpit is one too: 48 triangles, including a hood
+plane out to the nose. Community dash models run up to 8,422 vertices and 44 materials. They go
+through the same per-object vertex buffer as a car body (see `vertexbuffer.py`), so the same
+vertex limit applies.
+
+- **One-sided.** A face is drawn when `(b − a) × (c − a)` points toward the viewer, the same rule
+  trackgen found for ground planes. The camera never moves inside the car, so a cockpit cut
+  from the car's own body only needs every face wound toward the eye.
+- **Normals agree with winding.** In every working cockpit sampled, the stored normals point the
+  way the faces are wound (74–100 %; Val's 100 %). The game lights models by them
+  (`mrLightPlaceModel`). Flip a face, flip its normals.
+- **Needles** point straight up in `Needle.mod`. A `dat` angle of 0° is straight up, and a positive
+  angle turns clockwise as the driver sees it. On Val's Viper, the speedo needle at rest sits on
+  the painted 0 and sweeps to 200 mph. The `mph dat` maximum is in metres per second
+  (`cockpit_tab.py`).
+- **Framing.** Measured from a 1920×1080 cockpit screenshot, the view is about 84° wide and 54°
+  tall. The camera looks straight down the car's +z.
