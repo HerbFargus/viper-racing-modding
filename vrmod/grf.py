@@ -895,8 +895,10 @@ def build_facing_chunk(mesh, texture: str, *, centre, index: int,
 def build(chunks: list[tuple], version: int = 3) -> bytes:
     """Build a complete `.grf`, envelope included.
 
-    Each entry is `(mesh, texture)`. Sizes are computed first so each chunk
-    header can name the offset of the next, and the last is terminated with 0.
+    Each entry is `(mesh, texture)` or `(mesh, texture, colours)`, where
+    `colours` is one 4-byte corner colour per vertex (None for white). Sizes are
+    computed first so each chunk header can name the offset of the next, and the
+    last is terminated with 0.
 
     Facing models are NOT built here. They chain through `+08`, not the `+04`
     this function patches, and they hang off the root as siblings rather than
@@ -905,7 +907,9 @@ def build(chunks: list[tuple], version: int = 3) -> bytes:
     if not chunks:
         raise GrfWriteError("a .grf needs at least one chunk")
 
-    blobs = [build_chunk(entry[0], entry[1]) for entry in chunks]
+    blobs = [build_chunk(entry[0], entry[1],
+                         colours=entry[2] if len(entry) > 2 else None)
+             for entry in chunks]
     offsets = []
     at = FILE_HEADER
     for b in blobs:

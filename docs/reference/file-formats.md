@@ -725,6 +725,38 @@ stored waypoints.
 This doubles as the strongest confirmation that world units are **meters**: read as feet, Bemidji's lap
 would be 0.43 miles against the 1.5 the game itself reports.
 
+#### 4.2.3 Some segment must claim the world origin, or the race crashes at the start — ✅ CONFIRMED
+
+A generated stadium oval crashed the game when the race began, before any car had moved:
+
+```
+EXCEPTION: Task "BGTask" @ 00422550 : EXCEPTION_ACCESS_VIOLATION
+trace: byte 0x40 of "?update@CenterLine@@QAEEABUPoint2D@@H@Z"
+trace: byte 0xfc of "?UpdateCar@RaceDeity@@UAEXHPAVCar@@@Z"
+```
+
+The chain, from the symbolised build:
+
+1. `RaceDeity::register_car` calls `reset_car`, which calls `CenterLine::reset`. That calls
+   `IdealLine::reset_bead_position` for the point the line last saw the car at. No car has been seen
+   yet, so that point is still **(0, 0)**.
+2. `reset_bead_position` clears the position's segment pointer and asks `get_nearest_pair` for one.
+   A segment qualifies only if the point lies **strictly** between the perpendiculars through its
+   two ends: `dot(tangent, p − start) > 0` and `dot(next tangent, p − end) < 0`, the tangents being
+   fields 3 and 4. Of the qualifying segments, the one nearest by its closer endpoint wins. If
+   nothing qualifies, the pointer stays null.
+3. The next `CenterLine::update` reads `[segment + 0x2a]` (the sector byte) through that null
+   pointer, before anything could repair it.
+
+Strict on both ends means a point exactly on a boundary belongs to neither neighbour. The oval had
+waypoints every 10 m, straights parallel to the x axis, and a waypoint at x = 0. That put the origin
+exactly on a boundary of *every* straight segment, and the curved segments' bands don't reach it.
+Sliding the loop 5 m along x fixed it. Every stock line claims the origin (checked on all eight
+tracks), because none is laid out on so exact a grid.
+
+`ili.origin_is_claimed()` reproduces the lookup, and `trackbuild.assemble()` refuses to write a
+line that fails it.
+
 ### 4.3 `STAB` — `.tab` / `.obt` generic ASCII-record table — 🟡 WELL-SUPPORTED
 
 Both extensions share the identical `STAB` tag and outer structure — this is one generic "array of

@@ -444,6 +444,55 @@ def parse_line(data: bytes) -> Line:
     return Line(records=records, magic=magic, record_size=record_size, version=version)
 
 
+def _f32(v: float) -> float:
+    return struct.unpack("<f", struct.pack("<f", v))[0]
+
+
+def segment_claiming(line: Line, x: float, z: float) -> int | None:
+    """The segment the engine's `IdealLine::get_nearest_pair` picks for (x, z), or None.
+
+    A segment qualifies only if the point lies STRICTLY between the perpendiculars
+    through its two ends -- dot(tangent, p - start) > 0 and dot(next tangent,
+    p - end) < 0, the tangents being fields 3 and 4 -- and of those the nearest by
+    the closer endpoint wins. Strict on both sides means a point lying exactly on
+    a perpendicular belongs to neither neighbour. When that happens for every
+    segment, the lookup returns null, and the engine stores the null and reads
+    through it on the next frame (see origin_is_claimed()).
+    """
+    recs = [(_f32(r[FIELD_X]), _f32(r[FIELD_Z]), _f32(r[FIELD_DIR_X]), _f32(r[FIELD_DIR_Z]))
+            for r in line.records]
+    best, best_d2 = None, float("inf")
+    n = len(recs)
+    for i in range(n):
+        sx, sz, tx, tz = recs[i]
+        ex, ez, ux, uz = recs[(i + 1) % n]
+        ax, az = _f32(x - sx), _f32(z - sz)
+        bx, bz = _f32(x - ex), _f32(z - ez)
+        if tx * ax + tz * az > 0 and ux * bx + uz * bz < 0:
+            d2 = min(ax * ax + az * az, bx * bx + bz * bz)
+            if d2 < best_d2:
+                best, best_d2 = i, d2
+    return best
+
+
+def origin_is_claimed(line: Line) -> bool:
+    """Whether some segment claims the world origin -- which a track MUST satisfy.
+
+    At race start `RaceDeity::register_car` calls `CenterLine::reset`, which looks
+    up the line position of the point the line last saw the car at. Nothing has
+    been seen yet, so that point is still (0, 0). If no segment claims the origin
+    the position's segment pointer stays null, and the next `CenterLine::update`
+    reads a byte through it: EXCEPTION_ACCESS_VIOLATION at byte 0x40 of
+    `CenterLine::update`, the race never starting.
+
+    Every stock track passes by accident of its shape. What fails is a line that
+    makes the origin sit exactly on a segment boundary everywhere: waypoints on a
+    round grid with straights parallel to an axis and a waypoint at x = 0 or
+    z = 0. A generated stadium oval starting at the origin did exactly that.
+    """
+    return segment_claiming(line, 0.0, 0.0) is not None
+
+
 def build(line: Line) -> bytes:
     """Serialise a Line to complete file bytes. Round-trips byte for byte."""
     body = bytearray(struct.pack(HEADER_FORMAT, line.magic, line.record_size, len(line.records)))

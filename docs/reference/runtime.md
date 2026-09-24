@@ -3,7 +3,7 @@
 **Purpose:** what the game *does when it runs*, as opposed to what its files contain: **which detail
 level (LOD) you actually see in each camera view** and **how the AI reacts to other cars**, both
 measured in-game; the **command-line parameters** the executable accepts, read out of the binary; and
-**how world objects are created and freed**, which is what the exit panic reports on; and **what the launcher does before the engine starts**, which is a separate program with its own flags. Companions:
+**how world objects are created and freed**, which is what the exit panic reports on; and **what the launcher does before the engine starts**, which is a separate program with its own flags. Also **what a surface above the road does to a car** (§9): the launch pad; and **when the game draws a car's dash at all** (§10): it is skipped if the car's centre is behind the cockpit camera. Companions:
 [VIPER_RACING_FILE_FORMATS.md](file-formats.md) (byte layouts) and
 [VIPER_RACING_ASSET_TREE.md](asset-tree.md) (what's inside a `.car`/`.trk`).
 
@@ -371,6 +371,11 @@ That's a legitimate effect for a mod, which is why the two are kept apart. `--sp
 the manager, pushes both offsets out by however much the radius grew. That keeps the ball's back and bottom
 where a stock ball's are, clear of the car and the road, so it flies level. For 3× that's 4.41 m ahead and
 1.41 m up, and its centre flies about 0.9 m higher than stock.
+
+**It can spawn behind the car.** `Ball::Throw` just adds the offset, so a negative `--spawn-ahead` (down to
+−30 m) puts the ball behind the car. It still leaves at the car's speed plus the throw boost, so it rolls up
+into the car from behind. **Seen in game,** it hits your own car. In an arena that is part of the game: the
+ball has to get past you before it can hit anyone else.
 
 **A ball spawned inside the road is launched out of it, and deeper means harder.** Seen in game, all at the
 stock spawn height and throw speed:
@@ -986,3 +991,177 @@ broske as the author of the 1.2.3 "developer gift" build that every community `r
 hex-edited from; this places him inside the engine source years earlier, writing assertions
 against his own subsystem. The same region carries `Can't create SCO! Grak! This is
 impossible!` and a bare `dolt.`
+
+---
+
+## 9. A surface above the road launches the car ✅ CONFIRMED IN GAME
+
+Put a drivable surface above the road, and a car driving under it is thrown into the air.
+The first time this turned up it was an accident: the edge of a generated bridge deck,
+9 m above the water beside it, launched any car that drove into it. It was then built on
+purpose as a set of **launch pads**, over three test tracks in the bemidji slot:
+
+| set | pads | what happened in game |
+|---|---|---|
+| 1 | 0.25–8 m tall, 10 m long, full road width | every pad launches; the launch grows with height |
+| 2 | 10–65 m tall, 10 m long, outer half and then outer quarter of the road | still launches, with diminishing returns; a launched car can come down **on top of** the pad and sit there |
+| 3 | 20 m tall, 2.5–160 m long, outer quarter | longer pads keep pushing for longer; driving through fast only glances a pad, slowing down gives a bigger launch |
+
+### How it works: the wheels take whatever surface is at their position ✅ CONFIRMED (disassembly + in game)
+
+From `Wheel::Update` (`0x448a60` in the symbolised 1998 build, `physics:wheel.obj`):
+
+1. Each tick, each wheel asks `TerrainGetHeight` for the surface at its own (x, z). It gets
+   the one surface the collision tree holds there, **even when that surface is above the
+   wheel**. The only rejection is a surface steeper than a normal·up of 0.1 (about 84°), plus
+   surface code 14 (meaning not checked).
+2. The distance from the wheel down to that surface becomes suspension compression. A
+   surface above the wheel reads as a very large compression, and compression is **clamped
+   at the suspension's travel + 3.0 m**.
+3. From travel − 0.0254 m (1 inch) onwards a bump stop adds its own force, and the wheel also
+   applies a bump-stop impulse (`get_impulse_magnitude` → `PhobDyno::ApplyImpulse`).
+4. The wheel's total upward force is **capped at 17,800 N** (`0x468b1000`) before
+   `Car::ApplySuspensionForce` applies it.
+5. With damage on, a bump-stop impulse above **2,892.5** (`0x4534c7ff`) flags the wheel broken.
+
+So every pad pushes equally hard in any one tick, whatever its height. What differs is how many
+ticks it pushes for. The push lasts while a wheel is under the pad's footprint **and** below its
+top:
+
+- **Crossing speed** sets the time over the footprint (length ÷ speed): slow = bigger launch.
+- **Height** is only a ceiling. Once the car rises past the top, the push stops, and if it is still
+  over the footprint it lands on the pad. Past the point where a car can clear the top while
+  crossing, extra height adds nothing: set 2's diminishing returns.
+- **Length** sustains the push, up to that same ceiling: set 3.
+- **Width** decides whether the car lifts level. A pad narrower than the car pushes one side's
+  wheels only, and the roll that follows throws the car off before a long lift can build. Set 3's
+  5 m strips did exactly that.
+
+Rough scale, as an estimate not a measurement: four wheels at the cap on a Viper-weight car is
+about 3.8 g net upward. A car that rises all the way through a pad of height H leaves its top at
+about √(2·37·H) m/s and climbs roughly 3.8 × H further.
+
+⚪ **Open: why Ridge Valley's bridge is a wall and not a launch.** Driving into the side of the
+big bridge on `hastings` stops the car dead, with the deck ~50 m above the water. Height alone
+doesn't explain it: set 2's 50 m and 65 m pads both launch. What differs there is unchecked,
+e.g. its surface codes and the two long `.sol` rail boxes along the deck.
+
+### Keep AI cars off launch pads, or the game crashes 🟡 WELL-SUPPORTED
+
+Set 1 spanned the whole road, and a race crashed with an AI car in the trace:
+
+```
+EXCEPTION: Task "BGTask" @ 00421883 : EXCEPTION_ACCESS_VIOLATION
+trace: byte 0x43 of "?advance_bead@IdealLine@@IAEXXZ"
+trace: byte 0x45 of "?update_car_info@IdealLine@@QAEXABUPoint2D@@0@Z"
+trace: byte 0x46 of "?update_line_info@AICar@@IAEXXZ"
+trace: byte 0x13f of "?Update@AICar@@UAEXXZ"
+```
+
+An AI car that goes off course is put back by `AICar::reset` / `teleport_to_track`. That calls
+`IdealLine::reset_bead_position` on the car's own racing line, and the pointer it stores can end up
+null. The next `advance_bead` then reads through it. The lookup (see file-formats.md §4.2.3 for the
+same function at race start) goes null in two ways:
+
+- no segment claims the point, which for a finite position only happens exactly on a segment
+  boundary; or
+- the Newton walk along the line that follows passes **10,000 m** and gives up. Simulated on the
+  test track, that needs a car more than ~5 km from the line; stock kenyon behaves the same.
+
+So the car's position had gone non-finite (NaN or infinity) or kilometres off, not merely a long
+way away. It is an AI car, not the player: `PlayCar` and `AICar` are separate subclasses of `LocalCar`,
+and the player's car never runs this code. Which contact produces the non-finite
+value is not pinned down (the bump-stop impulse divides; so does the wheel-break path). The crash
+stopped once the AI was kept off the pads: moving the pads to the outer half of the road, with the
+AI's line shifted 5 m into the inside lane, held for 0.25–8 m pads. At 10–65 m that crashed again,
+and the outer quarter (10 m clear of the AI's line) has run without a crash since.
+
+### Building one
+
+A launch pad is two meshes over a hole in the road:
+
+- **The pad:** a quad raised to the pad's height, with the ROAD surface code, textured with a
+  colour-keyed texture that is entirely black, so it collides and draws nothing. The collision
+  tree holds one surface per point, so the road faces under it have to be cut out, and any part of
+  that cut the pad doesn't cover put back as road.
+- **The marking:** a quad just above the road, drawn but not solid (NO_COLLISION), so drivers can
+  see where the pad is.
+
+Keep it off the AI's line, with room to spare: the AI line is generated from the centreline,
+so shift the centreline passed to `trackbuild.assemble()` over the stretch with pads.
+
+---
+
+## 10. The cockpit is drawn in the car's frame, and skipped when the car's centre is behind the camera ✅ CONFIRMED IN GAME
+
+A car's cockpit is four models: the dash `<prefix>c.mod`, the steering wheel `<prefix>w.mod`,
+and `Needle.mod` loaded twice (tacho and speedo), placed by `cockpit.tab`
+([file formats](file-formats.md)). They are loaded only if the car has a `cockpit.tab`. The dash
+is the only one drawn in the **car's own frame**, and that frame's origin (the car's centre) has
+to be in front of the camera, or the whole dash is skipped.
+
+It turned up building 3D cockpits for two jeeps. The Indy Jeep's first in-game test showed the
+steering wheel and both needles hanging in the air, and no dash at all. Its camera was 0.40 m
+forward of the car's centre. Moved to 0.05 m behind it, the dash drew.
+
+### How it works ✅ CONFIRMED (disassembly + in game)
+
+From the symbolised 1998 build (`world:carwob.obj`, `gx:model.obj`, `gx:mr.obj`):
+
+1. `CarObject::load_car_models` (`0x46c300`) checks for `<car>.car/cockpit.tab`. If it is there,
+   it loads `%sw.mod`, `%sc.mod` and `needle.mod` twice, then reads the table's positions and
+   angle ranges.
+2. `CarObject::Draw` (`0x46a4c0`), in the cockpit camera, for the car being followed:
+   - The dash goes to `mrModelDraw` with the car's frame as it is.
+   - Each needle and the wheel get a frame built from their `cockpit.tab` position, turned by
+     the reading or the steering.
+3. `mrModelDraw` (`0x455d00`) first calls `mrPointCanSee` (`0x44f290`) on **the frame's origin**:
+
+   ```
+   dot(origin − camera, camera forward) >= −0.1      (−0.1 is the float at 0x4dcad8)
+   ```
+
+   If that fails, the model is not drawn. Nothing in the test looks at the model's own
+   geometry. Then comes a camera-distance band test, on the same origin.
+
+So the test is a point test on the car's centre. It is fine for a car seen from outside,
+because the centre is inside the body. For the dash it depends on where the driver sits. The
+wheel and needles are tested at their own positions, which are always in front of the eye,
+so they still draw after the dash has vanished.
+
+### What it means for `cockpit.tab`
+
+The `camera` record's z (car frame, +z forward) has to be at most about **+0.1**. In other words
+the eye must not be more than 10 cm in front of the car's centre.
+
+| car | camera z | dash |
+|---|---|---|
+| stock Viper (Val's) | −0.791 | drawn |
+| Willys Jeep | −0.70 | drawn |
+| Indy Jeep, first build | +0.40 | **skipped**: wheel and needles only |
+| Indy Jeep, fixed | +0.05 | drawn |
+
+A car whose driver sits well forward, like a cab-forward van or the Indy Jeep's long ride
+vehicle, has to put the camera back near the car's centre. It can't be at the driver's real head.
+The car's centre can't move instead, because the physics is laid out around it.
+
+### Building a 3D cockpit ✅ CONFIRMED IN GAME
+
+The better community cockpits are a 3D interior with the gauges fitted in, rather than a flat
+panel in front of the camera. Val's Viper cockpit is one too: 48 triangles, including a hood
+plane out to the nose. Community dash models run up to 8,422 vertices and 44 materials. They go
+through the same per-object vertex buffer as a car body (see `vertexbuffer.py`), so the same
+vertex limit applies.
+
+- **One-sided.** A face is drawn when `(b − a) × (c − a)` points toward the viewer, the same rule
+  trackgen found for ground planes. The camera never moves inside the car, so a cockpit cut
+  from the car's own body only needs every face wound toward the eye.
+- **Normals agree with winding.** In every working cockpit sampled, the stored normals point the
+  way the faces are wound (74–100 %; Val's 100 %). The game lights models by them
+  (`mrLightPlaceModel`). Flip a face, flip its normals.
+- **Needles** point straight up in `Needle.mod`. A `dat` angle of 0° is straight up, and a positive
+  angle turns clockwise as the driver sees it. On Val's Viper, the speedo needle at rest sits on
+  the painted 0 and sweeps to 200 mph. The `mph dat` maximum is in metres per second
+  (`cockpit_tab.py`).
+- **Framing.** Measured from a 1920×1080 cockpit screenshot, the view is about 84° wide and 54°
+  tall. The camera looks straight down the car's +z.

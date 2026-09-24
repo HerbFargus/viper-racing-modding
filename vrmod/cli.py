@@ -988,8 +988,8 @@ def main(argv: list[str] | None = None) -> int:
                            f"does not grow with it, and the spawn point does not move")
     p_hb.add_argument("--spawn-ahead", type=float, default=None, metavar="METRES",
                       help=f"where the ball appears, ahead of the car's origin "
-                           f"({hornball.AHEAD_MIN}-{hornball.AHEAD_MAX}; stock "
-                           f"{hornball.STOCK_AHEAD})")
+                           f"({hornball.AHEAD_MIN} to {hornball.AHEAD_MAX}; negative is behind "
+                           f"the car; stock {hornball.STOCK_AHEAD})")
     p_hb.add_argument("--spawn-up", type=float, default=None, metavar="METRES",
                       help=f"...and above it ({hornball.UP_MIN}-{hornball.UP_MAX}; stock "
                            f"{hornball.STOCK_UP}). A big ball near the road bounces as it "

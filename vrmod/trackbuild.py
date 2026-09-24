@@ -159,7 +159,11 @@ def assemble(scene, *, donor: str | Path, out_path: str | Path,
         if mesh is None or not mesh.faces:
             continue
         name = mesh.materials[0].name if mesh.materials else "asphalt.tex"
-        chunks.append((mesh, name))
+        colours = getattr(scene, "colours", {}).get(obj.name)
+        if colours is not None and len(colours) != len(mesh.vertices):
+            raise ValueError(f"{obj.name}: {len(colours)} vertex colours for "
+                             f"{len(mesh.vertices)} vertices")
+        chunks.append((mesh, name, colours))
     if not chunks:
         raise ValueError("the scene has no drawable geometry")
     grf_payload = envelope.parse(grf.build(chunks, GRF_VERSION)).payload
@@ -192,7 +196,7 @@ def assemble(scene, *, donor: str | Path, out_path: str | Path,
     # game's, so every point goes through to_viper(). Forgetting that is what
     # mirrored the racing lines through the origin and wound the ground plane
     # face-down, both in this same file's pipeline.
-    if getattr(scene, "walls", None) or wobbles:
+    if getattr(scene, "walls", None) or wobbles or getattr(scene, "spheres", None):
         donor_sol = sol.parse(envelope.build(src["track.sol"].tag,
                                              src["track.sol"].version,
                                              src["track.sol"].payload))
@@ -209,6 +213,9 @@ def assemble(scene, *, donor: str | Path, out_path: str | Path,
                                   radius=w.radius, half_length=w.half_length,
                                   ident=i)
                       for i, w in enumerate(wobbles)]
+        for position, radius in getattr(scene, "spheres", ()) or ():
+            prims.append(sol.sphere_at(sol.wall_template(donor_sol),
+                                       trackgen.to_viper(position), radius=radius))
         if getattr(scene, "walls", None):
             template = sol.wall_template(donor_sol)
             segments = []
@@ -251,6 +258,14 @@ def assemble(scene, *, donor: str | Path, out_path: str | Path,
             ("track.ild", ili.KIND_ILD, True, False)):
         line = ili.generate(list(reversed(pts)) if rev else pts,
                             kind=kind, sectors=sectors, **common)
+        if not ili.origin_is_claimed(line):
+            raise ValueError(
+                f"{member}: no segment of the racing line claims the world origin, "
+                f"and the game crashes at race start (CenterLine::update) looking "
+                f"it up -- see ili.origin_is_claimed(). It happens when the origin "
+                f"lies exactly on a waypoint boundary, e.g. an axis-aligned straight "
+                f"with a waypoint at x = 0. Slide the centreline by a fraction of "
+                f"its waypoint spacing")
         add(member, ILI_TAG, ILI_VERSION, envelope.parse(ili.build(line)).payload)
 
     # ---- configuration and art, from the donor ---------------------------

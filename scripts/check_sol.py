@@ -239,6 +239,29 @@ def main() -> int:
                   and caps[0][2] == caps[1][2] == (1.0, 2.0, 3.0),
                   "nothing geometric left over from the template")
 
+    if loaded:
+        box = next((p for _n, s2 in loaded for p in s2.primitives if p.type == sol.BOX), None)
+        if box is not None:
+            sp = sol.sphere_at(box, (10.0, 2.0, -30.0), radius=3.25)
+            ok = (sp.type == sol.SPHERE and sp.id == -1
+                  and struct.unpack_from("<f", sp.raw, 0x58)[0] == 3.25
+                  and struct.unpack_from("<3f", sp.raw, 0x24) == (10.0, 2.0, -30.0)
+                  and struct.unpack_from("<3f", sp.raw, 0x5c) == (0.0, 0.0, 0.0)
+                  and struct.unpack_from("<3f", sp.raw, 0x68) == (10.0, 2.0, -30.0)
+                  and sp.raw[0x50:0x54] == sol.SPHERE[::-1]
+                  and sp.raw[0x74:] == bytes(len(sp.raw) - 0x74))
+            check("sphere_at writes a SPHR the way the stock ones are written", ok,
+                  "identity orientation, radius, zero local centre, cached world centre")
+        # ...and the shipped ones agree with that reading
+        sph = [(n, p) for n, s2 in loaded for p in s2.primitives if p.type == sol.SPHERE]
+        if sph:
+            odd = [(n, p.id) for n, p in sph
+                   if struct.unpack_from("<3f", p.raw, 0x5c) != (0.0, 0.0, 0.0)
+                   or struct.unpack_from("<3f", p.raw, 0x68) != p.position
+                   or struct.unpack_from("<f", p.raw, 0x58)[0] <= 0.0]
+            check("every shipped sphere caches its own centre and carries a radius",
+                  not odd, f"{len(sph)} spheres" if not odd else str(odd[:3]))
+
     print(f"\n{PASS}/{PASS + FAIL} passed")
     return 1 if FAIL else 0
 
