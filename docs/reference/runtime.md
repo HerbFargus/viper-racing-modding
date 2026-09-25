@@ -360,8 +360,37 @@ checked. The same record holds `3000`, `5000`, `0.6` and `5.0`, whose meanings a
 
 `vrmod hornball DATA --size MULT` sets it (0.25–10× stock), and the manager's horn-ball panel has a
 slider for it. It's found by signature like speed and cooldown, and `--reset` puts it back. Only the
-**collision** grows. The ball you see is the car's `ball.mod`, so a model meant to look the part (a
-boulder, say) should be built to the radius the tool reports.
+**collision** grows. The engine never reads the radius when drawing: `create_ball` hands `ball.mod` to
+a plain `ModelObject`, and `ModelObject::Draw` (`0x469ac0`) is `mrModelDraw(model, frame)` with no
+scale anywhere. What you see is whichever `ball.mod` loaded, at the size it was built.
+
+**So the model is its own setting.** `--model MULT`, and the manager's **Model size** slider, scale the
+drawn ball itself (0.25–10× as built), on **every** horn ball in the install: the shared one in
+`race.res` that stock cars and most mods fall back on, and every car in `Data/` or `Disabled/` that
+carries its own. A ball that grew on only some cars would look like the slider doing nothing. Each
+model is scaled about its own origin, where the collision sphere is centred, and only its vertex
+position floats are written, in place: the archive isn't rebuilt, because not every real archive
+round-trips (a stock-named `Viper.car` doesn't). The first change files each original model in
+`Backups/` as `<archive>.hornball-model`, and every scale is taken from that original, so 2× then 3×
+is 3×, and `--reset` restores the originals byte for byte. A model replaced since (a new `ball.mod`
+imported through the Parts drawer) no longer matches its filed original at any scale, so it becomes
+the new original instead of being overwritten. Those files hold one model, not a whole archive, so
+nothing offers them as restorable backups. The model and the collision are separate on purpose: a
+custom ball (a boulder) is often built bigger than the stock ball already. In the manager they are
+**linked** by default (a chain toggle): while linked, Collision size and Model size move together, and a
+second link moves the spawn out with the collision size (the `--spawn-clear` offsets), so a growing ball still clears the
+car and the road. Each link opens switched on when the saved values already agree, which a stock
+install always does, and off when they've been set apart.
+
+**Mass is the fourth setting.** `create_ball` writes the ball's mass, **3000**, into field `+0x08`
+of the same record with `mov dword [esp+0x08], 3000.0`. It's the only store of that shape between the
+`BALL` tag and the radius: `0x4b` bytes after the tag in retail v1.0 `race.exe`, v1.1 `race.bin`,
+and the 1.2.4, 1.2.5 and 1.2.6 community builds. `vrmod hornball DATA --mass MULT` sets it (0.1–20×
+stock), and the manager's horn-ball panel has a slider. It's the same field that an `obj obstacle`
+record's last number fills, which is how it was found: track boulders written with a mass of 4
+behaved like beach balls. Only the mass is patched. The three rotational inertias beside it (5000)
+share their register with a ball-only contact value, so they're left alone: a heavier ball spins a
+little more freely, and hits harder.
 
 **The spawn point is its own setting.** `Ball::Throw` reads its 3.5 m-ahead and 0.5 m-up offsets from two
 `.rdata` floats that nothing else in the image references. `--spawn-ahead` and `--spawn-up` set them in
@@ -857,6 +886,21 @@ inference, not measurement; watching them under cornering load would settle it.
 Nothing else can settle what those fields mean. See `ili.py` for the first thing it
 already calls into question -- the page reports metres and mph, while the parser
 documents feet.
+
+**The Info page also marks the world origin ✅ CONFIRMED IN GAME.** Switch to it and a small
+magenta circle sits on the ground. It's the page's 3D ground cursor. `AIDashboardDraw` (`0x41c980`)
+calls `draw_mouse_cursor` (`0x41cca0`), which takes a 2D point, asks `TerrainGetHeight` for the
+ground under it, projects that with `mrProjectPoint`, and draws a `gxCircle`. The point lives in
+zero-initialised memory (`0x5099b8`), so it starts at (0, 0), and the routine meant to move it,
+`handle_mouse_evt`, is a 16-byte stub, so it never does. Confirmed by parking beside the circle on
+a generated track: the Physics page read world position (5.6, 1.6, 0.8).
+
+That makes the circle a free in-game check for track authors: **(0, 0) is the point the race-start
+lookup needs a racing-line segment to cover** (`ili.origin_is_claimed`; `trackbuild` refuses a line
+that leaves it uncovered). On a generated track it usually sits on or near the start straight. The
+page's `draw_target` (`0x41cd00`) draws two more projected circles and a line between them for the
+AI's target on the line; which one is the white dot seen under the magenta circle isn't pinned
+down.
 
 The TV Camera page is directly useful for track authoring. It reports the live camera
 position and angles in the same units `camera.tab` stores, so a camera can be placed by

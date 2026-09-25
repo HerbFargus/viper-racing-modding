@@ -261,6 +261,29 @@ body.resizing #frame{pointer-events:none}   /* keep the drag out of the iframe *
       font-size:12px;padding:5px 12px;border-radius:7px;cursor:pointer;flex:none}
 .mini:hover{border-color:var(--acc);color:var(--acc)}
 .mini.on{background:var(--acc);border-color:var(--acc);color:#08131d}
+/* horn-ball sliders: fixed label and range columns, so every track is the same length */
+.hb-row{display:flex;align-items:center;gap:14px;margin-top:12px}
+.hb-row label{flex:0 0 190px;margin:0;box-sizing:border-box;white-space:nowrap}
+.hb-row input{flex:1;min-width:0;accent-color:var(--acc)}
+.hb-row .ends{flex:0 0 150px;color:var(--dim);font-size:12px;text-align:right;white-space:nowrap}
+/* sliders that move together: one inset box, a chain between each linked pair. The box
+   bleeds 15px into the panel's margin (its 1px border + 14px padding), so the rows inside
+   line up exactly with the rows above; the labels inside keep a gutter for the chain. */
+.hb-group{background:var(--bg);border:1px solid var(--edge);border-radius:10px;
+          box-shadow:inset 0 1px 6px rgba(0,0,0,.35);padding:4px 14px 14px;margin:14px -15px 0}
+.hb-group > .hb-row:first-child{margin-top:10px}
+.hb-group .hb-row label{padding-left:34px}
+.link{position:relative;display:flex;align-items:center;gap:10px;margin:6px 0 -6px;
+      padding-left:4px}
+.link::before{content:"";position:absolute;left:18px;top:-12px;bottom:-12px;
+              border-left:2px dashed var(--edge)}
+.link.on::before{border-left:2px solid var(--acc)}
+.link .mini{position:relative;padding:4px 7px;line-height:0;background:var(--bg)}
+.link.on .mini{background:var(--acc)}
+.link svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;
+          stroke-linecap:round;stroke-linejoin:round}
+.link .lede{margin:0}
+input[type=range]:disabled{opacity:.45}
 
 /* fixes checklist */
 .fix{display:flex;align-items:flex-start;gap:12px;padding:12px 0;
@@ -1123,22 +1146,27 @@ async function renderGame(){
 
   let hbPanel = '';
   if(hb && hb.available){
-    const b = hb.bounds, sm = hb.speed_mult, cd = hb.cooldown, sz = hb.size_mult;
+    const b = hb.bounds, sm = hb.speed_mult, cd = hb.cooldown, sz = hb.size_mult, ms = hb.mass_mult;
+    const mm = hb.model_mult;
     const sa = hb.spawn_ahead, su = hb.spawn_up;
     const row = (lab, id, valId, val, unit, min, max, step, ends) => `
-      <div style="display:flex;align-items:center;gap:14px;margin-top:12px">
-        <label class="field-label" style="min-width:150px;margin:0">${lab}
+      <div class="hb-row">
+        <label class="field-label">${lab}
           <b id="${valId}" style="color:var(--fg)">${val.toFixed(2)}${unit}</b></label>
         <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}"
-          style="flex:1;accent-color:var(--acc)"
-          oninput="el$('${valId}').textContent=(+this.value).toFixed(2)+'${unit}'">
-        <span style="color:var(--dim);font-size:12px;min-width:96px;text-align:right">${ends}</span>
+          oninput="hbInput(this)" data-lab="${valId}" data-unit="${unit}">
+        <span class="ends">${ends}</span>
       </div>`;
+    HB_LINK.model = mm != null && sz != null && Math.abs(mm - sz) < 1e-3;
+    HB_LINK.spawn = sa != null && sz != null && (() => {
+      const [a, u] = clearSpawnFor(sz);
+      return Math.abs(sa - a) < 0.06 && Math.abs(su - u) < 0.06;
+    })();
     hbPanel = `
      <div class="panel">
        <div class="panel-head"><h2>Horn-ball</h2>
          <span class="note">${hb.is_stock ? 'Stock throw'
-           : `${sm.toFixed(2)}× · ${cd.toFixed(2)}s${sz != null && sz !== 1 ? ` · ${sz.toFixed(2)}× size` : ''}`}</span></div>
+           : `${sm.toFixed(2)}× · ${cd.toFixed(2)}s${sz != null && sz !== 1 ? ` · ${sz.toFixed(2)}× collision` : ''}`}</span></div>
        <p class="lede">The <b>hacks</b> toy: honk and your car fires a ball out the front.
          Turn <b>Horn ball</b> on in the game's hacks menu to use it; these sliders set how hard it
          throws, how often, how big it hits, and where it appears. Takes effect next launch.</p>
@@ -1146,19 +1174,28 @@ async function renderGame(){
              `${b.speed_min}× – ${b.speed_max}× (1× stock)`)}
        ${row('Cooldown', 'hb-cd', 'hb-cv', cd, 's', b.cd_min, b.cd_max, 0.05,
              `${b.cd_min}s – ${b.cd_max}s (2s stock)`)}
-       ${sz == null ? '' : row('Size', 'hb-size', 'hb-zv', sz, '×', b.size_min, b.size_max, 0.25,
-             `${b.size_min}× – ${b.size_max}× (1× stock)`) + `
-       <p class="lede" style="margin-top:8px">Size sets what the ball <b>hits</b> with: a
-         <span id="hb-radius">${hb.radius_m.toFixed(2)}</span> m radius (0.46 m stock). The ball you
-         see is the car's <b>ball.mod</b>, which doesn't grow, so scale that model to match.</p>`}
-       ${sa == null ? '' : row('Spawn ahead', 'hb-ahead', 'hb-av', sa, ' m', b.ahead_min, b.ahead_max, 0.1,
-             `${b.ahead_min} – ${b.ahead_max} m (3.5 stock)`)
-         + row('Spawn height', 'hb-up', 'hb-uv', su, ' m', b.up_min, b.up_max, 0.1,
-             `${b.up_min} – ${b.up_max} m (0.5 stock)`) + `
-       <p class="lede" style="margin-top:8px">Where the ball appears, from the car's centre. A big
-         ball spawned low starts inside the road and <b>bounces</b> as it launches; to fly level,
-         <button class="mini" onclick="clearSpawn()">clear the car and road</button> sets the spawn
-         so the ball's back and bottom sit where a stock ball's do.</p>`}
+       ${ms == null ? '' : row('Mass', 'hb-mass', 'hb-mv', ms, '×', b.mass_min, b.mass_max, 0.1,
+             `${b.mass_min}× – ${b.mass_max}× (1× stock)`) + `
+       <p class="lede" style="margin-top:8px">Mass sets how hard it <b>hits</b>: a heavier ball
+         shoves cars aside instead of bouncing off them. Stock is 3000.</p>`}
+       ${sz == null && mm == null && sa == null ? '' : `
+       <div class="hb-group">
+         ${mm == null ? '' : row('Model size', 'hb-model', 'hb-mdv', mm, '×', b.model_min, b.model_max, 0.25,
+               `${b.model_min}× – ${b.model_max}× (1× as built)`)}
+         ${mm != null && sz != null ? linkRow('model') : ''}
+         ${sz == null ? '' : row('Collision size', 'hb-size', 'hb-zv', sz, '×', b.size_min, b.size_max, 0.25,
+               `${b.size_min}× – ${b.size_max}× (1× stock)`)}
+         ${sa != null && sz != null ? linkRow('spawn') : ''}
+         ${sa == null ? '' : row('Spawn ahead', 'hb-ahead', 'hb-av', sa, ' m', b.ahead_min, b.ahead_max, 0.1,
+               `${b.ahead_min} – ${b.ahead_max} m (3.5 stock)`)
+           + row('Spawn height', 'hb-up', 'hb-uv', su, ' m', b.up_min, b.up_max, 0.1,
+               `${b.up_min} – ${b.up_max} m (0.5 stock)`)}
+       </div>
+       <p class="lede" style="margin-top:10px">${[
+         mm == null ? '' : 'Model size is how big the ball <b>looks</b>, on every car, grown from the size it was built at.',
+         sz == null ? '' : `Collision size is what it <b>hits</b> with: a <span id="hb-radius">${hb.radius_m.toFixed(2)}</span> m radius (0.46 m stock).`,
+         sa == null ? '' : "Spawn is where it appears, from the car's centre.",
+       ].filter(Boolean).join(' ')}</p>`}
        <div class="ai-row" style="margin-top:14px">
          <button class="mini on" onclick="applyHornball()">Apply</button>
          ${hb.is_stock ? '' : `<button class="mini" onclick="resetHornball()">Reset to stock</button>`}
@@ -1233,6 +1270,7 @@ async function renderGame(){
 
   el$('config').innerHTML = opponents + drivers + aiCar + cars + tracks
                           + hbPanel + hoPanel + resPanel + ddPanel + fixes;
+  if(hbPanel) for(const k of ['model', 'spawn']) paintLink(k);
 }
 
 async function setDrawDistance(units){
@@ -1253,31 +1291,99 @@ async function applyHornball(){
   const speed_mult = +el$('hb-speed').value, cooldown = +el$('hb-cd').value;
   const body = {speed_mult, cooldown};
   if(el$('hb-size')) body.size_mult = +el$('hb-size').value;
+  if(el$('hb-mass')) body.mass_mult = +el$('hb-mass').value;
+  if(el$('hb-model')) body.model_mult = +el$('hb-model').value;
   if(el$('hb-ahead')){ body.spawn_ahead = +el$('hb-ahead').value; body.spawn_up = +el$('hb-up').value; }
   const r = await api('/api/hornball', body);
   if(!r.ok) return toast(r.error, 'bad');
   toast(`Horn-ball: ${r.speed_mult.toFixed(2)}× speed, ${r.cooldown.toFixed(2)}s cooldown`
-        + (r.size_mult != null ? `, ${r.size_mult.toFixed(2)}× size` : '')
+        + (r.size_mult != null ? `, ${r.size_mult.toFixed(2)}× collision` : '')
+        + (r.mass_mult != null ? `, ${r.mass_mult.toFixed(2)}× mass` : '')
+        + (r.model_mult != null ? `, ${r.model_mult.toFixed(2)}× model` : '')
         + (r.spawn_ahead != null ? `, spawning ${r.spawn_ahead.toFixed(1)} m ahead / ${r.spawn_up.toFixed(1)} m up` : '')
         + ` — takes effect next launch.`);
   renderGame();
 }
 
-function clearSpawn(){
+// The chain links. Each is ON when the page loads if the saved values already agree
+// (a stock install always does), and while it's on it moves the linked sliders live:
+// Collision size and Model size move together, and the spawn follows the collision size out so a growing ball
+// still clears the car and the road. Nothing is written until Apply.
+const HB_LINK = {model: false, spawn: false};
+const LINK_ICON = {
+  on: '<svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>'
+    + '<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
+  off: '<svg viewBox="0 0 24 24"><path d="m18.84 12.25 1.72-1.71a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>'
+    + '<path d="m5.17 11.75-1.71 1.71a5 5 0 0 0 7.07 7.07l1.71-1.71"/>'
+    + '<path d="M8 2v3M2 8h3M16 19v3M19 16h3"/></svg>',
+};
+const LINK_TEXT = {
+  model: ['Linked: the ball <b>looks</b> as big as it <b>hits</b>. Collision size and Model size move together.',
+          'Unlinked: set how big the ball looks and how big it hits separately.'],
+  spawn: ['Linked: the spawn moves out as the collision size grows, so the ball <b>clears the car and the road</b>.',
+          'Unlinked: set the spawn yourself. A big ball spawned low <b>bounces</b> as it launches.'],
+};
+
+function linkRow(k){
+  return `<div class="link" id="hb-link-${k}-row"><button class="mini" id="hb-link-${k}" onclick="toggleLink('${k}')"
+    aria-pressed="false" title="Link"></button><p class="lede" id="hb-link-${k}-t"></p></div>`;
+}
+
+function paintLink(k){
+  const b = el$('hb-link-' + k);
+  if(!b) return;
+  const on = HB_LINK[k];
+  b.className = 'mini' + (on ? ' on' : '');
+  el$('hb-link-' + k + '-row').className = 'link' + (on ? ' on' : '');
+  b.innerHTML = on ? LINK_ICON.on : LINK_ICON.off;
+  b.setAttribute('aria-pressed', on);
+  b.title = on ? 'Linked -- click to unlink' : 'Unlinked -- click to link';
+  el$('hb-link-' + k + '-t').innerHTML = LINK_TEXT[k][on ? 0 : 1];
+  if(k === 'spawn') for(const id of ['hb-ahead', 'hb-up']) if(el$(id)) el$(id).disabled = on;
+}
+
+function toggleLink(k){
+  HB_LINK[k] = !HB_LINK[k];
+  paintLink(k);
+  if(HB_LINK[k] && el$('hb-size')) follow(el$('hb-size'));   // linking snaps to the collision size now
+}
+
+function setSlider(id, v){
+  const s = el$(id);
+  if(!s) return;
+  s.value = v;
+  el$(s.dataset.lab).textContent = (+s.value).toFixed(2) + s.dataset.unit;
+}
+
+function clearSpawnFor(size){
   // Mirrors hornball.clear_spawn(): both stock offsets pushed out by the radius's
   // growth, so the ball's back and bottom sit where a stock ball's do.
-  const grow = 18 * 0.0254 * ((el$('hb-size') ? +el$('hb-size').value : 1) - 1);
-  for(const [id, val, lab] of [['hb-ahead', 3.5 + grow, 'hb-av'], ['hb-up', 0.5 + grow, 'hb-uv']]){
-    el$(id).value = val.toFixed(2);
-    el$(lab).textContent = (+el$(id).value).toFixed(2) + ' m';
+  const grow = 18 * 0.0254 * (size - 1);
+  return [3.5 + grow, 0.5 + grow];
+}
+
+function follow(src){
+  // src just moved: carry whatever is linked to it along
+  if(src.id === 'hb-model' && HB_LINK.model) setSlider('hb-size', src.value);
+  const size = el$('hb-size') ? +el$('hb-size').value : null;
+  if(size == null) return;
+  if(src.id === 'hb-size' && HB_LINK.model) setSlider('hb-model', size);
+  if(HB_LINK.spawn && (src.id === 'hb-size' || src.id === 'hb-model')){
+    const [a, u] = clearSpawnFor(size);
+    setSlider('hb-ahead', a); setSlider('hb-up', u);
   }
-  toast('Spawn set to clear the car and road for this size. Press Apply to write it.');
+  if(el$('hb-radius')) el$('hb-radius').textContent = (size * 18 * 0.0254).toFixed(2);
+}
+
+function hbInput(s){
+  el$(s.dataset.lab).textContent = (+s.value).toFixed(2) + s.dataset.unit;
+  follow(s);
 }
 
 async function resetHornball(){
   const r = await api('/api/hornball', {reset:true});
   if(!r.ok) return toast(r.error, 'bad');
-  toast('Horn-ball reset to stock (1× speed, 2s cooldown, 1× size, spawn 3.5 m / 0.5 m).');
+  toast('Horn-ball reset to stock (1× speed, 2s cooldown, 1× collision and model, spawn 3.5 m / 0.5 m).');
   renderGame();
 }
 
@@ -1452,6 +1558,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 "speed_mult": round(t.speed_mult, 3), "cooldown": round(t.cooldown, 3),
                 "size_mult": round(t.size_mult, 3) if t.size_mult is not None else None,
                 "radius_m": round(t.radius_m, 3) if t.radius_m is not None else None,
+                "mass_mult": round(t.mass_mult, 3) if t.mass_mult is not None else None,
+                "model_mult": round(t.model_mult, 3) if t.model_mult is not None else None,
                 "spawn_ahead": (round(t.spawn_ahead, 3)
                                 if t.spawn_ahead is not None else None),
                 "spawn_up": round(t.spawn_up, 3) if t.spawn_up is not None else None,
@@ -1461,6 +1569,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 "bounds": {"speed_min": hornball.SPEED_MIN, "speed_max": hornball.SPEED_MAX,
                            "cd_min": hornball.COOLDOWN_MIN, "cd_max": hornball.COOLDOWN_MAX,
                            "size_min": hornball.SIZE_MIN, "size_max": hornball.SIZE_MAX,
+                           "mass_min": hornball.MASS_MIN, "mass_max": hornball.MASS_MAX,
+                           "model_min": hornball.MODEL_MIN, "model_max": hornball.MODEL_MAX,
                            "ahead_min": hornball.AHEAD_MIN, "ahead_max": hornball.AHEAD_MAX,
                            "up_min": hornball.UP_MIN, "up_max": hornball.UP_MAX},
             })
@@ -1742,13 +1852,19 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                                            cooldown=req.get("cooldown"),
                                            size_mult=req.get("size_mult"),
                                            spawn_ahead=req.get("spawn_ahead"),
-                                           spawn_up=req.get("spawn_up"))
+                                           spawn_up=req.get("spawn_up"),
+                                           mass_mult=req.get("mass_mult"),
+                                           model_mult=req.get("model_mult"))
                     except hornball.HornballError as e:
                         return self._json({"ok": False, "error": str(e)}, 400)
                 return self._json({"ok": True, "speed_mult": round(t.speed_mult, 3),
                                    "cooldown": round(t.cooldown, 3),
                                    "size_mult": (round(t.size_mult, 3)
                                                  if t.size_mult is not None else None),
+                                   "mass_mult": (round(t.mass_mult, 3)
+                                                 if t.mass_mult is not None else None),
+                                   "model_mult": (round(t.model_mult, 3)
+                                                  if t.model_mult is not None else None),
                                    "spawn_ahead": (round(t.spawn_ahead, 3)
                                                    if t.spawn_ahead is not None else None),
                                    "spawn_up": (round(t.spawn_up, 3)

@@ -971,9 +971,9 @@ def main(argv: list[str] | None = None) -> int:
 
     p_hb = sub.add_parser(
         "hornball",
-        help="Tune the horn-ball hack: throw speed, re-fire cooldown, ball size and "
-             "spawn point (reads current values; the flags below change them, --reset "
-             "for stock)",
+        help="Tune the horn-ball hack: throw speed, re-fire cooldown, ball size, mass, "
+             "model size and spawn point (reads current values; the flags below change "
+             "them, --reset for stock)",
     )
     p_hb.add_argument("data_dir", type=Path, help="the game's Data folder")
     p_hb.add_argument("--speed", type=float, default=None, metavar="MULT",
@@ -984,8 +984,15 @@ def main(argv: list[str] | None = None) -> int:
                            f"-{hornball.COOLDOWN_MAX}; stock 2.0)")
     p_hb.add_argument("--size", type=float, default=None, metavar="MULT",
                       help=f"collision radius as a multiplier of stock ({hornball.SIZE_MIN}"
-                           f"-{hornball.SIZE_MAX}x; 1.0 = 0.457 m). The drawn ball.mod "
-                           f"does not grow with it, and the spawn point does not move")
+                           f"-{hornball.SIZE_MAX}x; 1.0 = 0.457 m). What you see does not "
+                           f"grow with it (that's --model), and the spawn point does not move")
+    p_hb.add_argument("--mass", type=float, default=None, metavar="MULT",
+                      help=f"mass as a multiplier of stock ({hornball.MASS_MIN}"
+                           f"-{hornball.MASS_MAX}x; 1.0 = 3000). Heavier hits harder")
+    p_hb.add_argument("--model", type=float, default=None, metavar="MULT",
+                      help=f"how big the ball LOOKS: scales every horn ball's ball.mod "
+                           f"(race.res and every car carrying its own) to this multiple of "
+                           f"its original ({hornball.MODEL_MIN}-{hornball.MODEL_MAX}x)")
     p_hb.add_argument("--spawn-ahead", type=float, default=None, metavar="METRES",
                       help=f"where the ball appears, ahead of the car's origin "
                            f"({hornball.AHEAD_MIN} to {hornball.AHEAD_MAX}; negative is behind "
@@ -998,7 +1005,8 @@ def main(argv: list[str] | None = None) -> int:
                       help="set the spawn so the ball's back and bottom sit where a stock "
                            "ball's do -- clear of the car and the road -- for its size")
     p_hb.add_argument("--reset", action="store_true",
-                      help="restore stock (1.0x speed, 2.0s, 1.0x size, spawn 3.5/0.5)")
+                      help="restore stock (1.0x speed, 2.0s, 1.0x size, mass and model, "
+                           "spawn 3.5/0.5)")
 
     p_ho = sub.add_parser(
         "headon",
@@ -2014,11 +2022,13 @@ def main(argv: list[str] | None = None) -> int:
                 size = (args.size if args.size is not None
                         else hornball.read(args.data_dir).size_mult or 1.0)
                 ahead, up = hornball.clear_spawn(size)
-            if any(v is not None for v in (args.speed, args.cooldown, args.size, ahead, up)):
+            if any(v is not None for v in (args.speed, args.cooldown, args.size, args.mass,
+                                           args.model, ahead, up)):
                 try:
                     hornball.apply(args.data_dir, speed_mult=args.speed,
                                    cooldown=args.cooldown, size_mult=args.size,
-                                   spawn_ahead=ahead, spawn_up=up)
+                                   spawn_ahead=ahead, spawn_up=up, mass_mult=args.mass,
+                                   model_mult=args.model)
                 except hornball.HornballError as e:
                     print(f"  {e}")
                     return 1
@@ -2027,13 +2037,15 @@ def main(argv: list[str] | None = None) -> int:
                 if t.size_mult is not None else ", size not adjustable in this build")
         spawn = (f", spawns {t.spawn_ahead:.2f} m ahead, {t.spawn_up:.2f} m up (stock 3.5 / 0.5)"
                  if t.spawn_ahead is not None else "")
+        mass = (f", mass {t.mass_mult:.2f}x ({t.mass:.0f}; stock 3000)" if t.mass_mult is not None else "")
+        mass += (f", model {t.model_mult:.2f}x as built" if t.model_mult is not None else "")
         print(f"horn-ball: speed {t.speed_mult:.2f}x (stock 1.0), "
-              f"cooldown {t.cooldown:.2f}s (stock 2.0){size}{spawn}"
+              f"cooldown {t.cooldown:.2f}s (stock 2.0){size}{mass}{spawn}"
               + ("  [stock]" if t.is_stock else ""))
-        if (all(v is None for v in (args.speed, args.cooldown, args.size,
+        if (all(v is None for v in (args.speed, args.cooldown, args.size, args.mass, args.model,
                                     args.spawn_ahead, args.spawn_up))
                 and not args.reset and not args.spawn_clear):
-            print("  --speed / --cooldown / --size / --spawn-ahead / --spawn-up / --spawn-clear "
+            print("  --speed / --cooldown / --size / --mass / --model / --spawn-ahead / --spawn-up / --spawn-clear "
                   "to change, --reset for stock. Enable the hack in-game from the HACKS tab "
                   "in Options.")
     elif args.command == "headon":

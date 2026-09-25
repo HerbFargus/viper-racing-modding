@@ -261,8 +261,8 @@ class CarryOver:
     writepath_kinds: list[str] = field(default_factory=list)
     modassert: bool = False
     headon_disabled: bool = False
-    # speed, cooldown, size, spawn ahead, spawn up (the last three None where unfound)
-    hornball: tuple[float, float, float | None, float | None, float | None] | None = None
+    # speed, cooldown, size, spawn ahead, spawn up, mass (the last four None where unfound)
+    hornball: tuple[float, float, float | None, float | None, float | None, float | None] | None = None
     carlist: object | None = None          # carlist.Geometry, when not stock
     # Menu index -> mode, for entries that are not stock. Resolution IS one of
     # this module's own steps, but it only ever set ONE index, so any other slot
@@ -285,9 +285,10 @@ class CarryOver:
         if self.headon_disabled:
             out.append("head-on panic disabled")
         if self.hornball:
-            size = self.hornball[2]
+            size, mass = self.hornball[2], self.hornball[5]
             out.append(f"horn ball {self.hornball[0]:.2f}x / {self.hornball[1]:.2f}s"
-                       + (f" / {size:.2f}x size" if size not in (None, 1.0) else ""))
+                       + (f" / {size:.2f}x size" if size not in (None, 1.0) else "")
+                       + (f" / {mass:.2f}x mass" if mass not in (None, 1.0) else ""))
         if self.carlist:
             out.append(f"car list at {self.carlist}")
         return out
@@ -317,7 +318,7 @@ def _capture(d: Path) -> CarryOver:
             t = hornball.read(d)
             if not t.is_stock:
                 c.hornball = (t.speed_mult, t.cooldown, t.size_mult,
-                              t.spawn_ahead, t.spawn_up)
+                              t.spawn_ahead, t.spawn_up, t.mass_mult)
     except Exception:
         pass
     try:
@@ -356,15 +357,17 @@ def _reapply(d: Path, c: CarryOver, rep: "Report") -> None:
         except Exception as e:
             rep.notes.append(f"could not re-disable the head-on panic: {e}")
     if c.hornball:
-        speed, cool, size, ahead, up = c.hornball
+        speed, cool, size, ahead, up, mass = c.hornball
         spawn = hornball.spawn_available(d)
         try:
             hornball.apply(d, speed_mult=speed, cooldown=cool,
                            size_mult=size if hornball.size_available(d) else None,
                            spawn_ahead=ahead if spawn else None,
-                           spawn_up=up if spawn else None)
+                           spawn_up=up if spawn else None,
+                           mass_mult=mass if mass is not None and hornball.mass_available(d) else None)
             rep.add("carried", f"horn ball re-tuned to {speed:.2f}x / {cool:.2f}s"
-                    + (f" / {size:.2f}x size" if size not in (None, 1.0) else ""))
+                    + (f" / {size:.2f}x size" if size not in (None, 1.0) else "")
+                    + (f" / {mass:.2f}x mass" if mass not in (None, 1.0) else ""))
         except Exception as e:
             rep.notes.append(f"could not re-tune the horn ball: {e}")
     if c.carlist:
