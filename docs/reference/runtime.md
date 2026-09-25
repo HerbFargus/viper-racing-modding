@@ -887,6 +887,21 @@ Nothing else can settle what those fields mean. See `ili.py` for the first thing
 already calls into question -- the page reports metres and mph, while the parser
 documents feet.
 
+**The Info page also marks the world origin ✅ CONFIRMED IN GAME.** Switch to it and a small
+magenta circle sits on the ground. It's the page's 3D ground cursor. `AIDashboardDraw` (`0x41c980`)
+calls `draw_mouse_cursor` (`0x41cca0`), which takes a 2D point, asks `TerrainGetHeight` for the
+ground under it, projects that with `mrProjectPoint`, and draws a `gxCircle`. The point lives in
+zero-initialised memory (`0x5099b8`), so it starts at (0, 0), and the routine meant to move it,
+`handle_mouse_evt`, is a 16-byte stub, so it never does. Confirmed by parking beside the circle on
+a generated track: the Physics page read world position (5.6, 1.6, 0.8).
+
+That makes the circle a free in-game check for track authors: **(0, 0) is the point the race-start
+lookup needs a racing-line segment to cover** (`ili.origin_is_claimed`; `trackbuild` refuses a line
+that leaves it uncovered). On a generated track it usually sits on or near the start straight. The
+page's `draw_target` (`0x41cd00`) draws two more projected circles and a line between them for the
+AI's target on the line; which one is the white dot seen under the magenta circle isn't pinned
+down.
+
 The TV Camera page is directly useful for track authoring. It reports the live camera
 position and angles in the same units `camera.tab` stores, so a camera can be placed by
 flying to the spot and reading the numbers off. Note that **`camera.tab` is the same STAB
