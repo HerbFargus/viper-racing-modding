@@ -788,17 +788,36 @@ the executable itself.
 ```
 obj car       <x>, <z>
 obj checkpoint <mesh> <x>,<z> <x>,<z>                        -- mesh is checkpt1.mod
-obj obstacle  <ball|cube|prism> <mesh.mod> <x>,<z>:<y> <mass> -- e.g. ball magma.mod ... 10000
+obj obstacle  <ball|cube|prism> <mesh.mod> <x>,<z>:<yaw> <mass> -- e.g. ball magma.mod ...:0 10000
 obj static    <box> <x,y,z> <x,y,z> <x,y,z>
 obj wobble    <pole|flap> <int>
 ```
 
-**The obstacle record's comma pair is a GROUND position, and the colon introduces the HEIGHT** —
-`x,z:y`, the same convention as `obj checkpoint`'s two ground points, not the `x,y:z` the format
-string's letters suggest. Written the other way the engine parses the line without complaint, builds
-the object (the `number of objects was %d` line rises by exactly the record count) and puts it off
-the map sideways and hundreds of metres up: invisible, intangible, and silent in the log. That cost
-three in-game tests to find.
+**The obstacle record's comma pair is a GROUND position, and the colon introduces the YAW** — `x,z:yaw`,
+the same ground convention as `obj checkpoint`'s two points. The record carries **no height at all**
+(✅ read from `parse_obstacle`, `race.exe` `0x463870`, and `Obstacle::Obstacle`, `0x43cd90`):
+
+- **Height:** the engine finds it itself. `TerrainGetHeight(x, z)` casts a ray down the collision
+  mesh (`.bpp`) from y = 1000, and the obstacle is placed at that height, minus the mesh's lowest
+  point, **plus 4.0 m**. **Every obstacle is dropped 4 m at race start**, onto whatever the collision
+  surface is at that spot (0 if the ray misses it).
+- **Yaw:** the number after the colon is multiplied by π/180 into `MatrixMakeYaw`, so it is degrees.
+  Pitch and roll are always 0.
+
+This was misread as a height until 2026-09-24. Heights of 150–170 written there only spun the objects,
+which a ball never shows. Three knockable monk cutouts placed on a narrow crater rim then made it
+obvious: dropped 4 m onto a crest that tilts toward the crater, they were all in the lava before the
+player reached them. **Stand an obstacle on ground that is level for a few metres all round, in the
+collision mesh and not just the terrain function it was built from** (a generator that eases terrain
+toward the road can tilt it), and prefer `cube` for anything that shouldn't roll away. The drop and
+the collision box both come from the mesh's extents, so a wide invisible base (a quad mapped to a
+keyed-out texel) should let a tall, thin cutout land upright. That is how the rebuilt monks are made,
+not yet tested in game.
+
+Written with the ground pair swapped, the engine still parses the line without complaint and builds
+the object (the `number of objects was %d` line rises by exactly the record count), but the object
+lands off the map sideways: invisible, intangible, and silent in the log. That cost three in-game
+tests to find.
 
 The physics object types it builds from these: `Ball`, `PhobStatic`, `Obstacle`, `Wobble`,
 `CheckPoint`, `PlayCar`, `AICar`, `NetCar`, `GhostCar`. Wobble objects have their own pool —
