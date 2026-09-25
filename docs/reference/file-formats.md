@@ -894,7 +894,8 @@ the budget. A white room with 8 cars, 4 checkpoints and a field of beach-ball ob
 | 1000 | 1,012 | crash in `obj_sort_f`, the world list having overflowed too |
 
 So **cars + checkpoints + obstacles + wobbles + statics must not pass 512**, and even ten over is
-fatal. Keep one spare for the horn ball: `create_ball` goes through the same `PhysicsCreate` path, so
+fatal. `.sol` primitives are **not** in that array: the 500-ball room also carried 62 wall boxes
+and ran, where counting them would have put it 62 over. Keep one spare for the horn ball: `create_ball` goes through the same `PhysicsCreate` path, so
 a track filled to exactly 512 may overflow when someone honks (not tested). For a full field of 8
 cars and 4 checkpoints, that leaves **499** obstacles and wobbles combined.
 
