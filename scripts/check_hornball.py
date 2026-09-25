@@ -163,17 +163,110 @@ def main() -> None:
                 check("and it clamps at AHEAD_MIN like the far end",
                       abs(t.spawn_ahead - hornball.AHEAD_MIN) < 1e-6, f"{t.spawn_ahead:.2f} m ahead")
 
+                mo = hornball._mass_offset(blob)
+                check("the mass store is found, holding the stock 3000",
+                      mo is not None and struct.unpack_from("<f", blob, mo)[0] == 3000.0)
+                before = (tmp / name).read_bytes()
+                t = hornball.apply(tmp, mass_mult=3.0)
+                after = (tmp / name).read_bytes()
+                check("apply(mass_mult=3) reports 3x and a mass of 9000",
+                      abs(t.mass_mult - 3.0) < 1e-6 and abs(t.mass - 9000.0) < 1e-3,
+                      f"{t.mass_mult:.2f}x, {t.mass:.0f}")
+                moved = {i for i, (a, b) in enumerate(zip(before, after)) if a != b}
+                check("setting the mass changes only the mass float",
+                      bool(moved) and not (moved - set(range(mo, mo + 4))), f"{len(moved)} changed")
+                t = hornball.apply(tmp, mass_mult=999.0)
+                check("mass clamps at MASS_MAX", abs(t.mass_mult - hornball.MASS_MAX) < 1e-6,
+                      f"{t.mass_mult:.2f}x")
+                check("a heavier ball is not reported as stock", not t.is_stock)
+
             hornball.reset(tmp)
             back = (tmp / name).read_bytes()
             check("reset() restores the binary byte-for-byte", back == blob)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    check_model(src)
+
     print(f"\n{checks - len(failures)}/{checks} passed")
     if failures:
         for f in failures:
             print(f"  FAILED: {f}")
         sys.exit(1)
+
+
+def check_model(src: Path) -> None:
+    """The drawn model: every horn ball scales, from its original, in place."""
+    from vrmod import archive, backups
+    wanted = ["race.res", "Viper.car", "willys.car"]
+    have = [n for n in wanted if (src / n).is_file()]
+    print(f"\n[model size]  {', '.join(have)}")
+    if "race.res" not in have:
+        print("  no race.res here -- skipped")
+        return
+    tmp = Path(tempfile.mkdtemp(prefix="check_hornball_model_"))
+    try:
+        for n in have:
+            shutil.copy2(src / n, tmp / n)
+        engine = next(n for n in hornball.ENGINE_NAMES if (src / n).is_file())
+        shutil.copy2(src / engine, tmp / engine)
+        orig = {n: (tmp / n).read_bytes() for n in have}
+        spans = {n: archive.payload_span(orig[n], hornball.BALL_MOD) for n in have}
+        balls = [n for n in have if spans[n]]
+        check("every archive here carries a ball.mod", balls == have, ", ".join(balls))
+        check("an untouched install reads 1x", hornball.model_scale(tmp) == 1.0)
+
+        def scale(n: str) -> float | None:
+            data = (tmp / n).read_bytes()
+            off, size = spans[n]
+            o = orig[n][off:off + size]
+            return hornball._scale_of(data[off:off + size], o)
+
+        t = hornball.apply(tmp, model_mult=2.0)
+        check("apply(model_mult=2) reports 2x", abs(t.model_mult - 2.0) < 1e-6, f"{t.model_mult}")
+        check("every horn ball is now 2x its original",
+              all(abs((scale(n) or 0) - 2.0) < 1e-5 for n in balls),
+              ", ".join(f"{n} {scale(n)}" for n in balls))
+        for n in balls:
+            off, size = spans[n]
+            now = (tmp / n).read_bytes()
+            moved = {i for i, (a, b) in enumerate(zip(orig[n], now)) if a != b}
+            pos = {off + hornball._VERTS + v * hornball._STRIDE + k
+                   for v in range(struct.unpack_from("<i", orig[n], off)[0]) for k in range(12)}
+            check(f"{n}: only vertex positions change, nothing else in the file",
+                  len(now) == len(orig[n]) and bool(moved) and not (moved - pos), f"{len(moved)} bytes")
+        filed = [p.name for p in (tmp / backups.DIR_NAME).iterdir()]
+        check("each original is filed once in Backups/",
+              sorted(filed) == sorted(n + hornball.MODEL_BACKUP for n in balls), ", ".join(filed))
+        check("...and none is offered as a restorable archive backup", not backups.find(tmp))
+        check("a bigger model is not reported as stock", not t.is_stock)
+
+        hornball.apply(tmp, model_mult=3.0)
+        check("2x then 3x is 3x, not 6x", all(abs((scale(n) or 0) - 3.0) < 1e-5 for n in balls))
+        hornball.apply(tmp, model_mult=99.0)
+        check("model clamps at MODEL_MAX",
+              abs(hornball.model_scale(tmp) - hornball.MODEL_MAX) < 1e-5)
+
+        # someone imports a new ball.mod into one car: that becomes its original
+        n = balls[-1]
+        off, size = spans[n]
+        data = bytearray((tmp / n).read_bytes())
+        struct.pack_into("<f", data, off + hornball._VERTS + 24, 0.123)      # a uv: a different model
+        (tmp / n).write_bytes(bytes(data))
+        replaced = bytes(data)
+        hornball.apply(tmp, model_mult=2.0)
+        now = (tmp / n).read_bytes()
+        k = hornball._scale_of(now[off:off + size], replaced[off:off + size])
+        check("a replaced model is scaled from ITSELF, not overwritten by the old one",
+              k is not None and abs(k - 2.0) < 1e-5, f"{k}")
+
+        hornball.reset(tmp)
+        check("reset() restores every other archive byte for byte",
+              all((tmp / m).read_bytes() == orig[m] for m in balls if m != n))
+        check("...and the replaced one to its new original", (tmp / n).read_bytes() == replaced)
+        check("and reads 1x again", hornball.model_scale(tmp) == 1.0)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":

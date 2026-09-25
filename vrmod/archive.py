@@ -157,6 +157,33 @@ def read_bytes(data: bytes) -> list[ArchiveEntry]:
     return entries
 
 
+def payload_span(data: bytes, name: str) -> tuple[int, int] | None:
+    """(offset, size) of the member `name`'s payload within the archive bytes, or None.
+
+    For patching a member IN PLACE when its size doesn't change. Rewriting the whole
+    archive through read_bytes()/to_bytes() is byte-exact for most archives but not
+    all -- a stock-named Viper.car in a real install doesn't round-trip -- so an
+    edit that only moves numbers around (scaling a mesh's vertices) is safer
+    written straight into the bytes it changes, leaving every other byte alone.
+    Name matching is case-insensitive, like the rest of this module.
+    """
+    if data[0:4] != MAGIC:
+        raise ValueError(f"bad archive magic {data[0:4]!r}, expected {MAGIC!r}")
+    entry_count = struct.unpack_from("<i", data, 4)[0]
+    cursor = HEADER_SIZE + entry_count * ENTRY_SIZE
+    want = name.lower()
+    for i in range(entry_count):
+        raw = data[HEADER_SIZE + i * ENTRY_SIZE: HEADER_SIZE + (i + 1) * ENTRY_SIZE]
+        member = raw[0:16].rstrip(b"\x00").decode("ascii", errors="replace")
+        size = struct.unpack_from("<i", raw, 24)[0]
+        if data[cursor + 4:cursor + 8] != envelope.MARKER:
+            return None                      # a decoy tail: no real members past here
+        if member.lower() == want:
+            return cursor + CHUNK_PREFIX_SIZE, size
+        cursor += CHUNK_PREFIX_SIZE + size
+    return None
+
+
 def read_layout(data: bytes) -> "ArchiveLayout":
     """Read an archive's core/bulk header convention without its payloads.
 
