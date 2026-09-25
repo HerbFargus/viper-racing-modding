@@ -59,7 +59,7 @@ def state(d: Path) -> dict:
     t = hornball.read(d)
     return {"logs": wp.get("logs"), "userdir": wp.get("userdir"),
             "headon": headon.status(d), "modassert": modassert.status(d),
-            "hornball": (round(t.speed_mult, 3), round(t.cooldown, 4))}
+            "hornball": (round(t.speed_mult, 3), round(t.cooldown, 4), round(t.mass_mult or 1.0, 3))}
 
 
 def fresh(tmp: Path, name: str, src: Path) -> Path:
@@ -94,10 +94,10 @@ def main() -> int:
         writepaths.apply(d, writepaths.USER_DIR_KIND, migrate=False)
         modassert.apply(d)
         headon.apply(d)
-        hornball.apply(d, speed_mult=6.25, cooldown=0.1)
+        hornball.apply(d, speed_mult=6.25, cooldown=0.1, mass_mult=2.0)
         before = state(d)
         want = {"logs": "patched", "userdir": "patched", "headon": "disabled",
-                "modassert": "patched", "hornball": (6.25, 0.1)}
+                "modassert": "patched", "hornball": (6.25, 0.1, 2.0)}
         check("the fixture really has all four applied", before == want, str(before))
 
         rep = patchset.apply(d, mode=(1600, 900))
@@ -128,7 +128,7 @@ def main() -> int:
         writepaths.apply(d2, writepaths.USER_DIR_KIND, migrate=False)
         modassert.apply(d2)
         headon.apply(d2)
-        hornball.apply(d2, speed_mult=6.25, cooldown=0.1)
+        hornball.apply(d2, speed_mult=6.25, cooldown=0.1, mass_mult=2.0)
         check("a carried rebuild equals applying the same patches by hand",
               sha(d2 / "race.exe") == h1, sha(d2 / "race.exe")[:16])
 

@@ -363,6 +363,16 @@ slider for it. It's found by signature like speed and cooldown, and `--reset` pu
 **collision** grows. The ball you see is the car's `ball.mod`, so a model meant to look the part (a
 boulder, say) should be built to the radius the tool reports.
 
+**Mass is the fourth setting.** `create_ball` writes the ball's mass, **3000**, into field `+0x08`
+of the same record with `mov dword [esp+0x08], 3000.0`. It's the only store of that shape between the
+`BALL` tag and the radius: `0x4b` bytes after the tag in retail v1.0 `race.exe`, v1.1 `race.bin`,
+and the 1.2.4, 1.2.5 and 1.2.6 community builds. `vrmod hornball DATA --mass MULT` sets it (0.1–20×
+stock), and the manager's horn-ball panel has a slider. It's the same field that an `obj obstacle`
+record's last number fills, which is how it was found: track boulders written with a mass of 4
+behaved like beach balls. Only the mass is patched. The three rotational inertias beside it (5000)
+share their register with a ball-only contact value, so they're left alone: a heavier ball spins a
+little more freely, and hits harder.
+
 **The spawn point is its own setting.** `Ball::Throw` reads its 3.5 m-ahead and 0.5 m-up offsets from two
 `.rdata` floats that nothing else in the image references. `--spawn-ahead` and `--spawn-up` set them in
 metres, and the manager has sliders for both. Size never moves them. **Seen in game:** a 3× ball at the

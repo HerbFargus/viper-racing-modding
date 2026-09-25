@@ -1123,7 +1123,7 @@ async function renderGame(){
 
   let hbPanel = '';
   if(hb && hb.available){
-    const b = hb.bounds, sm = hb.speed_mult, cd = hb.cooldown, sz = hb.size_mult;
+    const b = hb.bounds, sm = hb.speed_mult, cd = hb.cooldown, sz = hb.size_mult, ms = hb.mass_mult;
     const sa = hb.spawn_ahead, su = hb.spawn_up;
     const row = (lab, id, valId, val, unit, min, max, step, ends) => `
       <div style="display:flex;align-items:center;gap:14px;margin-top:12px">
@@ -1151,6 +1151,10 @@ async function renderGame(){
        <p class="lede" style="margin-top:8px">Size sets what the ball <b>hits</b> with: a
          <span id="hb-radius">${hb.radius_m.toFixed(2)}</span> m radius (0.46 m stock). The ball you
          see is the car's <b>ball.mod</b>, which doesn't grow, so scale that model to match.</p>`}
+       ${ms == null ? '' : row('Mass', 'hb-mass', 'hb-mv', ms, '×', b.mass_min, b.mass_max, 0.1,
+             `${b.mass_min}× – ${b.mass_max}× (1× stock)`) + `
+       <p class="lede" style="margin-top:8px">Mass sets how hard it <b>hits</b>: a heavier ball
+         shoves cars aside instead of bouncing off them. Stock is 3000.</p>`}
        ${sa == null ? '' : row('Spawn ahead', 'hb-ahead', 'hb-av', sa, ' m', b.ahead_min, b.ahead_max, 0.1,
              `${b.ahead_min} – ${b.ahead_max} m (3.5 stock)`)
          + row('Spawn height', 'hb-up', 'hb-uv', su, ' m', b.up_min, b.up_max, 0.1,
@@ -1253,11 +1257,13 @@ async function applyHornball(){
   const speed_mult = +el$('hb-speed').value, cooldown = +el$('hb-cd').value;
   const body = {speed_mult, cooldown};
   if(el$('hb-size')) body.size_mult = +el$('hb-size').value;
+  if(el$('hb-mass')) body.mass_mult = +el$('hb-mass').value;
   if(el$('hb-ahead')){ body.spawn_ahead = +el$('hb-ahead').value; body.spawn_up = +el$('hb-up').value; }
   const r = await api('/api/hornball', body);
   if(!r.ok) return toast(r.error, 'bad');
   toast(`Horn-ball: ${r.speed_mult.toFixed(2)}× speed, ${r.cooldown.toFixed(2)}s cooldown`
         + (r.size_mult != null ? `, ${r.size_mult.toFixed(2)}× size` : '')
+        + (r.mass_mult != null ? `, ${r.mass_mult.toFixed(2)}× mass` : '')
         + (r.spawn_ahead != null ? `, spawning ${r.spawn_ahead.toFixed(1)} m ahead / ${r.spawn_up.toFixed(1)} m up` : '')
         + ` — takes effect next launch.`);
   renderGame();
@@ -1452,6 +1458,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 "speed_mult": round(t.speed_mult, 3), "cooldown": round(t.cooldown, 3),
                 "size_mult": round(t.size_mult, 3) if t.size_mult is not None else None,
                 "radius_m": round(t.radius_m, 3) if t.radius_m is not None else None,
+                "mass_mult": round(t.mass_mult, 3) if t.mass_mult is not None else None,
                 "spawn_ahead": (round(t.spawn_ahead, 3)
                                 if t.spawn_ahead is not None else None),
                 "spawn_up": round(t.spawn_up, 3) if t.spawn_up is not None else None,
@@ -1461,6 +1468,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 "bounds": {"speed_min": hornball.SPEED_MIN, "speed_max": hornball.SPEED_MAX,
                            "cd_min": hornball.COOLDOWN_MIN, "cd_max": hornball.COOLDOWN_MAX,
                            "size_min": hornball.SIZE_MIN, "size_max": hornball.SIZE_MAX,
+                           "mass_min": hornball.MASS_MIN, "mass_max": hornball.MASS_MAX,
                            "ahead_min": hornball.AHEAD_MIN, "ahead_max": hornball.AHEAD_MAX,
                            "up_min": hornball.UP_MIN, "up_max": hornball.UP_MAX},
             })
@@ -1742,13 +1750,16 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                                            cooldown=req.get("cooldown"),
                                            size_mult=req.get("size_mult"),
                                            spawn_ahead=req.get("spawn_ahead"),
-                                           spawn_up=req.get("spawn_up"))
+                                           spawn_up=req.get("spawn_up"),
+                                           mass_mult=req.get("mass_mult"))
                     except hornball.HornballError as e:
                         return self._json({"ok": False, "error": str(e)}, 400)
                 return self._json({"ok": True, "speed_mult": round(t.speed_mult, 3),
                                    "cooldown": round(t.cooldown, 3),
                                    "size_mult": (round(t.size_mult, 3)
                                                  if t.size_mult is not None else None),
+                                   "mass_mult": (round(t.mass_mult, 3)
+                                                 if t.mass_mult is not None else None),
                                    "spawn_ahead": (round(t.spawn_ahead, 3)
                                                    if t.spawn_ahead is not None else None),
                                    "spawn_up": (round(t.spawn_up, 3)

@@ -50,6 +50,20 @@ code section. Only the COLLISION grows: what is drawn is whatever ball.mod the
 car carries, so a model meant to look the part should be scaled to match
 (read().radius_m gives the size to build to).
 
+MASS is the fourth, stored beside the radius in the same record. create_ball
+writes the phob's mass into field +0x08 -- 3000 -- with
+
+    C7 44 24 08 <f32>    mov dword [esp+0x08], 3000.0
+
+the only store of that shape between the 'BALL' tag and the radius, 0x4b bytes
+after the tag in every build on hand (retail v1.0 race.exe, v1.1 race.bin, and
+the 1.2.4/1.2.5/1.2.6 community builds). It is the same field `obj obstacle`'s
+last number fills (parse_obstacle, which builds the inertias as size^2 x 10.75 x
+mass): track obstacles written with a mass of 4 behaved like beach balls. Only
+the mass is patched; the three inertias beside it (5000) share their register
+with a ball-only contact value, so they are left alone -- a heavier ball spins
+a little more freely, and hits harder.
+
 THE SPAWN POINT is set separately, and size never moves it. Ball::Throw places
 the ball 3.5 m ahead of the car's origin along its forward axis and 0.5 m above
 it, two .rdata floats that nothing else in the image references. A bigger ball
@@ -67,7 +81,7 @@ the car and the road -- for anyone who wants it to fly level. They are read by
 
 each unique in the whole image, in race.exe and race.bin alike.
 
-REVERSIBLE with no backup file: the changes are five floats, and stock is a known
+REVERSIBLE with no backup file: the changes are six floats, and stock is a known
 constant, so `reset()` simply writes the stock values back. Builds that don't
 carry the horn-ball launch code (or a future build whose launch differs) fail
 the signature and report unavailable rather than guessing.
@@ -89,6 +103,7 @@ STOCK_SPEED = 31.11111068725586      # velocity boost + cap
 STOCK_COOLDOWN = 2.0                 # seconds between throws
 
 STOCK_RADIUS_IN = 18.0              # collision radius, inches (0.457 m)
+STOCK_MASS = 3000.0                  # phob mass (the field `obj obstacle`'s last number sets)
 STOCK_AHEAD = 3.5                    # spawn, metres ahead of the car's origin
 STOCK_UP = 0.5                       # spawn, metres above it
 INCH = 0.0254                        # Ball::Ball's scale from inches to metres
@@ -97,6 +112,7 @@ INCH = 0.0254                        # Ball::Ball's scale from inches to metres
 SPEED_MIN, SPEED_MAX = 0.25, 15.0
 COOLDOWN_MIN, COOLDOWN_MAX = 0.05, 5.0
 SIZE_MIN, SIZE_MAX = 0.25, 10.0
+MASS_MIN, MASS_MAX = 0.1, 20.0       # x stock: 300 to 60,000
 AHEAD_MIN, AHEAD_MAX = -30.0, 30.0   # spawn, metres ahead of the car's origin; negative is
                                      # BEHIND it -- Ball::Throw just adds the value, so a ball
                                      # spawned behind still leaves at car speed + boost and
@@ -112,6 +128,7 @@ _FMUL_ABS = 0x0D                                    # fmul dword [abs32]  -> D8 
 _BALL_TAG_STORE = bytes.fromhex("c74424004c4c4142")  # mov dword [esp+0], 'BALL'
 _RADIUS_STORE = bytes.fromhex("6a40c7442428")        # push 0x40; mov dword [esp+0x28], imm32
 _RADIUS_WINDOW = 0x80                               # create_ball is short; stock gap is 0x57
+_MASS_STORE = bytes.fromhex("c7442408")             # mov dword [esp+0x08], imm32 (stock gap 0x4b)
 _AHEAD_LOAD = bytes.fromhex("8b442418d805")         # mov eax,[esp+0x18]; fadd dword [abs32]
 _UP_LOAD = bytes.fromhex("d94528d805")              # fld [ebp+0x28];     fadd dword [abs32]
 
@@ -130,6 +147,8 @@ class Tuning:
     radius_m: float | None = None    # the collision radius in metres
     spawn_ahead: float | None = None  # metres ahead of the car's origin
     spawn_up: float | None = None     # metres above it
+    mass_mult: float | None = None    # x stock mass; None if not locatable
+    mass: float | None = None         # the mass itself (stock 3000)
 
 
 # Engine binaries, live one first -- the v1.0 pressing runs race.exe and ships a
@@ -198,6 +217,29 @@ def _size_offset(blob: bytes) -> int | None:
     return off
 
 
+def _mass_offset(blob: bytes) -> int | None:
+    """File offset of create_ball's mass float, or None if this build differs.
+
+    The one `mov dword [esp+0x08], imm32` between the unique 'BALL' tag store and
+    the radius store, holding a plausible mass. Two, none, or an implausible value
+    means a layout this was not written against.
+    """
+    t = blob.find(_BALL_TAG_STORE)
+    if t < 0 or blob.find(_BALL_TAG_STORE, t + 1) >= 0:
+        return None
+    r = blob.find(_RADIUS_STORE, t, t + _RADIUS_WINDOW)
+    if r < 0:
+        return None
+    hits = [i for i in range(t, r) if blob[i:i + 4] == _MASS_STORE]
+    if len(hits) != 1:
+        return None
+    off = hits[0] + len(_MASS_STORE)
+    value = struct.unpack_from("<f", blob, off)[0]
+    if not (STOCK_MASS * MASS_MIN * 0.999 <= value <= STOCK_MASS * MASS_MAX * 1.001):
+        return None
+    return off
+
+
 def _spawn_offsets(blob: bytes) -> tuple[int, int] | None:
     """File offsets of Ball::Throw's (ahead, up) spawn floats, or None.
 
@@ -231,20 +273,32 @@ def _tuning(blob: bytes) -> Tuning:
     sp_off = _spawn_offsets(blob)
     ahead, up = ((struct.unpack_from("<f", blob, sp_off[0])[0],
                   struct.unpack_from("<f", blob, sp_off[1])[0]) if sp_off else (None, None))
+    mo = _mass_offset(blob)
+    mass = struct.unpack_from("<f", blob, mo)[0] if mo is not None else None
     is_stock = (abs(speed - STOCK_SPEED) < 1e-3 and abs(cd - STOCK_COOLDOWN) < 1e-4
                 and (size is None or abs(size - 1.0) < 1e-6)
+                and (mass is None or abs(mass - STOCK_MASS) < 1e-3)
                 and (ahead is None or (abs(ahead - STOCK_AHEAD) < 1e-5
                                        and abs(up - STOCK_UP) < 1e-5)))
     return Tuning(speed_mult=mult, cooldown=cd, speed_raw=speed, is_stock=is_stock,
                   size_mult=size,
                   radius_m=radius_in * INCH if radius_in is not None else None,
-                  spawn_ahead=ahead, spawn_up=up)
+                  spawn_ahead=ahead, spawn_up=up,
+                  mass_mult=mass / STOCK_MASS if mass is not None else None, mass=mass)
 
 
 def size_available(data_dir: str | Path) -> bool:
     """True if this build's create_ball can be found, so the size can be set."""
     try:
         return _size_offset(_race_bin(data_dir).read_bytes()) is not None
+    except HornballError:
+        return False
+
+
+def mass_available(data_dir: str | Path) -> bool:
+    """True if this build's create_ball mass store can be found, so the mass can be set."""
+    try:
+        return _mass_offset(_race_bin(data_dir).read_bytes()) is not None
     except HornballError:
         return False
 
@@ -284,7 +338,8 @@ def read(data_dir: str | Path) -> Tuning:
 
 def apply(data_dir: str | Path, *, speed_mult: float | None = None,
           cooldown: float | None = None, size_mult: float | None = None,
-          spawn_ahead: float | None = None, spawn_up: float | None = None) -> Tuning:
+          spawn_ahead: float | None = None, spawn_up: float | None = None,
+          mass_mult: float | None = None) -> Tuning:
     """Write new tuning. Only the given knobs change; the others are left as-is.
     Values are clamped to the slider bounds. Returns the tuning now in the file.
     """
@@ -298,6 +353,13 @@ def apply(data_dir: str | Path, *, speed_mult: float | None = None,
                                 "patch expects it; speed and cooldown still work")
         m = max(SIZE_MIN, min(SIZE_MAX, float(size_mult)))
         struct.pack_into("<f", blob, so, STOCK_RADIUS_IN * m)
+    if mass_mult is not None:
+        mo = _mass_offset(blob)
+        if mo is None:
+            raise HornballError("this build's create_ball mass is not where the patch "
+                                "expects it; speed and cooldown still work")
+        m = max(MASS_MIN, min(MASS_MAX, float(mass_mult)))
+        struct.pack_into("<f", blob, mo, STOCK_MASS * m)
     if spawn_ahead is not None or spawn_up is not None:
         spawn = _spawn_offsets(blob)
         if spawn is None:
@@ -320,10 +382,11 @@ def apply(data_dir: str | Path, *, speed_mult: float | None = None,
 
 
 def reset(data_dir: str | Path) -> Tuning:
-    """Restore the stock ball: 1.0x speed, 2.0s cooldown, 1.0x size, and the
-    spawn 3.5 m ahead and 0.5 m up."""
+    """Restore the stock ball: 1.0x speed, 2.0s cooldown, 1.0x size and mass, and
+    the spawn 3.5 m ahead and 0.5 m up."""
     spawn = spawn_available(data_dir)
     return apply(data_dir, speed_mult=1.0, cooldown=STOCK_COOLDOWN,
                  size_mult=1.0 if size_available(data_dir) else None,
+                 mass_mult=1.0 if mass_available(data_dir) else None,
                  spawn_ahead=STOCK_AHEAD if spawn else None,
                  spawn_up=STOCK_UP if spawn else None)

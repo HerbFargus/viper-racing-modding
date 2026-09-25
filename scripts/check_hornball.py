@@ -163,6 +163,23 @@ def main() -> None:
                 check("and it clamps at AHEAD_MIN like the far end",
                       abs(t.spawn_ahead - hornball.AHEAD_MIN) < 1e-6, f"{t.spawn_ahead:.2f} m ahead")
 
+                mo = hornball._mass_offset(blob)
+                check("the mass store is found, holding the stock 3000",
+                      mo is not None and struct.unpack_from("<f", blob, mo)[0] == 3000.0)
+                before = (tmp / name).read_bytes()
+                t = hornball.apply(tmp, mass_mult=3.0)
+                after = (tmp / name).read_bytes()
+                check("apply(mass_mult=3) reports 3x and a mass of 9000",
+                      abs(t.mass_mult - 3.0) < 1e-6 and abs(t.mass - 9000.0) < 1e-3,
+                      f"{t.mass_mult:.2f}x, {t.mass:.0f}")
+                moved = {i for i, (a, b) in enumerate(zip(before, after)) if a != b}
+                check("setting the mass changes only the mass float",
+                      bool(moved) and not (moved - set(range(mo, mo + 4))), f"{len(moved)} changed")
+                t = hornball.apply(tmp, mass_mult=999.0)
+                check("mass clamps at MASS_MAX", abs(t.mass_mult - hornball.MASS_MAX) < 1e-6,
+                      f"{t.mass_mult:.2f}x")
+                check("a heavier ball is not reported as stock", not t.is_stock)
+
             hornball.reset(tmp)
             back = (tmp / name).read_bytes()
             check("reset() restores the binary byte-for-byte", back == blob)
