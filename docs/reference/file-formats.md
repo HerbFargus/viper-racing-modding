@@ -811,8 +811,9 @@ player reached them. **Stand an obstacle on ground that is level for a few metre
 collision mesh and not just the terrain function it was built from** (a generator that eases terrain
 toward the road can tilt it), and prefer `cube` for anything that shouldn't roll away. The drop and
 the collision box both come from the mesh's extents, so a wide invisible base (a quad mapped to a
-keyed-out texel) should let a tall, thin cutout land upright. That is how the rebuilt monks are made,
-not yet tested in game.
+keyed-out texel) lets a tall, thin cutout land upright. ✅ Confirmed in game 2026-09-24: two-panel monk
+cutouts built that way, as `cube` at mass 200 on a level pad dished 0.3 m, land and stay put. They also
+**hop up and down without ever stopping**, which the sleep rule below explains.
 
 Written with the ground pair swapped, the engine still parses the line without complaint and builds
 the object (the `number of objects was %d` line rises by exactly the record count), but the object
@@ -820,8 +821,9 @@ lands off the map sideways: invisible, intangible, and silent in the log. That c
 tests to find.
 
 The physics object types it builds from these: `Ball`, `PhobStatic`, `Obstacle`, `Wobble`,
-`CheckPoint`, `PlayCar`, `AICar`, `NetCar`, `GhostCar`. Wobble objects have their own pool —
-`Too many wobjects allocated--increase MAX_OBJECTS`.
+`CheckPoint`, `PlayCar`, `AICar`, `NetCar`, `GhostCar`. How many a track can hold is covered below
+(*How many objects a track can hold*): the `Too many wobjects allocated--increase MAX_OBJECTS`
+message is a check the release build compiles out.
 
 Three things follow that are not visible from the shipped data:
 
@@ -847,6 +849,55 @@ Three things follow that are not visible from the shipped data:
   obstacles in the same table worked. Still unexercised.
 - **`flap` is a second wobble subtype that nothing ships.** Every `obj wobble` record in every track
   is `pole`.
+
+**How an obstacle lives — ✅ CONFIRMED IN GAME 2026-09-24/25.** Read from `Obstacle::Update`
+(`race.exe` `0x43d2e0`) and tested on generated tracks:
+
+- **It only simulates while it moves.** Any tick where its speed tops **0.5 m/s** (|v|² > 0.25), or a
+  hit hard enough to reach `ApplyExternalForce` with a value ≥ 100, calls `Perturb`, which restarts a
+  timer. **One second** after the last `Perturb` it zeroes its velocities and stops updating, gravity
+  included, until something hits it hard. So an obstacle that slows down in mid-air **hangs there**.
+  A tall, thin `cube` on flat ground never settles below 0.5 m/s, never sleeps, and hops for the whole
+  race (the burning monks on the Burninator track).
+- **It rests on the mesh's lowest point.** Both the spawn (ground − lowest point + 4 m) and where it
+  comes to rest key on the lowest vertex, used by a face or not (`mrModelGetExtents`, `0x456ec0`, reads
+  every vertex). One unused vertex 34 m below a 16 m ball spawned it 30 m up, and it fell until that
+  vertex touched the floor and then stayed there, standing on it like a **stilt**. That was the same
+  at masses of 40, 400 and 4000; heavier ones only got there faster. So **a track cannot raise the
+  drop** — the only lever is the 4.0 constant itself (`0x4dd0c8`), shared by every obstacle on every
+  track. The stilt is useful on its own terms: a prop that hovers at any height and can still be
+  knocked off.
+- **The collision sphere is half the mesh's Z extent** (`Obstacle::Obstacle` builds its `SphereVolume`
+  from PhobData `+0x2c` × 0.5), not the Y extent, so it follows the model, not the stilt.
+- **Overlapping spawns are safe.** Pairs overlapping 25% and 75%, clumps of ten packed within 0.4 m,
+  and two balls at exactly the same spot all burst apart at race start like billiard balls, with no
+  crash — a free burst effect.
+
+**How many objects a track can hold — ✅ CONFIRMED IN GAME 2026-09-25.** There are three fixed-size
+lists, and **none of them is checked**:
+
+| List | Size | Holds | Past the end |
+|---|---|---|---|
+| physics objects (`PhysTaskBegin`, `0x426850`: `MemAlloc(0x800)`) | **512** | every car, checkpoint (`CHKP`), obstacle, wobble and `obj static` | writes over the heap: a crash in the physics thread |
+| world objects (`WorldAddWob`, `0x462800`, at `0x55129c`) | 1,024 | every world object | runs onto its own count at `0x5522d0`, so the next sort (`obj_sort_f`, from `WorldBeginCommon`) reads garbage |
+| graphics objects (`WorldAddGob`, `0x4627c0`) | 1,024 | every drawn object | — |
+
+The "Too many (w)objects allocated" messages are `ASSERT_MSG` calls, and in the release build
+`ASSERT_MSG` (`0x462750`) is a bare `ret`. The physics list fills first, so it's the one that sets
+the budget. A white room with 8 cars, 4 checkpoints and a field of beach-ball obstacles:
+
+| Balls | Physics objects | Result |
+|---|---|---|
+| 100–500 | up to 512 | fine |
+| 510, 520 | 522, 532 | crash |
+| 600 | 612 | crash in the physics thread (`BGTask`, executing at a heap address) |
+| 1000 | 1,012 | crash in `obj_sort_f`, the world list having overflowed too |
+
+So **cars + checkpoints + obstacles + wobbles + statics must not pass 512**, and even ten over is
+fatal. `.sol` primitives are **not** in that array: the 500-ball room also carried 62 wall boxes
+and ran, where counting them would have put it 62 over. Keep one spare for the horn ball: `create_ball` goes through the same `PhysicsCreate` path, so
+a track filled to exactly 512 may overflow when someone honks (not tested). For a full field of 8
+cars and 4 checkpoints, that leaves **499** obstacles and wobbles combined.
 
 **`obj wobble`'s integer names the `.sol` TUBE with that id — ✅ CONFIRMED from the shipped data.**
 Every tube carries an id at `+0x30`: `-1` on ordinary ones, and `0…n-1` on exactly `n` of them, where
@@ -1829,6 +1880,15 @@ TUBE (931 records)     +14,+1c      +-1 orientation terms (axis-aligned)
                                       +20 local centre (0, 0, +h) / (0, 0, -h)
                                       +2c a cached world centre, set to the tube's own position
 ```
+
+**Solids work at any height and angle — ✅ CONFIRMED IN GAME 2026-09-25.** A primitive is a centre,
+half-extents and a full orientation matrix, so nothing ties a box to the ground. `sol.box_from_segment`
+with a long segment 7 m up, a 1 m "height" and a 26 m "thickness" makes a flat slab, and appended to a
+generated track's `.sol` (then `build_spatial_index` again), it works as a **ceiling**. A car drives
+underneath it; a car sent up with the wheelie hack crashes into it from below. It isn't a drivable
+surface turned over: `.bpp` holds one surface per point (§4.9), so a surface above the floor isn't
+possible there, and a solid carries no surface type. Whether a car can drive on **top** of one, as a
+bridge, is untested. The tyres probe `.bpp`, so probably not properly.
 
 **Every one of these is a serialised `CollisionVolume` starting at `+0x3c`**, which is how the fields were
 read: the volume's `+0x1c` onward is the file's `+0x58` onward. `BoxVolume`'s constructor (`race.exe` `0x433990`)
