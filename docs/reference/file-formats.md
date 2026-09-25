@@ -365,7 +365,7 @@ them is visible in a screenshot.
 
 
 - **⚠ The horn ball is the exception.** `ball.mod` is *not* resolved per-car — the engine
-  hardcodes the bare name `ball.mod` in its obstacle system (the `horn_ball` hack tosses it) and
+  hardcodes the bare name `ball.mod` in `create_ball`, which builds the ball the `horn_ball` hack tosses, and
   loads it **once, globally**. In a multiplayer session there is effectively **one horn ball for
   everyone**, not each player's own — the single case where two cars both named `ball.mod` truly
   collide.
@@ -788,17 +788,36 @@ the executable itself.
 ```
 obj car       <x>, <z>
 obj checkpoint <mesh> <x>,<z> <x>,<z>                        -- mesh is checkpt1.mod
-obj obstacle  <ball|cube|prism> <mesh.mod> <x>,<z>:<y> <r>   -- e.g. cube ball.mod (the horn ball)
+obj obstacle  <ball|cube|prism> <mesh.mod> <x>,<z>:<yaw> <mass> -- e.g. ball magma.mod ...:0 10000
 obj static    <box> <x,y,z> <x,y,z> <x,y,z>
 obj wobble    <pole|flap> <int>
 ```
 
-**The obstacle record's comma pair is a GROUND position, and the colon introduces the HEIGHT** —
-`x,z:y`, the same convention as `obj checkpoint`'s two ground points, not the `x,y:z` the format
-string's letters suggest. Written the other way the engine parses the line without complaint, builds
-the object (the `number of objects was %d` line rises by exactly the record count) and puts it off
-the map sideways and hundreds of metres up: invisible, intangible, and silent in the log. That cost
-three in-game tests to find.
+**The obstacle record's comma pair is a GROUND position, and the colon introduces the YAW** — `x,z:yaw`,
+the same ground convention as `obj checkpoint`'s two points. The record carries **no height at all**
+(✅ read from `parse_obstacle`, `race.exe` `0x463870`, and `Obstacle::Obstacle`, `0x43cd90`):
+
+- **Height:** the engine finds it itself. `TerrainGetHeight(x, z)` casts a ray down the collision
+  mesh (`.bpp`) from y = 1000, and the obstacle is placed at that height, minus the mesh's lowest
+  point, **plus 4.0 m**. **Every obstacle is dropped 4 m at race start**, onto whatever the collision
+  surface is at that spot (0 if the ray misses it).
+- **Yaw:** the number after the colon is multiplied by π/180 into `MatrixMakeYaw`, so it is degrees.
+  Pitch and roll are always 0.
+
+This was misread as a height until 2026-09-24. Heights of 150–170 written there only spun the objects,
+which a ball never shows. Three knockable monk cutouts placed on a narrow crater rim then made it
+obvious: dropped 4 m onto a crest that tilts toward the crater, they were all in the lava before the
+player reached them. **Stand an obstacle on ground that is level for a few metres all round, in the
+collision mesh and not just the terrain function it was built from** (a generator that eases terrain
+toward the road can tilt it), and prefer `cube` for anything that shouldn't roll away. The drop and
+the collision box both come from the mesh's extents, so a wide invisible base (a quad mapped to a
+keyed-out texel) should let a tall, thin cutout land upright. That is how the rebuilt monks are made,
+not yet tested in game.
+
+Written with the ground pair swapped, the engine still parses the line without complaint and builds
+the object (the `number of objects was %d` line rises by exactly the record count), but the object
+lands off the map sideways: invisible, intangible, and silent in the log. That cost three in-game
+tests to find.
 
 The physics object types it builds from these: `Ball`, `PhobStatic`, `Obstacle`, `Wobble`,
 `CheckPoint`, `PlayCar`, `AICar`, `NetCar`, `GhostCar`. Wobble objects have their own pool —
@@ -806,14 +825,24 @@ The physics object types it builds from these: `Ball`, `PhobStatic`, `Obstacle`,
 
 Three things follow that are not visible from the shipped data:
 
-- **`obstacle` places a named mesh at a position with a radius — ✅ CONFIRMED IN GAME 2026-09-15.**
-  Per-instance physics with arbitrary geometry, authored in a file `vrmod` already writes: no `.sol`,
-  no MKWORLD, no scene graph. A generated track carrying 40 `obj obstacle ball cow.mod` records spawns
-  40 knockable cows that a car can shove around. **It builds a `Ball`: a free rigid body that drops
-  under gravity and rolls**, the horn ball's own machinery — so it suits things meant to tumble away,
-  not things rooted in the ground. The mesh is resolved BY NAME from any loaded archive, and a `.mod`
-  member added to the track's own archive (tag `FNIM`, version 1, like every other `.mod`) resolves
-  fine; it must sit at its own origin, since the record supplies the position.
+- **`obstacle` places a named mesh at a position, with a MASS — ✅ CONFIRMED IN GAME 2026-09-15 and
+  2026-09-24.** Per-instance physics with arbitrary geometry, authored in a file `vrmod` already
+  writes: no `.sol`, no MKWORLD, no scene graph. A generated track carrying 40 `obj obstacle ball
+  cow.mod` records spawns 40 knockable cows that a car can shove around. It builds an **`Obstacle`**
+  (`physics:obstacle.obj`), a free rigid body that drops under gravity. `ball` gives it a sphere to
+  collide with, and so it rolls; `cube` and `prism` give it a box and a wedge. So it suits things meant
+  to tumble away, not things rooted in the ground. The mesh is resolved BY NAME from any loaded archive,
+  and a `.mod` member added to the track's own archive (tag `FNIM`, version 1, like every other `.mod`)
+  resolves fine; it must sit at its own origin, since the record supplies the position.
+
+  **The last number is the MASS, not a radius**, and this was misread for a week. `parse_obstacle`
+  (`race.exe` `0x463870`) scans `obj obstacle %s %s %f,%f:%f %f`, stores the last value in the phob's mass
+  field (`+0x08`), and builds the three rotational inertias as size² × 10.75 × that value. The
+  **size comes from the mesh** (`mrModelGetExtents`), never from the record. It was first written as a
+  radius (1.4, 2.0, then 4.0), and in game those objects behaved like **beach balls**: they rolled, and
+  bounced away from any car that touched them. Written as **10,000**, 8 m magma boulders rolled down a
+  volcano and **crushed** the cars they met: a giant horn ball, placed by the track. For scale, the horn
+  ball's own record (`create_ball`) gives it a mass of **3000**, in the same field.
 - **`static` is NOT counted among the objects** and produced nothing in the same test, where the
   obstacles in the same table worked. Still unexercised.
 - **`flap` is a second wobble subtype that nothing ships.** Every `obj wobble` record in every track
@@ -3500,7 +3529,8 @@ behaviour: such props are `WOBL` phobs, as opposed to `STAT` phobs. The body liv
 `obj wobble N` record in `track.obt` builds a `Wobble`. That wobble claims the `.sol` TUBE with id `N` as its
 collider and drives it, and draws the `.grf` facing with id `N`. The 1,204 bytes fit what `Wobble::Update`
 touches, up to its 20-step timer at `+0x4b0`. Mass is still not a field you can edit, but shape and size
-are: they are the tube's radius and length. `obj obstacle` records spawn `Ball` phobs the same way (§4.3).
+are: they are the tube's radius and length. `obj obstacle` records spawn `Obstacle` phobs the same way,
+and theirs DO take a mass: the record's last number (§4.3).
 
 ### 5.3 Audio
 
