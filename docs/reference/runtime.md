@@ -360,8 +360,27 @@ checked. The same record holds `3000`, `5000`, `0.6` and `5.0`, whose meanings a
 
 `vrmod hornball DATA --size MULT` sets it (0.25–10× stock), and the manager's horn-ball panel has a
 slider for it. It's found by signature like speed and cooldown, and `--reset` puts it back. Only the
-**collision** grows. The ball you see is the car's `ball.mod`, so a model meant to look the part (a
-boulder, say) should be built to the radius the tool reports.
+**collision** grows. The engine never reads the radius when drawing: `create_ball` hands `ball.mod` to
+a plain `ModelObject`, and `ModelObject::Draw` (`0x469ac0`) is `mrModelDraw(model, frame)` with no
+scale anywhere. What you see is whichever `ball.mod` loaded, at the size it was built.
+
+**So the model is its own setting.** `--model MULT`, and the manager's **Model size** slider, scale the
+drawn ball itself (0.25–10× as built), on **every** horn ball in the install: the shared one in
+`race.res` that stock cars and most mods fall back on, and every car in `Data/` or `Disabled/` that
+carries its own. A ball that grew on only some cars would look like the slider doing nothing. Each
+model is scaled about its own origin, where the collision sphere is centred, and only its vertex
+position floats are written, in place: the archive isn't rebuilt, because not every real archive
+round-trips (a stock-named `Viper.car` doesn't). The first change files each original model in
+`Backups/` as `<archive>.hornball-model`, and every scale is taken from that original, so 2× then 3×
+is 3×, and `--reset` restores the originals byte for byte. A model replaced since (a new `ball.mod`
+imported through the Parts drawer) no longer matches its filed original at any scale, so it becomes
+the new original instead of being overwritten. Those files hold one model, not a whole archive, so
+nothing offers them as restorable backups. The model and the collision are separate on purpose: a
+custom ball (a boulder) is often built bigger than the stock ball already. In the manager they are
+**linked** by default (a chain toggle): while linked, Collision size and Model size move together, and a
+second link moves the spawn out with the collision size (the `--spawn-clear` offsets), so a growing ball still clears the
+car and the road. Each link opens switched on when the saved values already agree, which a stock
+install always does, and off when they've been set apart.
 
 **Mass is the fourth setting.** `create_ball` writes the ball's mass, **3000**, into field `+0x08`
 of the same record with `mov dword [esp+0x08], 3000.0`. It's the only store of that shape between the
