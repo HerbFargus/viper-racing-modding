@@ -117,6 +117,25 @@ python -m vrmod.cli gallery "C:\path\to\Data" out\gallery --serve
 The [community gallery](https://github.com/HerbFargus/viper-racing-gallery) is
 the same idea pointed at 2,023 mods instead of one install.
 
+## The modern engine
+
+An optional engine upgrade from the companion viper-racing-port project: a DLL placed beside the game (`dinput.dll`,
+with `SDL2.dll` and `viperport.ini`) that runs Viper Racing on OpenGL and SDL instead of DirectDraw,
+Direct3D and DirectSound. The 3D draws at the screen's native resolution with widescreen, the sound
+has no DirectSound crackle, Alt-Tab comes back clean, and the engine's hard limits (physics objects,
+textures, the texture table) are lifted. `race.exe` / `race.bin` aren't changed, and it works on
+v1.0, v1.1 and the community 1.2.4–1.2.6 builds.
+
+Install or remove it from the desktop app's **Modern engine** panel, or:
+
+```bash
+python -m vrmod.cli modern-engine "C:\path\to\Viper Racing\Data"            # install (everything on)
+python -m vrmod.cli modern-engine "C:\path\to\Viper Racing\Data" --remove
+```
+
+The DLLs are bundled in `vrmod/assets/modern_engine/`; `scripts/update_modern_engine.py` refreshes
+them from a viper-racing-port build and records the commit in `SOURCE.txt`.
+
 ## Status
 
 - Toolkit, CLI, and web UI — working.

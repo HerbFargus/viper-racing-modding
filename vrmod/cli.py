@@ -14,7 +14,7 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from . import aifield, archive, aspectfix, backups, bpp as bppmod, bundle, car, carshot, catalog as catalog_mod, ccs, cf, cockpit_tab, dekey, doctor, envelope, hornball, mapfile, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon, drawdistance, surface, writepaths, modassert, carlist
+from . import aifield, archive, aspectfix, backups, bpp as bppmod, bundle, car, carshot, catalog as catalog_mod, ccs, cf, cockpit_tab, dekey, doctor, envelope, hornball, mapfile, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon, drawdistance, surface, writepaths, modassert, carlist, modern_engine
 
 COMMIT_PATH = "/__vrmod_commit__"
 
@@ -921,6 +921,15 @@ def main(argv: list[str] | None = None) -> int:
                       help="with --userdir, do NOT copy the existing settings, lap "
                            "records and ghosts into the new folder")
     p_wp.add_argument("--revert", action="store_true", help="put the absolute paths back")
+
+    p_me = sub.add_parser(
+        "modern-engine",
+        help="Install the modern engine beside the game (viper-racing-port's DLL: engine limits lifted, "
+             "SDL2 window and input, OpenGL renderer at native resolution, SDL audio), or remove it",
+    )
+    p_me.add_argument("data_dir", type=Path, help="the game's Data folder")
+    p_me.add_argument("--remove", action="store_true", help="take it out again")
+    p_me.add_argument("--status", action="store_true", help="only report what is installed")
 
     p_ma = sub.add_parser(
         "modassert",
@@ -1905,6 +1914,23 @@ def main(argv: list[str] | None = None) -> int:
             print("  NOTE: a relative path resolves against the working directory the "
                   "game is\n        STARTED from, not where the .exe lives. Launch it "
                   "from its own folder.")
+    elif args.command == "modern-engine":
+        try:
+            if args.status:
+                st = modern_engine.status(args.data_dir)
+                on = modern_engine.active(args.data_dir)
+                print(f"  modern engine: {st['state']} (vrmod bundles viper-racing-port {st['commit']})")
+                if st["state"] in (modern_engine.INSTALLED, modern_engine.OUTDATED):
+                    parts = [n for n, k in (("engine limits", "limits"), ("SDL window and input", "sdl"),
+                                            ("OpenGL renderer", "gl"), ("SDL audio", "audio")) if on[k]]
+                    print(f"  on: {', '.join(parts)}")
+            elif args.remove:
+                print("  " + modern_engine.remove(args.data_dir))
+            else:
+                print("  " + modern_engine.install(args.data_dir))
+        except modern_engine.ModernEngineError as e:
+            print(f"  {e}")
+            return 1
     elif args.command == "modassert":
         state = modassert.status(args.data_dir)
         if state == modassert.ABSENT:
