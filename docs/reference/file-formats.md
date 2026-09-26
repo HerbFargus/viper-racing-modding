@@ -1373,7 +1373,7 @@ the interpolated physical value — both conventions appear on screen.
 | 18, 19 | spoiler size, front / rear | `× 100` |
 | 20–25 | gear ratios 1–6 | as stored |
 | 26 | a 7th gear slot — `0.0` everywhere; nothing ships 7 gears | — |
-| 27 | a ratio, `2.66` in every shipped file; **not** the displayed final drive | — |
+| 27 | an 8th gear slot, `2.66` in every shipped file; the physics never reads it (§5.4, `gear_ratio8`) | — |
 | 28 | aero kit, an **int enum**: 0 Adjustable · 1 Low Drag · 2 High Downforce | radio buttons |
 | 29 | fuel load | `× fuel_capacity` |
 | 30, 31 | camber, front / rear | `lerp(*camber1..2)` |
@@ -2735,12 +2735,42 @@ rather than varying with track size, consistent with a small fixed-shape paramet
 geometry. Header envelope confirmed (`0SER`/`TNDA`/version=7 — the highest version number seen anywhere in
 the catalog/`!IGM`); payload not decoded.
 
-### 4.13 `SGPU` — `.ugs` car upgrade data — 🟡 WELL-SUPPORTED (identity only)
+### 4.13 `SGPU` — `.ugs` car upgrade data — ✅ CONFIRMED (effects traced; shop fields read from data)
 
-Found in `viper.car` as `viper.ugs` (5,948-byte payload). Reversed tag reads "UPGS" — read together with
-the extension and filename, a strong hint this is car **upgrade slot/stat** data (performance part
-options), though it wasn't cross-referenced against anything to confirm the specific field layout. Header
-envelope confirmed (`0SER`/`SGPU`/version=1/`!IGM`); payload not decoded.
+Found in `viper.car` as `viper.ugs` (5,948-byte payload), and in no other car. Reversed tag reads
+"UPGS"; envelope `0SER`/`SGPU`/version=1/`!IGM`. Traced in the v1.0 `race.exe`: `CarFileGetUpgradeSet`
+loads it as a `CarUpgradeSet` (panicking on any version but 1), and `CarFileLoad(CarFile*, name, flags)`
+opens `<car>.ugs` after reading the `.cf` and calls `apply_upgrade` for each upgrade whose flag byte is set.
+
+```
+0x000  int32 count                  -- 33 in viper.ugs
+0x004  int32 offset[256]            -- record i at 0x404 + offset[i]; unused entries 0
+CarUpgrade:
+  +0x00  char[32] name              -- "AirInduction", "SportsTires", ...
+  +0x20  char[32] second name       -- a family ("Tires", "RollBars", "Springs", "Aero") or another
+                                       part ("ExhaustSystem" -> "GlassPackMuffler"); not traced
+  +0x40  32 bytes, zero in every record
+  +0x60  int32, int32, int32        -- read as category, tier 1-4, price ($); not traced
+  +0x6c  int32 n
+  +0x70  n x (int32 .cf offset, 4-byte value)
+```
+
+**An upgrade is a patch to the `.cf`.** `apply_upgrade` writes each value straight into the loaded
+`CarFile` at its offset, so upgrades can change *any* `.cf` field, and applying them in order means a
+later one overrides an earlier one on the same field. Record 0, `StockSetup`, writes the stock suspension
+ranges, gear ratios and more. The rest are shop parts: tyres set `fgrip_scale`/`ftyre_stiffness_scale`
+etc. (1.03 → 1.12), springs and roll bars set the suspension ranges, Bushings zero the compliance, and each
+engine part and weight reduction fills its own slot in the `.cf`'s upgrade block (§5.4:
+`power_add`, `mass_add`, `gear_ratio`, the aero-kit spoilers). RacingBrake's list is empty.
+
+**Upgrades are career-only, and Viper-only.** The flag array reaches the car loader in two ways, and both
+are career-gated. `parse_car` passes the global `CareerUpgrades` for the player's car (car-list type 0)
+and `NULL` for every other car. `CareerUpgrades` is `NULL` in the data section, and only `career_main`
+writes it, pointing it at the career save's flags on entry and clearing it on exit. The pre-race garage
+gets its flags from `PreRaceDo`'s third argument, which `GameDoSingle` (a single race) passes as `0`,
+while `do_event` and `do_race` (both `career.obj`) pass the save's flags. The career menu loads the set
+by the literal name `viper.ugs`, and no other car ships one. So a single race, and every AI car, drives
+the bare `.cf`.
 
 ### 4.14 `0XFS` → `SFX0` — `.sfx` sound effect — ✅ CONFIRMED (PCM path; ADPCM path partially understood)
 
@@ -3762,8 +3792,42 @@ and theirs DO take a mass: the record's last number (§4.3).
   resistance is `0.0` everywhere. Only `plane.cf` sets compliance, at toe 0.09 / 0.2 and camber
   0.6 / 0.6. None of these has been tested by editing it in game, and the Car Configs editor does not show
   them.
-- What is still unnamed: `0x60`–`0xC7` (right after `fuel_capacity`), `0xE8`–`0x107` (just before
-  `num_gears`), and the last 16 bytes (`0x218`–`0x227`).
+- **Upgrade slots, fixed gearbox and aero-kit spoilers — ✅ traced from the v1.0 `race.exe`; every one of
+  the payload's 138 dwords is now named.** All from `CarFileCombine`, with meanings pinned by what
+  `viper.ugs` writes into each slot (§4.13: an upgrade is a list of `.cf` offset/value pairs poked into the
+  loaded `.cf`). Every retail `.cf` leaves all of them `0`; they exist to be filled by upgrades.
+
+  | Offset | Fields | Meaning |
+  |---|---|---|
+  | 0x60–0x74 | `power_mult1`–`power_mult6` | multiply power and torque; `0` counts as `1.0` |
+  | 0x78–0xA4 | `power_add1`–`power_add12` | horsepower added by engine parts |
+  | 0xA8–0xC4 | `mass_add1`–`mass_add8` | pounds added to `mass` (negative = weight reduction) |
+  | 0xE8–0x104 | `gear_ratio1`–`gear_ratio8` | a fixed gearbox; see below |
+  | 0x218 / 0x21C | `fspoiler_low_drag` / `rspoiler_low_drag` | spoiler values for aero kit 1, Low Drag |
+  | 0x220 / 0x224 | `fspoiler_downforce` / `rspoiler_downforce` | spoiler values for aero kit 2, High Downforce |
+
+  **Power.** Both `power_max` and `torque_max` are multiplied by `drivetrain scale` (setup field 1) × every
+  non-zero `power_mult` × (1 + Σ`power_add` / `power_max`). Each Viper engine part owns one `power_add`
+  slot: AirInduction +8 hp (1), GlassPackMuffler +5 or ExhaustSystem +22 (2, the same slot, so the
+  better part replaces the lesser), Headers +31, ThrottleBody +22, PowerControlModule +17, PortedHeads +40,
+  PushRodKit +30, CustomTiming +45, FuelInjectors +35 (3–9). WeightReduction 1–4 own `mass_add1`–`4`
+  (−150, −203, −324, −300 lb). No upgrade uses a `power_mult`, `power_add10`–`12` or `mass_add5`–`8`.
+
+  **Gearbox.** If `gear_ratio1` is non-zero, `gear_ratio1`–`8` replace the setup's gear sliders; if it is
+  `0` (every shipped `.cf`) the gears come from the setup. `num_gears` then zeroes gears 5–7 on cars with
+  fewer. CloseRatioGearbox writes a fixed set, and RacingGearbox writes zeros, which is how it makes the
+  gears adjustable. `gear_ratio8` is never read by the physics (reverse is gear 1 negated), yet
+  `viper.ugs`'s StockSetup writes **2.90** there, the real 1996 Viper's reverse ratio: most likely a reverse
+  ratio that was never wired up.
+
+  **Aero kit.** The setup's aero-kit enum (field 28) picks the spoiler values: Adjustable lerps
+  `fspoiler1`..`2` by the spoiler slider; Low Drag and High Downforce use these fixed pairs instead,
+  unless the pair is `0`. The spoiler value is then added to `front_lift`/`rear_lift`, and its magnitude ×
+  `fspoiler_drag`/`rspoiler_drag` becomes extra drag. Only the front value is tested. Every retail car ships
+  zeros, so all three kits drive the same slider. Many community cars ship −0.001 / −0.001 (Low Drag) and
+  −0.9 / −0.9 (High Downforce), and the SportsAeroKit upgrade rewrites all four.
+
+  Nothing here has been tested by editing it in game.
 
 ### 5.5 The remaining loose files in `Data/`
 
