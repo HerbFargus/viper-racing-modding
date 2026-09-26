@@ -46,7 +46,7 @@ import threading
 import webbrowser
 from pathlib import Path
 
-from . import aifield, ainames, archive, backups, carshot, cf, dekey, doctor, envelope, grf, hornball, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch, headon, drawdistance, writepaths, modassert, carlist
+from . import aifield, ainames, archive, enginefix, backups, carshot, cf, dekey, doctor, envelope, grf, hornball, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch, headon, drawdistance, writepaths, modassert, carlist
 
 _PAGE = r"""<!doctype html>
 <meta charset="utf-8"><title>Viper Racing -- Mod Manager</title>
@@ -224,6 +224,10 @@ body.resizing #frame{pointer-events:none}   /* keep the drag out of the iframe *
 .ai-row .field-label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;
                      color:var(--dim);display:block;margin-bottom:7px;font-weight:600}
 .ai-total{color:var(--dim);font-size:12.5px}
+.sub-h{font-size:13px;font-weight:600;margin:14px 0 2px;display:flex;align-items:baseline;gap:10px}
+.sub-h .note{color:var(--dim);font-size:12px;font-weight:400;margin-left:auto}
+.ai-sec{border-top:1px solid var(--edge);margin-top:16px}
+.ai-sec .ai-row .note{color:var(--dim);font-size:12px}
 .ai-total b{color:var(--fg);font-weight:600}
 
 /* Seven name boxes. auto-fit rather than a fixed seven columns so the row
@@ -992,10 +996,13 @@ async function renderGame(){
   const ho = await api('/api/headon');
   const dd = await api('/api/drawdistance');
 
+  // ONE panel for everything about the AI: how many, who, how they react, which line
+  // they follow, and the crash guard. Sub-sections, not separate panels.
   const opponents = `
    <div class="panel">
-     <div class="panel-head"><h2>AI opponents</h2>
+     <div class="panel-head"><h2>AI</h2>
        <span class="note"><span id="ai-note-total">${total}</span> on the grid &middot; in-menu picker locks to 7</span></div>
+     <h3 class="sub-h">Opponents</h3>
      <p class="lede">How many cars line up against you. The tool sets it directly, so it
        can go past the menu's limit of 7 &mdash; up to ${af.max}.</p>
      <div class="ai-row">
@@ -1007,8 +1014,7 @@ async function renderGame(){
          </div></div>
        <span class="ai-total">On the grid: <b id="ai-total">${total}</b> cars
          <span style="opacity:.55">(you + <span id="ai-you-plus">${count}</span>)</span></span>
-     </div>
-   </div>`;
+     </div>`;
 
   // Seven boxes, because seven is what the file holds: english.lng keeps
   // AIDriverName:<Tier>:Driver0..6 for each difficulty. A name typed here is
@@ -1019,9 +1025,8 @@ async function renderGame(){
             placeholder="${nm.stock_names && nm.stock_names[i] || ''}" maxlength="40"
             oninput="aiNameCheck()">`).join('');
   const drivers = `
-   <div class="panel">
-     <div class="panel-head"><h2>AI driver names</h2>
-       <span class="note">${nm.stock ? 'stock roster' : 'renamed'}</span></div>
+     <div class="ai-sec">
+     <h3 class="sub-h">Driver names <span class="note">${nm.stock ? 'stock roster' : 'renamed'}</span></h3>
      <p class="lede">Who you are racing. Leave a box empty to keep MGI's name for
        that slot. Names are written across every difficulty, so the same seven
        turn up whether you race Easy or Career.</p>
@@ -1031,7 +1036,7 @@ async function renderGame(){
        <button class="btn" onclick="applyAiNames()">Apply names</button>
        <button class="btn ghost" onclick="resetAiNames()" ${nm.stock?'disabled':''}>Restore MGI's</button>
      </div>
-   </div>`;
+     </div>`;
 
   const carLine = verts
     ? `Engine buffer holds <b style="color:var(--fg)">${verts.toLocaleString()}</b> verts per mesh${
@@ -1204,10 +1209,11 @@ async function renderGame(){
   }
 
   const hoOn = ho.state === 'enabled';
+  const fixBtn = {vram:'Apply', dpi:'Set DPI-aware', patch:'Apply', drivers:'Empty drivers.res',
+                  wp_logs:'Keep logs here', wp_userdir:'Keep settings here'};
   const hoPanel = (ho.state === 'unknown' || ho.state === 'missing') ? '' : `
-   <div class="panel">
-     <div class="panel-head"><h2>AI head-on reaction</h2>
-       <span class="note">${hoOn ? 'panic on (stock)' : 'panic off'}</span></div>
+     <div class="ai-sec">
+     <h3 class="sub-h">Head-on reaction <span class="note">${hoOn ? 'panic on (stock)' : 'panic off'}</span></h3>
      <p class="lede">Come at an AI car fast enough and it stamps the handbrake, lifts and
        throws full lock &mdash; a deliberate spin rather than a line past you. Turning it off
        leaves ordinary avoidance alone: they still steer around you and around obstacles.</p>
@@ -1216,6 +1222,31 @@ async function renderGame(){
          >${hoOn ? 'Turn the panic off' : 'Restore the panic'}</button>
        <span class="note" style="margin-left:10px">${
          hoOn ? 'One byte in race.bin, backed up first.' : 'Restores byte for byte.'}</span>
+     </div>
+     </div>`;
+
+  // Racing lines: the drivers.res findings live here rather than in the fixes list,
+  // and the crash guard (always on with the enhancements) gets a status line.
+  const isDrivers = f => f.action === 'drivers' || /drivers\.res/.test(f.title);
+  const fixRow = f => `
+         <div class="fix"><span class="dot ${f.level}"></span>
+           <div class="body"><div class="t">${esc(f.title)}</div>
+             <div class="d">${esc(f.detail)}${f.fix ? ' '+esc(f.fix) : ''}</div></div>
+           ${f.action ? `<button class="mini" onclick="applyFix('${f.action}')"
+             >${fixBtn[f.action] || 'Fix'}</button>` : ''}
+         </div>`;
+  const ef = (STATE.engine_fixes || {}).ai_bead_guard;
+  const guardRow = ef === 'fixed' ? fixRow({level: 'ok', title: 'Crash guard on',
+      detail: 'An AI car that loses its racing line (it happens on tracks with objects in the road) '
+            + 'finds it again instead of crashing the game.'})
+    : ef === 'stock' ? fixRow({level: 'info', title: 'Crash guard not installed',
+      detail: 'On tracks with objects in the road an AI car can lose its racing line and crash the '
+            + 'game. The guard comes with the enhancements in Compatibility & fixes below.'})
+    : '';
+  const linesPanel = `
+     <div class="ai-sec">
+     <h3 class="sub-h">Racing lines</h3>
+     <div>${dr.findings.filter(isDrivers).map(fixRow).join('')}${guardRow}</div>
      </div>
    </div>`;
 
@@ -1249,14 +1280,13 @@ async function renderGame(){
    </div>`;
   })();
 
-  const fixBtn = {vram:'Apply', dpi:'Set DPI-aware', patch:'Apply', wp_logs:'Keep logs here', wp_userdir:'Keep settings here'};
   const fixes = `
    <div class="panel">
      <div class="panel-head"><h2>Compatibility &amp; fixes</h2>
        <span class="note">${dr.worst==='ok' ? 'All good'
          : dr.worst==='warn' ? 'Things to check' : 'Needs attention'}</span></div>
      <div>
-       ${dr.findings.map(f => `
+       ${dr.findings.filter(f => !isDrivers(f)).map(f => `
          <div class="fix"><span class="dot ${f.level}"></span>
            <div class="body"><div class="t">${esc(f.title)}</div>
              <div class="d">${esc(f.detail)}${f.fix ? ' '+esc(f.fix) : ''}
@@ -1268,8 +1298,8 @@ async function renderGame(){
      </div>
    </div>`;
 
-  el$('config').innerHTML = opponents + drivers + aiCar + cars + tracks
-                          + hbPanel + hoPanel + resPanel + ddPanel + fixes;
+  el$('config').innerHTML = opponents + drivers + hoPanel + linesPanel + aiCar + cars + tracks
+                          + hbPanel + resPanel + ddPanel + fixes;
   if(hbPanel) for(const k of ['model', 'spawn']) paintLink(k);
 }
 
@@ -2176,6 +2206,7 @@ def _status_payload(d: Path) -> dict:
         "car_active_count": sum(1 for c in cars if c["active"]),
         "car_disabled_count": sum(1 for c in cars if not c["active"]),
         "ai_field": ai_field, "ai_names": ai_names, "primary_car": primary,
+        "engine_fixes": enginefix.status(d),
         "vertex_verts": verts, "vertex_max": vertexbuffer.FORMAT_CAP_VERTS,
         "resolution": res_info,
         "fp": _folder_fingerprint(d),
