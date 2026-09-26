@@ -872,6 +872,123 @@ Three things follow that are not visible from the shipped data:
 - **Overlapping spawns are safe.** Pairs overlapping 25% and 75%, clumps of ten packed within 0.4 m,
   and two balls at exactly the same spot all burst apart at race start like billiard balls, with no
   crash — a free burst effect.
+- **It moves before the green light.** Physics runs from the moment the race loads. `RaceDeity::Reset`
+  (`0x443070`) sets the green at the physics clock + 4.8 s, but in game (a boulder timed on a generated
+  track, 2026-09-25) the green came about **7.9 s** after load, so the pre-race intro evidently runs the
+  physics too. Anything on a slope is already rolling when the cars start: time chutes from load, not
+  from the green.
+- **A restart can leave it frozen.** `Obstacle::Reset` (`0x43d3c0`) puts the obstacle back at its spawn
+  and zeroes its speed, but leaves the awake flag (`+0x4ac`) and the `Perturb` timer (`+0x4a8`) as they
+  were. The physics clock (`physics_tick`) is set only in `PhysicsBegin`, so it keeps running across a
+  restart. An obstacle that had been at rest for over a second is therefore reset **asleep**: it hangs
+  at its spawn, 4 m up, until something hits it. Only one still moving within the last second falls
+  again. A fresh load always works, because the constructor calls `Perturb`. In code the two functions
+  sit side by side, `Reset` ending `ret; mov edi, edi` directly before `Perturb`, so NOPing those
+  3 bytes makes every reset fall through into a wake-up. ✅ Confirmed in game.
+- **Obstacles in the race path can crash the game when AI cars race.** Three generated tracks have
+  crashed partway through a race with AI cars:
+  - a ball pit with 200 balls across the whole arena;
+  - a test track of 30,000 lb boulders rolling down the AI's lane;
+  - a boulder canyon, around its ambush chutes, where cars were being knocked about and reset.
+
+  All three came through the same path, where known: `advance_bead` +0x43 ← `update_car_info` ←
+  `AICar::update_line_info` ← `AICar::Update`, an access violation. It unwinds like this:
+  1. When an AI car is reset, `update_car_info` (`0x4214c0`) calls `reset_bead_position`. That sets the
+     car's place on its racing line (the "bead", `IdealLine +4`) to NULL, then asks `get_nearest_bead`
+     to find it again.
+  2. `get_nearest_pair` (`0x4215e0`) keeps a segment only if the car lies between that segment's two
+     node planes. On a closed loop every real position passes. A **NaN** position fails every
+     comparison, so nothing is found and the bead stays NULL.
+  3. The next frame, `advance_bead` (`0x421840`) reads through the NULL segment (`mov ecx, [esi]` at
+     `0x421883`) and the game dies.
+
+  The car's position comes straight from its physics object (`+0x5c`/`+0x64`), which has the same
+  300 m/s cap as any obstacle. So the NaN must come from a single bad calculation, most likely a
+  zero-length collision normal, not from a runaway speed. Mass doesn't matter: the ball pit's balls
+  weighed 40 lb. Without an engine fix, publish such tracks as solo.
+
+  **The fix:** have `advance_bead` put a NULL bead back at the head of the line (`+0x2c`, t = 0), and the
+  AI then finds its place again over the next frames. ✅ Confirmed in game: with it, the boulder canyon
+  ran with AI and didn't crash. On the v1.0 `race.exe` the guard fits in place of the function's
+  32-byte profiler preamble. The `race.bin` builds (1.0 disc, 1.2.4 beta, 1.2.5, 1.2.6) were compiled
+  without the profiler, so there it needs a jump to a small block elsewhere.
+
+**How an obstacle ball rolls — ✅ READ FROM CODE and CONFIRMED IN GAME 2026-09-25.**
+From `SphereVolume::CollideGround` (`0x4324d0`), `PhobDyno::Update` (`0x445210`), the `PhobDyno` and
+`Obstacle` constructors (`0x4449c0`, `0x43cd90`) and `parse_obstacle` (`0x463870`):
+
+- **The mass is in pounds.** `PhobDyno` stores the record's value × 0.4545 as its mass in kg (`+0x1f0`)
+  and converts the inertias from lb·ft² (× 0.04228). The inertia works out to **mass (kg) × the product
+  of two mesh extents**. For a ball that is its diameter squared, so **I = 4 m r²**, ten times a real
+  solid sphere's (0.4 m r²). A ball is very hard to spin up.
+- **The ground is a spring with capped sliding friction.** Each tick `CollideGround` finds how far the
+  sphere has sunk into the collision mesh (`TerrainGetSphereIntersection`) and applies, at the contact
+  point:
+  - a normal force of `16.35 × record mass` (about **36 × kg**) per metre sunk, so a ball rides about
+    0.27 m into flat ground whatever it weighs;
+  - a tangential force of **−1000 N·s/m × the contact point's slip**, capped at **0.5 × that normal
+    force**;
+  - a normal impulse (`get_impulse_magnitude`).
+- **Nothing else slows it down.** `PhobDyno::Update` adds gravity and integrates, with no air drag, no
+  rolling resistance and no damping. It caps spin at **10 rad/s** and speed at **300 m/s**.
+- **The surface makes no difference.** `CollideGround` passes the surface code to `ApplyForce`, and
+  `PhobDyno::ApplyExternalForce` (`0x445970`) drops it. The one exception is code **14** (water), which
+  switches to a separate floating path (`CollideWater`, then a buoyancy force). "Pave the World" only
+  changes the cars' tyre contact.
+- **Nothing spawns moving.** The record's third field sets only the yaw (`Obstacle::Obstacle` builds
+  pitch and roll as 0), and `PhobDyno::reset` (`0x444b90`) zeroes every velocity, spin and force. There is
+  no field for an initial velocity or spin.
+
+Because the friction is a **fixed** 1000 N·s/m and doesn't grow with mass, mass decides how a ball moves
+down a slope:
+
+- **A light ball rolls.** The friction easily spins it up, and rolling with I = 4 m r² costs it most of
+  the slope's pull: it accelerates at only about **g·sin(slope) / 5**.
+- **A heavy ball skids.** The same friction barely turns it, so it slides at close to **g·sin(slope)**,
+  as if frictionless.
+- **The switch comes at a lower mass on a steeper slope,** because the friction needed to keep a ball
+  rolling grows with weight × sin(slope).
+- **On the flat, friction spins a skidding ball up until it rolls, at roughly a fifth of its speed.**
+  That is the slowdown seen on flat ground. It takes longer the heavier the ball, and a ball that is
+  already rolling keeps its speed.
+
+A 1-D model of those rules gives, for an 8 m ball from rest after 400 m of constant slope (mph):
+
+| Mass (record) | 5° | 10° | 15° | 20° |
+|---|---|---|---|---|
+| 1,000 | 25 | 35 | 43 | 49 |
+| 3,000 | 25 | 35 | 43 | 50 |
+| 10,000 | 26 | 38 | 47 | 56 |
+| 30,000 | 32 | 51 | 67 | 81 |
+| 100,000 | 47 | 71 | 89 | 104 |
+| 300,000 | 54 | 78 | 97 | 112 |
+| no friction | 59 | 83 | 101 | 116 |
+
+Then 300 m of flat takes the 30,000 ball from 51 to 25 mph at 10°, 100,000 from 71 to 57, and 300,000
+from 78 to 74. How that lines up with the Boulder Lab test tracks (2026-09-25):
+
+- **Lab 1** (masses 1,000 to 30,000 on one 10° slope) showed heavier boulders rolling faster.
+- **Lab 2** (30,000 on 5°, 10°, 15° and 20° lanes, each dropping the same 120 m, then flat) showed the
+  steep lanes' boulders slowing on the flat while a shallower one, still on its slope, arrived first.
+  The model predicts the 10° boulder arriving first (the tester was unsure whether it was 5° or 10°).
+- **Lab 3** (the Lab 2 track at 100,000) was built to test the model's one surprising prediction: at that
+  mass the flat barely slows a boulder, so the order should FLIP to steepest-first. It did. The boulders
+  arrived in order of slope, the shallow ones slow to start. The 20° boulder still had good speed at the
+  end of its lane and hit the end wall, and each boulder tossed any car it met.
+
+So for a fast boulder: make it heavy, keep its route descending, and put flat ground only where it
+should stop.
+
+**There is no mass limit.** `parse_obstacle` and both constructors store the value and derive from it
+without a single comparison, so any 32-bit float is accepted:
+- **Too heavy:** the inertia (record mass × extent² × 10.75) overflows only past about 10³⁵ for an 8 m
+  ball.
+- **Zero or negative:** `PhobDyno` takes 1/mass unchecked, so 0 gives an infinite inverse mass and a
+  negative value reverses the ball's response to every contact. Neither has been tried.
+
+**In practice** the speed stops improving at about 300,000, where the ball is already skidding almost
+frictionlessly. Heavier still only makes it harder to stop: the horn ball (mass 3000) and cars can
+barely shift it.
 
 **How many objects a track can hold — ✅ CONFIRMED IN GAME 2026-09-25.** There are three fixed-size
 lists, and **none of them is checked**:
