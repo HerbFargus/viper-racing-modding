@@ -18,6 +18,54 @@ command-line converters. `vrmod` is the first attempt to fold that manual
 knowledge into one programmatic library.
 
 
+## Before the mods: how MGI built the game
+
+Shortly after Sierra announced the game in mid-September 1998, *Gaming Entertainment
+Monthly* interviewed **Richard Garcia**, president of MGI (Monster Games) and the game's
+lead engineer. It's the fullest account from the developers themselves, and much of it
+matches what the code shows. The main points, paraphrased
+([archived copy](https://web.archive.org/web/20000709013553/http://www.gemonthly.com/features/viper_racing_interview/viper_interview.html)):
+
+- **The team.** Garcia had spent most of ten years at Papyrus (*Indy 500: The Simulation*,
+  and *NASCAR Racing Online Series*, then codenamed "Hawaii"). MGI was new and started from
+  nothing, so the first of about two years of development went on the racing technology
+  alone. The whole team was six people: three programmers, two artists and one
+  designer/producer.
+- **Why the Viper.** The aim was a highly detailed simulation of a single car, built from its
+  own suspension and drivetrain measurements, and the Viper was one of the fastest production
+  cars available. The programmers went to the Skip Barber Racing School, and the team had a
+  real Viper to measure and photograph.
+- **The physics.** Garcia describes it as his first project where the CPU was fast enough not
+  to fake the maths: tyre rubber deformation, every suspension component, the complete
+  drivetrain and whole-car aerodynamics. There are three physics settings (arcade,
+  intermediate and simulation). The AI cars run the same full model, "the AI can't cheat",
+  which is why the hardware needed rose with every car added. The code agrees: an AI car is
+  the same kind of physics object as the player's (see "How an obstacle lives" in the
+  [file-format reference](../reference/file-formats.md)).
+- **The graphics.** A Direct3D card was required, from an S3 ViRGE or Matrox Mystique up to a
+  Voodoo Banshee or Riva TNT. The art was drawn for 16-bit colour, and the polygon counts made
+  a software renderer "nearly impossible". The car had over 1,000 polygons at full detail and
+  **eight levels of detail**, the eight-step ladder in `viper.car` described under
+  [How good were the models, actually?](#how-good-were-the-models-actually). Minimum spec was a
+  Pentium 133 with 32 MB, with force feedback and AMD 3DNow! supported.
+- **What was cut.** Rain was dropped because it made the cars too hard to drive: players went
+  too fast when they couldn't feel the tyres slipping.
+- **The views.** Over ten cameras shipped, including x-ray and TV views, and the player could
+  ride along in any car to watch how the AI drove a track.
+- **The tracks.** Each track was set in a real region of the US, but the layout was free. They
+  were laid out on an SGI workstation and raceable within a few hours. A layout that wasn't fun
+  was thrown away, and the cycle could run for over a week before one went into full
+  production (textures, terrain, trees, rocks, signs). The `MK*` build tools that turned those
+  designs into game files survive; see
+  [Where the MK* toolchain came from](#where-the-mk-toolchain-came-from--confirmed-binaries).
+- **Multiplayer.** Two-player modem, direct connect and LAN, with a "rogue" internet server
+  planned so players with fast connections could host private races. The engine's imports
+  match: WinSock for the network and TAPI for the modem.
+- **The schedule.** MGI expected to go gold in mid-October 1998, with the game in shops two to
+  four weeks later, and a demo was in progress. The retail `race.exe` was linked on
+  **21 October 1998**.
+
+
 ## The people
 
 - **Val** (Moose Jaw, Saskatchewan, Canada) — ran the community's central site
