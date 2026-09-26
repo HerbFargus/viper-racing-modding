@@ -449,8 +449,9 @@ def check(data_dir: str | Path) -> Report:
                     (data_dir / live).read_bytes())
             except Exception:
                 ours = False
+        fixes_on = "stock" not in ps["fixes"] and "unknown" not in ps["fixes"]
         applied = [n for n in ("needle", "aspect")
-                   if ps[n] == "patched"] + (["mapfile"] if ours else [])
+                   if ps[n] == "patched"] + (["mapfile"] if ours else [])             + (["fixes"] if fixes_on and "missing" not in ps["fixes"] else [])
         partial = [n for n in ("needle", "aspect") if ps[n] in ("partial", "old-patch")]
         snap = not ps["baseline"].startswith("none")
 
@@ -460,6 +461,14 @@ def check(data_dir: str | Path) -> Report:
                         "state. The patch set is meant to be rebuilt as a unit, not layered.",
                         "Run: vrmod patch <Data> --mode 1920x1080"))
         elif applied:
+            if not fixes_on and "stock" in ps["fixes"]:
+                add(Finding(INFO, "Engine bug fixes not in this build yet",
+                            "The enhancements now also fix two engine bugs: obstacles that stay "
+                            "frozen after a race restart, and a crash when an AI car loses its "
+                            "racing line (common on tracks with objects in the road). This "
+                            f"{live} was enhanced before they existed.",
+                            "Apply the enhancements again to add them; your other settings are kept.",
+                            action="patch"))
             if snap:
                 add(Finding(OK, f"Patch set applied: {', '.join(applied)}",
                             f"Rebuildable from {ps['baseline']}."))
@@ -490,7 +499,9 @@ def check(data_dir: str | Path) -> Report:
                         "it runs on 4GB+ GPUs), a widescreen field of view, and the "
                         "tall-resolution fixes that keep the HUD and tachometer intact -- plus "
                         "it adds a modern mode (1920x1080 by default) to the game's resolution "
-                        "table and appends a crash-symbol map. This is NOT the same as the "
+                        "table and appends a crash-symbol map. It also fixes two engine bugs: "
+                        "obstacles frozen after a race restart, and an AI crash on tracks with "
+                        "objects in the road. This is NOT the same as the "
                         "'Resolution' item below: the game ships four FIXED resolutions topping "
                         "out at 1024x768, and its in-game menu only picks one of those four. This "
                         "changes what is IN that table, so a modern resolution becomes available "
