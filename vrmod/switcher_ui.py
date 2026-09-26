@@ -995,18 +995,18 @@ async function renderGame(){
   const opponents = `
    <div class="panel">
      <div class="panel-head"><h2>AI opponents</h2>
-       <span class="note">${total} on the grid &middot; in-menu picker locks to 7</span></div>
+       <span class="note"><span id="ai-note-total">${total}</span> on the grid &middot; in-menu picker locks to 7</span></div>
      <p class="lede">How many cars line up against you. The tool sets it directly, so it
        can go past the menu's limit of 7 &mdash; up to ${af.max}.</p>
      <div class="ai-row">
        <div><span class="field-label">Opponents</span>
          <div class="stepper">
-           <button onclick="aiStep(-1)" ${count<=0?'disabled':''}>&minus;</button>
+           <button id="ai-minus" onclick="aiStep(-1)" ${count<=0?'disabled':''}>&minus;</button>
            <span class="val" id="ai-val">${count}</span>
-           <button onclick="aiStep(1)" ${count>=af.max?'disabled':''}>+</button>
+           <button id="ai-plus" onclick="aiStep(1)" ${count>=af.max?'disabled':''}>+</button>
          </div></div>
-       <span class="ai-total">On the grid: <b>${total}</b> cars
-         <span style="opacity:.55">(you + ${count})</span></span>
+       <span class="ai-total">On the grid: <b id="ai-total">${total}</b> cars
+         <span style="opacity:.55">(you + <span id="ai-you-plus">${count}</span>)</span></span>
      </div>
    </div>`;
 
@@ -1387,14 +1387,47 @@ async function resetHornball(){
   renderGame();
 }
 
-async function aiStep(delta){
+// The stepper moves the number on screen straight away and writes options.cfg
+// once, after the clicks stop -- so hammering + is five clicks, not five writes
+// each followed by a full re-scan (which is what made it slow, and what lost
+// clicks: each one read the count from before the last re-scan finished).
+let AI_WANT = null, AI_TIMER = null, AI_SAVING = null;
+
+function aiShow(n){
+  const max = (STATE.ai_field || {}).max || 15;
+  el$('ai-val').textContent = n;
+  el$('ai-you-plus').textContent = n;
+  el$('ai-total').textContent = el$('ai-note-total').textContent = n + 1;
+  el$('ai-minus').disabled = n <= 0;
+  el$('ai-plus').disabled = n >= max;
+}
+
+function aiStep(delta){
   const af = STATE.ai_field || {count:0, max:15};
-  const cur = af.count || 0, next = Math.max(0, Math.min(af.max, cur + delta));
+  const cur = AI_WANT ?? (af.count || 0);
+  const next = Math.max(0, Math.min(af.max, cur + delta));
   if(next === cur) return;
-  const r = await api('/api/aifield', {count: next});
-  if(!r.ok) return toast(r.error, 'bad');
+  AI_WANT = next;
+  aiShow(next);
+  clearTimeout(AI_TIMER);
+  AI_TIMER = setTimeout(aiSave, 600);
+}
+
+async function aiSave(){
+  if(AI_SAVING) await AI_SAVING;              // one write at a time
+  const want = AI_WANT;
+  if(want === null || want === (STATE.ai_field || {}).count) { AI_WANT = null; return; }
+  AI_SAVING = api('/api/aifield', {count: want});
+  const r = await AI_SAVING;
+  AI_SAVING = null;
+  if(!r.ok){
+    AI_WANT = null;
+    aiShow((STATE.ai_field || {}).count || 0);  // put the stepper back to what's on disk
+    return toast(r.error, 'bad');
+  }
+  STATE.ai_field.count = r.count;
+  if(AI_WANT === want) AI_WANT = null;          // else more clicks landed while saving; their timer follows
   toast(`AI field: ${r.count} opponent${r.count===1?'':'s'} (${r.total} cars total)`);
-  await refresh();
 }
 
 function aiNameValues(){
