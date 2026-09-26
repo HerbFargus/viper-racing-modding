@@ -3742,6 +3742,28 @@ and theirs DO take a mass: the record's last number (§4.3).
   real 1996 Viper GTS's tyres**. The other stock cars agree with that reading: exotic 280/35 R18 on 330/40 R18,
   sedan 245/35 R18 all round, sports identical to the Viper, plane 225/50 R15 front on 225/50 R10 rear. What
   the physics does with them is not yet tested; the Car Configs editor does not show them.
+- **Compliance, tyre scales and static rolling resistance — ✅ traced from the v1.0 `race.exe`, bringing
+  the count to 100.** Unlike everything above, these were not matched against a name/value listing: they
+  were followed through the decompilation, where `Wheel::Setup` reads each from `CarData` and
+  `CarFileCombine` (§4.4) fills that `CarData` from these `.cf` offsets. All are `float32`; F/R = front/rear
+  axle.
+
+  | Offset | Fields | Meaning |
+  |---|---|---|
+  | 0x188 / 0x18C | `ftoe_compliance` / `rtoe_compliance` | toe change under cornering load, **degrees per 1000 lbf** of lateral tyre force |
+  | 0x190 / 0x194 | `fcamber_compliance` / `rcamber_compliance` | camber change under cornering load, same units |
+  | 0x1B8 / 0x1BC | `fgrip_scale` / `rgrip_scale` | multiplies the tyre's lateral and longitudinal friction |
+  | 0x1C0 / 0x1C4 | `ftyre_stiffness_scale` / `rtyre_stiffness_scale` | multiplies the tyre's cornering and longitudinal stiffness |
+  | 0x1DC | `static_rolling_resistance` | a rolling drag that stays constant once the wheel is turning (it fades in below 10 rad/s); the speed-dependent one is `rolling_resistance` at 0x1D8 |
+
+  The engine turns compliance into radians per newton and multiplies it by a low-passed copy of the
+  wheel's lateral force, so it steers and cambers the wheel in proportion to how hard it is cornering.
+  Across every `.cf` in the stock and community cars on hand (58 copies), the scales are `1.0` and static rolling
+  resistance is `0.0` everywhere. Only `plane.cf` sets compliance, at toe 0.09 / 0.2 and camber
+  0.6 / 0.6. None of these has been tested by editing it in game, and the Car Configs editor does not show
+  them.
+- What is still unnamed: `0x60`–`0xC7` (right after `fuel_capacity`), `0xE8`–`0x107` (just before
+  `num_gears`), and the last 16 bytes (`0x218`–`0x227`).
 
 ### 5.5 The remaining loose files in `Data/`
 

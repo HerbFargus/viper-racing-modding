@@ -10,11 +10,12 @@ viper.cf -- every one of the 85 fields matched a unique float32 (or, for num_gea
 int32) at a 4-byte-aligned offset, byte-exact, with no ambiguity once ties between
 identically-valued fields (e.g. several suspension fields sharing the value 5) were
 broken using their local declaration order and the surrounding confirmed offsets'
-contiguous layout.
+contiguous layout. Fifteen more (tyre sizes, suspension compliance, tyre grip and
+stiffness scales, static rolling resistance) were named later, bringing it to 100.
 
-Not every byte in the payload is named here -- several stretches (e.g. right after
-fuel_capacity, and a short run before cm_height) are reserved/unidentified and are
-left untouched by build().
+Not every byte in the payload is named here -- three stretches (right after
+fuel_capacity, 0xE8-0x107 before num_gears, and the last 16 bytes) are
+reserved/unidentified and are left untouched by build().
 """
 from __future__ import annotations
 
@@ -58,6 +59,14 @@ FIELD_MAP: dict[str, tuple[int, str]] = {
     "caster": (0x16C, "f"), "anti_dive": (0x170, "f"), "anti_squat": (0x174, "f"),
     "fbump_camber": (0x178, "f"), "rbump_camber": (0x17C, "f"),
     "fbump_toe": (0x180, "f"), "rbump_toe": (0x184, "f"),
+    # Traced from the v1.0 race.exe (Wheel::Setup reads CarData, CarFileCombine
+    # maps it to these offsets) rather than matched against the community tool's
+    # listing. Compliance is degrees per 1000 lbf of lateral tyre force -- 0 on
+    # every car except plane.car. The grip and tyre-stiffness scales multiply
+    # the .tir friction and stiffness (1.0 on every car); static rolling
+    # resistance is 0 on every car.
+    "ftoe_compliance": (0x188, "f"), "rtoe_compliance": (0x18C, "f"),
+    "fcamber_compliance": (0x190, "f"), "rcamber_compliance": (0x194, "f"),
     "cm_height": (0x198, "f"), "wheel_lock": (0x19C, "f"),
     # Tyre size, as printed on the sidewall: width in mm, aspect ratio, rim in
     # inches. Identified against viper.car, which reads 275/40 R17 front and
@@ -65,9 +74,11 @@ FIELD_MAP: dict[str, tuple[int, str]] = {
     # all round; plane is 225/50 R15 front on 225/50 R10 rear.
     "ftyre_width": (0x1A0, "f"), "ftyre_aspect": (0x1A4, "f"), "ftyre_rim": (0x1A8, "f"),
     "rtyre_width": (0x1AC, "f"), "rtyre_aspect": (0x1B0, "f"), "rtyre_rim": (0x1B4, "f"),
+    "fgrip_scale": (0x1B8, "f"), "rgrip_scale": (0x1BC, "f"),
+    "ftyre_stiffness_scale": (0x1C0, "f"), "rtyre_stiffness_scale": (0x1C4, "f"),
     "fbrake1": (0x1C8, "f"), "rbrake1": (0x1CC, "f"),
     "fbrake2": (0x1D0, "f"), "rbrake2": (0x1D4, "f"),
-    "rolling_resistance": (0x1D8, "f"),
+    "rolling_resistance": (0x1D8, "f"), "static_rolling_resistance": (0x1DC, "f"),
     "cp_height": (0x1E4, "f"), "cp_long": (0x1E8, "f"),
     "frontal_area": (0x1E0, "f"), "drag_coefficient": (0x1EC, "f"),
     "lat_drag": (0x1F0, "f"), "vert_drag": (0x1F4, "f"),
