@@ -287,6 +287,27 @@ def check_invariants() -> None:
           _opaque[20 + 2] == 0 and _opaque[20 + 3] == 1
           and _tex.parse(_opaque).wrap == 0,
           "race.exe's txSelect reads byte 2 as the wrap mode")
+    # race.exe keys formats 1 and 3 on the header's u16 at 0x04, by exact raw
+    # match. Colorkey mode marks transparent texels 0x0000, so the key has to
+    # be 0x0000 too -- not the 1x1 texel, which on a mostly opaque cut-out is
+    # its average colour and leaves the "transparent" areas drawn black.
+    _px = bytearray(b"\xc8\x3c\x28\xff" * 64)  # opaque brown fence ...
+    _px[0:16] = bytes(16)  # ... with a transparent notch
+    _keyed = _tex.encode_to_tex(bytes(_px), 8, mode="colorkey")
+    _kinfo = _tex.parse(_keyed)
+    _kbase, _ = _tex._base_level_offset(_kinfo)
+    _knotch = _kinfo.pixel_data[_kbase:_kbase + 2]
+    check("a colorkey texture keys the same value it marks transparent",
+          _kinfo.flags == 1 and _kinfo.colorkey == 0x0000 and _knotch == b"\0\0"
+          and _keyed[20 + 0x0C:20 + 0x0E] != b"\0\0",
+          f"key 0x{_kinfo.colorkey:04X}, 1x1 texel "
+          f"0x{int.from_bytes(_keyed[32:34], 'little'):04X}")
+    _alpha2 = _tex.encode_to_tex(b"\xc8\x3c\x28\xff" * 64, 8, mode="alpha")
+    check("alpha and opaque textures keep their 0x04 field",
+          _tex.parse(_alpha2).colorkey
+          == int.from_bytes(_alpha2[20 + 0x0C:20 + 0x0E], "little") != 0
+          and _tex.parse(_opaque).colorkey == 0,
+          "alpha: the 1x1 texel (format 2 never reads it); opaque: zero")
 
     check("the texture size ceiling matches what the game ships",
           tg.TEX_MAX_SIZE == 256, f"{tg.TEX_MAX_SIZE} (no shipped texture exceeds 256)")

@@ -276,7 +276,10 @@ def decode_base_level(info: TexInfo) -> bytes:
         # Assuming 0x0000 left those backgrounds fully opaque, so every
         # cutout billboard -- trees, signs, fences -- rendered as a solid
         # rectangle. 0x0000 is still treated as transparent so files whose
-        # key field is genuinely zero keep working.
+        # key field is genuinely zero keep working. The game is stricter: it
+        # drops ONLY texels equal to the key, so this preview is kinder than
+        # race.exe to a file whose marker and key disagree (as colorkey files
+        # vrmod wrote before encode_to_tex keyed 0x0000 do).
         key = info.colorkey
         out = bytearray(pixel_count * 4)
         for i in range(pixel_count):
@@ -529,7 +532,9 @@ def encode_to_tex(
       "colorkey" -- RGBA8888 in (4 bytes/px); alpha<128 pixels become the
                      reserved transparent marker (raw 0x0000), everything
                      else is plain RGB565 (nudged off 0x0000 if it would
-                     otherwise collide with the marker)
+                     otherwise collide with the marker). The header key at
+                     0x04 is written as 0x0000 to match, since the game keys
+                     on that value and nothing else.
 
     `size` must be a power of two and >=8 (only 8x8-and-larger base levels
     have been round-trip verified -- see module docstring). `flags` overrides
@@ -582,12 +587,23 @@ def encode_to_tex(
     for px in levels[0]:
         chain += struct.pack("<H", encode_pixel(px))
 
+    if mode == "colorkey":
+        # 0x04 is the colour key for formats 1 and 3: race.exe hands it to
+        # DirectDraw as the source key and drops texels that match it exactly.
+        # This mode marks every transparent texel 0x0000, so the key must be
+        # 0x0000 too. It used to be the 1x1 texel, which only matched when the
+        # image was mostly transparent; a fence or sign keyed its average
+        # colour instead and drew the cut-out areas black.
+        key = 0x0000
+    else:
+        # Alpha output keeps the 1x1 texel it always wrote (format 2 never
+        # reads the key); opaque output writes zero.
+        key = onepix_value if (flags & 0x03) else 0
+
     header = struct.pack(
         "<BBBBiii",
         flags, 1 if use_mips else 0, wrap, deres,
-        # 0x04 is the colour key, which only formats 1 and 3 use. Writing the
-        # 1x1 texel there is inherited behaviour, not a format rule.
-        onepix_value if (flags & 0x03) else 0,
+        key,
         mip_count,
         onepix_value,
     )
