@@ -1582,21 +1582,22 @@ def write_textures(source: str | Path, out_dir) -> list:
             pixels = bytes(b for i, b in enumerate(pixels) if i % 4 != 3)
             channels = 3
 
-        # wrap is not free to choose. Surveying every texture in a full install
-        # gives only these combinations:
+        # Header byte 0x03 is the de-res priority (it was long mislabelled
+        # "wrap"; the wrap mode is byte 0x02, 0 here, as on nearly every stock
+        # texture). Across a full install it pairs with the format like this:
         #
-        #     flags 0 (opaque)          wrap 0  x563   wrap 1  x118
-        #     flags 1 (colorkey)        wrap 0   x95   wrap 2    x1
-        #     flags 2 (alpha)           wrap 0   x18   wrap 1    x2
-        #     flags 3 (colorkey+alpha)  wrap 0   x78
+        #     format 0 (opaque)   de-res 0  x563   de-res 1  x118
+        #     format 1 (keyed)    de-res 0   x95   de-res 2    x1
+        #     format 2 (alpha)    de-res 0   x18   de-res 1    x2
+        #     format 3 (dual)     de-res 0   x78
         #
-        # A tiling ALPHA texture is not among them, and the game rejects one
-        # outright -- "Panic : tmap: unknown texture format", before the track
-        # loads. So wrap 1 is for opaque textures, which are the ones that tile
-        # along a road anyway; a billboard tree or a light glow does not tile.
+        # De-res 1 on opaque textures follows the roads, which are the ones
+        # worth keeping sharp when the game runs short of texture memory.
+        # (The "tmap: unknown texture format" panic once blamed on a tiling
+        # alpha texture was the format byte: alpha was then written as 3.)
         mode = "opaque" if channels == 3 else "alpha"
         out.write_bytes(tex.encode_to_tex(
-            pixels, w, mode=mode, wrap=1 if mode == "opaque" else 0))
+            pixels, w, mode=mode, deres=1 if mode == "opaque" else 0))
         written.append(out)
 
     if missing:

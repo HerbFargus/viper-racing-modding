@@ -1446,11 +1446,18 @@ purpose-built test tracks and tooling make controlled, single-variable compariso
 
 ### 4.5 `TEX ` — `.tex` texture — ✅ CONFIRMED (opaque, colorkey, mip chain layout; full-alpha 🟡 well-supported)
 
-> **`flags` 0x03 is a FOUR-byte-per-pixel format — ✅ CONFIRMED by payload arithmetic.**
-> The other flag values are two bytes per pixel; 0x03 is exactly double at every size, and never
-> ships above 128×128:
+> **The header, as race.exe reads it — ✅ CONFIRMED from the v1.0 loader.** `txLoadSystem`
+> (0x45fd10), `txSelect` (0x4601d0) and `load_texmap_mip` (0x460820) are the only readers, and every
+> retail texture agrees with them. Two corrections to earlier readings of this section: **the wrap mode
+> is byte 0x16, not 0x17** — 0x17 is the de-res priority — and **format 0x03 is two textures in one
+> file**, not a four-byte pixel format.
 >
-> | base size | flags 0x00 / 0x01 / 0x02 | flags 0x03 |
+> **Format 0x03 is a dual file.** A keyed RGB565 payload is followed by a whole second payload in
+> ARGB4444, whose own header says format 0x04. On a card with alpha textures the loader skips to the
+> second half (`load_file`, 0x461790: `payload + size/2`); otherwise it uses the first. That is why 0x03
+> is exactly twice the size of the other formats (it also never ships above 128×128):
+>
+> | base size | formats 0x00 / 0x01 / 0x02 | format 0x03 |
 > |---|---|---|
 > | 16 | 748 | 1,496 |
 > | 32 | 2,796 | 5,592 |
@@ -1458,15 +1465,20 @@ purpose-built test tracks and tooling make controlled, single-variable compariso
 > | 128 | 43,756 | 87,512 |
 > | 256 | 174,828 | *never ships* |
 >
-> **ARGB4444 is 0x02, not 0x03.** Writing two bytes per pixel under 0x03 hands the game half the
-> data it expects, and it panics with `tmap: unknown texture format` before anything renders — a
-> load-time crash, not a visual fault. `vrmod` writes 0x00, 0x01 and 0x02; the four-byte 0x03
-> layout is not yet decoded.
+> **ARGB4444 on its own is 0x02.** Writing one ARGB4444 payload under 0x03 makes the game read the
+> "second half's" format byte from the middle of the pixels, and it panics with
+> `tmap: unknown texture format` — a load-time crash, not a visual fault. `vrmod` writes 0x00, 0x01
+> and 0x02; it cannot write the dual layout.
 >
-> **A tiling alpha texture is also a combination that never ships.** Across a full install: flags 0
-> takes wrap 0 (×563) or 1 (×118); flags 1 takes wrap 0 (×95) or 2 (×1); flags 2 takes wrap 0 (×18)
-> or 1 (×2); flags 3 takes wrap 0 only (×78). Reserve wrap 1 for opaque textures, which are the ones
-> that tile along a road anyway.
+> **Wrap 0 never caused that panic.** The rule "a new texture needs wrap 1, wrap 0 makes the game
+> reject it" was recorded when the alpha encoder still wrote 0x03; the fix that seemed to cure it also
+> switched opaque images to format 0x00. A later track with alpha textures hit the same panic, it
+> persisted after their wrap byte was changed, and writing format 0x02 cured it. What `vrmod`
+> called wrap was byte 0x17, the de-res priority, where 0 is the commonest retail value. New textures
+> still get 0x16 = 0 and 0x17 = 1 — the combination confirmed in game, and the one `asph.tex` carries.
+>
+> Byte 0x17 across a full install, by format: 0x00 takes 0 (×563) or 1 (×118); 0x01 takes 0 (×95) or
+> 2 (×1); 0x02 takes 0 (×18) or 1 (×2); 0x03 takes 0 only (×78).
 
 > **Two limits that are not in the file format, and both fail silently.**
 >
@@ -1488,36 +1500,35 @@ purpose-built test tracks and tooling make controlled, single-variable compariso
 
 ```
 0x00  "0SER" + " XET"(on disk) + int32 version(=3) + reserved + "!IGM"   -- envelope
-0x14  byte   flags bitfield: bit0 = colorkey transparency, bit1 = full alpha channel
-                              (observed: 0x00 = opaque, 0x01 = colorkey, 0x03 = colorkey+alpha —
-                               bit1 alone, 0x02, was never seen on a real in-game texture, only
-                               produced synthetically — see below)
-0x15  byte   1 for a texture drawn on 3D geometry, 0 for sky and 2D overlays — ✅ CONFIRMED by
-              survey. Of all 880 textures in a full install, the only ones carrying 0 are sky1-4 on
-              every track plus uptown's 2dtele.tex and oo1-4.tex; every road, kerb, grass and prop
-              texture carries 1. It is NOT a mipmap flag — both groups ship full mip chains.
-0x16  byte   (unconfirmed)
-0x17  byte   wrap flag (0x01 observed only on tileable surfaces — asphalt, checker pattern, paint
-              stripe; 0x00 on unique decals)
-0x18  int32  **the COLORKEY** — the exact pixel value to render as transparent. 0 for plain opaque
-              textures. (It coincides with the 1×1 mip level's value, which is why an earlier pass
-              recorded it only as a duplicate of 0x20 — but its *function* is the colorkey, and
-              decoders must key off it. See the note below.)
-0x1C  int32  mip level count — also gives the base (full-resolution) width/height directly: every
-              sample checked is square and power-of-two, and size = 2^(mipCount − 1)
-              (mipCount=9 → 256px, 8 → 128px, 7 → 64px)
-0x20  int32  redundant copy of the 1×1 (fully-downsampled) mip level's own pixel value — confirmed
-              by comparing it against the actual last-mip-level bytes further down the payload
-0x24+ padding, then the mip chain: smallest (1×1) first, largest (base level) LAST
+0x14  byte   format (vrmod calls it `flags`; it is an enum, not a bitfield):
+               0 opaque RGB565, 1 colour-keyed RGB565, 2 ARGB4444, 3 dual (see above),
+               4 the ARGB4444 half of a dual file. Anything else: "tmap: unknown texture format".
+0x15  byte   use mips: 0 loads the top level only (still full size), non-zero loads the whole
+              chain. 0 on sky1-4, the career-menu Viper1-7, envmap, uptown's 2dtele/oo1-4 and
+              the Viper's damage textures (Viperd*, Viperw, viperd); 1 on everything else.
+0x16  byte   wrap mode, per axis: 0 wrap/wrap, 1 wrap U + clamp V, 2 clamp U + wrap V,
+              3 clamp/clamp; anything else panics "unknown wrap mode" when drawn. Retail: 0 except
+              27 keyed textures with 1 (oo1-4, frt1-5, round, won, cactus, 3ter, heads …).
+0x17  byte   de-res priority: non-zero keeps one more mip level when the game runs out of
+              texture memory and de-rezes; 2 also drops the top level on cards with under 8 MB.
+              Retail: 0, 1 (asph, check, strpy and other tiling road surfaces, the Viper1-7 skins,
+              effects) or 2 (Viperd1-4, Viperw, wheels).
+0x18  u16    **the COLOUR KEY** — the exact raw texel value to render as transparent; only
+              formats 1 and 3 use it. Arbitrary in retail: in 44 of 79 keyed files it is not the
+              1×1 texel. See the note below.
+0x1A  u16    zero
+0x1C  int32  mip level count n; base size = 1 << (n − 1) (9 → 256px, 8 → 128px, 7 → 64px)
+0x20+        the mip chain, smallest first. Every level below 4×4 sits in a 32-byte slot with a
+              4-texel row pitch: the 1×1 texel is at 0x20 (the rest of its slot is zero), the 2×2
+              level's slot follows at 0x40, then 4×4 at 0x60 and each larger level tight-packed,
+              the base (full-resolution) level LAST.
 ```
 
 **There is no separate width/height field.** An earlier pass at this treated the bytes at 0x14 as a
 packed `int16 w, int16 h` pair, since the two 256×256 samples checked at the time (`asph.tex`,
 `strpy.tex`) happened to share the same 4-byte value there — that was a coincidental fit for a square
-texture, not a real field. Confirmed against a full decode of `asph.tex`: those bytes are
-individually meaningful — flags=`0x00` (opaque, matching its alpha-less reference output) and wrap=`0x01`
-(tileable, matching asphalt being a repeating road surface). Width/height come from `mipCount` instead,
-which holds structurally across every other size checked (64/128/256px).
+texture, not a real field. They are four separate bytes: `asph.tex` is format `0x00`, use mips `1`,
+wrap mode `0`, de-res priority `1`. Width/height come from the level count instead.
 
 **Base-level pixel format, ✅ CONFIRMED byte-exact:** 16-bit little-endian RGB565, row-major, with the
 base (full-resolution) mip level stored **last** in the chain, at payload offset
@@ -1537,8 +1548,8 @@ That last detail (green's dropped low bit) only became clear by empirically deri
 output-value mapping from real pixel data — the more "obvious" bit-replication formula
 (`(g6<<2)|(g6>>4)`) gets every pixel *close* but never exact.
 
-**Full-alpha pixel format, 🟡 WELL-SUPPORTED:** textures with flags bit1 set (`0x02`/`0x03`) use the same
-16-bit-per-pixel budget, but packed as **ARGB4444** instead of RGB565:
+**Full-alpha pixel format, 🟡 WELL-SUPPORTED:** format `0x02` textures, and the second half of a dual
+`0x03` file, use the same 16-bit-per-pixel budget, but packed as **ARGB4444** instead of RGB565:
 
 ```
 a8 = a4 << 4
@@ -1549,17 +1560,14 @@ b8 = b4 << 4
 
 Confirmed by round-tripping a synthetic test image (solid color, a linear 8-step alpha ramp) through the
 reference encoder in alpha mode and decoding the result: every R/G/B nibble matched `channel8 >> 4`
-exactly, every A nibble matched the input ramp exactly, and the whole mip chain — including the redundant
-1×1-level value duplicated into the header (offsets 0x18/0x20 above) — downsamples by consistent
-pairwise averaging at every level.
+exactly, every A nibble matched the input ramp exactly, and the whole mip chain — including the 1×1
+texel at 0x20 — downsamples by consistent pairwise averaging at every level.
 
-One caveat keeps this at 🟡 rather than ✅: that synthetic test produced flags `0x02` (bit1 alone), but
-**every real in-game alpha texture sampled has flags `0x03`** (both bits set) — passing both `/a` and `/t`
-to the encoder did not reproduce `0x03`; it fell back to colorkey-only (`0x01`) behavior and silently
-dropped the alpha switch. So it's not independently *byte*-confirmed whether real `0x03` textures use the
-identical ARGB4444 packing — but decoding several real `0x03` textures this way (`ddg.tex`, `vip.tex`)
-produces clean, sharp, uncorrupted images (a Dodge logo over a mesh grille; a Viper script logo), which is
-strong circumstantial support even without a byte-exact reference to diff against.
+Most retail alpha textures are dual (`0x03`) rather than `0x02` — the encoder would not produce one from
+`/a` plus `/t`, falling back to colour-key-only (`0x01`). Decoding a dual file as ARGB4444 from its end
+works because the base level found there is the alpha half's: `ddg.tex` and `vip.tex` come out clean
+(a Dodge logo over a mesh grille; a Viper script logo). The remaining 🟡 is only that the synthetic
+round trip is the sole byte-exact check of the packing.
 
 **Colorkey-only textures (flags `0x01`, bit0 set / bit1 clear), ✅ CONFIRMED:** plain RGB565, byte-for-byte
 identical to the opaque encoding, with exactly one special case — raw value `0x0000` is reserved as the
