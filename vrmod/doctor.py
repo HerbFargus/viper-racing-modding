@@ -37,7 +37,7 @@ import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import (backups, carlist, dekey, mapfile, modassert, patchset, resolution, switcher,
+from . import (backups, carlist, dekey, mapfile, modassert, modern_engine, patchset, resolution, switcher,
                vrampatch, writepaths)
 
 # Severity, worst first. "bad" means the game probably will not run or work
@@ -335,6 +335,36 @@ def check(data_dir: str | Path) -> Report:
     rep = Report(game_root=root, data_dir=data_dir)
     add = rep.findings.append
 
+    # ---- the modern engine (viper-racing-port's DLL) ---------------------
+    # With it installed, three things below stop mattering: the game no longer talks to DirectDraw
+    # (so no startup fix, and dgVoodoo is bypassed) or DirectSound (so no crackle, and dsoal is
+    # bypassed). Those checks read `me` and say so instead of recommending fixes that do nothing.
+    me = modern_engine.active(data_dir)
+    me_state = modern_engine.status(data_dir)
+    if me_state["state"] == modern_engine.INSTALLED:
+        parts = [n for n, k in (("engine limits lifted", "limits"), ("SDL window and input", "sdl"),
+                                ("OpenGL renderer", "gl"), ("SDL audio", "audio")) if me[k]]
+        add(Finding(OK, "Modern engine installed",
+                    f"viper-racing-port's DLL is beside the game ({', '.join(parts)}). The 3D draws at "
+                    "the screen's native resolution with widescreen, Alt-Tab comes back clean, and "
+                    "the engine's object and texture limits are lifted. Its log is viperport.log."))
+    elif me_state["state"] == modern_engine.OUTDATED:
+        add(Finding(INFO, "Modern engine installed, and a newer build is available",
+                    "The DLL beside the game is an older viper-racing-port build than the one this "
+                    f"vrmod bundles ({me_state['commit']}).",
+                    "Install again to update it.", action="modern_engine"))
+    elif me_state["state"] == modern_engine.FOREIGN:
+        add(Finding(INFO, "A dinput.dll that isn't the modern engine is beside the game",
+                    "Some other mod put a dinput.dll here. Installing the modern engine sets it aside "
+                    f"as {modern_engine.FOREIGN_BACKUP}, and removing the engine puts it back."))
+    elif modern_engine.bundled()["available"]:
+        add(Finding(INFO, "Modern engine not installed",
+                    "Optional. viper-racing-port's DLL runs the game on OpenGL and SDL: the 3D at "
+                    "your screen's native resolution with widescreen, sound without the DirectSound "
+                    "crackle, clean Alt-Tab, and the engine's object and texture limits lifted. "
+                    "Nothing in race.exe / race.bin is changed, and Remove takes it out again.",
+                    "Install the modern engine.", action="modern_engine"))
+
     # ---- the compatibility fix ------------------------------------------
     version = race_bin_version(data_dir)
     edition = retail_edition(data_dir)
@@ -344,6 +374,11 @@ def check(data_dir: str | Path) -> Report:
                     "race.bin IS the game -- the .exe beside it is only a launcher. "
                     "Without this file nothing will start.",
                     "Reinstall, or restore race.bin from a backup."))
+    elif version is None and me["gl"]:
+        add(Finding(OK, f"{live} starts on a modern GPU through the modern engine",
+                    "The game's DirectDraw is emulated on OpenGL and reports a sensible amount of "
+                    "video memory, so the overflow that stops the original starting never happens. "
+                    "The startup fix isn't needed while the modern engine is installed."))
     elif version is None:
         state = vrampatch.status(data_dir)
         # The half-patched trap: a tool that only knows about race.bin, pointed at a
@@ -561,7 +596,13 @@ def check(data_dir: str | Path) -> Report:
 
     # ---- dgVoodoo2, the other route -------------------------------------
     present = [n for n in DGVOODOO_DLLS if (data_dir / n).is_file()]
-    if present:
+    if me["gl"]:
+        if present:
+            add(Finding(INFO, "dgVoodoo2 is installed, but the modern engine bypasses it",
+                        f"Found {', '.join(present)} in the Data folder. The modern engine answers the "
+                        "game's DirectDraw/Direct3D calls itself, so these are never used. Harmless; "
+                        "delete them if you like."))
+    elif present:
         add(Finding(INFO, "dgVoodoo2 is installed",
                     f"Found {', '.join(present)} in the Data folder. dgVoodoo2 translates the "
                     "game's DirectDraw/Direct3D calls, which fixes the same startup problem "
@@ -603,7 +644,12 @@ def check(data_dir: str | Path) -> Report:
     wrong_arch = [n for n in ("dsound.dll", "dsoal-aldrv.dll")
                   if (data_dir / n).is_file()
                   and pe_machine(data_dir / n) not in (None, 0x14c)]
-    if version is None:                                # a stock pressing, 1.0 or 1.1
+    if me["audio"]:
+        add(Finding(OK, "Audio: played by the modern engine",
+                    "The game's DirectSound is emulated on SDL audio, which doesn't crackle, so no "
+                    "DirectSound wrapper is needed" + (" -- the dsound.dll here is bypassed and "
+                    "harmless." if wrapper else ".")))
+    elif version is None:                              # a stock pressing, 1.0 or 1.1
         if wrapper and wrong_arch:
             add(Finding(BAD, "The DirectSound wrapper is 64-bit and cannot load",
                         f"{', '.join(wrong_arch)} in this folder "

@@ -46,7 +46,7 @@ import threading
 import webbrowser
 from pathlib import Path
 
-from . import aifield, ainames, archive, enginefix, backups, carshot, cf, dekey, doctor, envelope, grf, hornball, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch, headon, drawdistance, writepaths, modassert, carlist
+from . import aifield, ainames, archive, enginefix, backups, carshot, cf, dekey, doctor, envelope, grf, hornball, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch, headon, drawdistance, writepaths, modassert, carlist, modern_engine
 
 _PAGE = r"""<!doctype html>
 <meta charset="utf-8"><title>Viper Racing -- Mod Manager</title>
@@ -461,7 +461,7 @@ async function loadHealth(){
       ${f.link ? `<div style="margin-top:5px"><a href="${esc(f.link)}" target="_blank"
         rel="noopener" style="color:var(--acc)">${esc(f.link)} &#8599;</a></div>` : ''}
       ${f.action ? `<div style="margin-top:7px"><button onclick="applyFix('${f.action}')"
-        >${({vram:'Apply startup fix',dpi:'Set DPI-aware',patch:'Apply enhancements',drivers:'Empty drivers.res',wp_logs:'Keep logs here',wp_userdir:'Keep settings here'})[f.action]
+        >${({vram:'Apply startup fix',dpi:'Set DPI-aware',patch:'Apply enhancements',drivers:'Empty drivers.res',wp_logs:'Keep logs here',wp_userdir:'Keep settings here',modern_engine:'Install modern engine'})[f.action]
           || 'Apply this fix'}</button></div>` : ''}
     </div>`).join('');
 }
@@ -1115,6 +1115,33 @@ async function renderGame(){
      </div>
    </div>`;
 
+  const me = STATE.modern_engine;
+  let mePanel = '';
+  if(me && me.available){
+    const on = me.state === 'installed' || me.state === 'outdated';
+    const note = {installed:'installed', outdated:'installed (older build)', foreign:'not installed',
+                  absent:'not installed'}[me.state] || me.state;
+    mePanel = `
+     <div class="panel">
+       <div class="panel-head"><h2>Modern engine</h2>
+         <span class="note">${note}${me.commit ? ' &middot; viper-racing-port ' + esc(me.commit) : ''}</span></div>
+       <p class="lede">Runs the game on OpenGL and SDL instead of DirectDraw, Direct3D and DirectSound:
+         the 3D at your screen's native resolution with widescreen, the HUD laid over it, sound without
+         the DirectSound crackle, clean Alt-Tab, and game controllers through SDL. It also lifts the
+         engine's hard limits (512 physics objects, the ~119-texture crash, the texture table) and
+         speeds up collisions with thousands of obstacles.</p>
+       <div class="ai-row">
+         ${on ? `<button class="mini" onclick="modernEngine(true)">Remove</button>
+                 ${me.state === 'outdated' ? `<button class="mini on" onclick="modernEngine(false)">Update</button>` : ''}`
+              : `<button class="mini on" onclick="modernEngine(false)">Install</button>`}
+       </div>
+       <p class="lede" style="margin:14px 0 0">A DLL beside the game (dinput.dll, with SDL2.dll and
+         viperport.ini) &mdash; race.exe / race.bin aren't changed, and Remove puts the game back to stock.
+         It works on v1.0, v1.1 and the community 1.2.4&ndash;1.2.6 builds. Takes effect on the next
+         launch.${me.state === 'foreign' ? ' The dinput.dll already here belongs to another mod; it is set aside, and put back on Remove.' : ''}</p>
+     </div>`;
+  }
+
   const res = STATE.resolution;
   let resPanel = '';
   if(res){
@@ -1210,7 +1237,7 @@ async function renderGame(){
 
   const hoOn = ho.state === 'enabled';
   const fixBtn = {vram:'Apply', dpi:'Set DPI-aware', patch:'Apply', drivers:'Empty drivers.res',
-                  wp_logs:'Keep logs here', wp_userdir:'Keep settings here'};
+                  wp_logs:'Keep logs here', wp_userdir:'Keep settings here', modern_engine:'Install'};
   const hoPanel = (ho.state === 'unknown' || ho.state === 'missing') ? '' : `
      <div class="ai-sec">
      <h3 class="sub-h">Head-on reaction <span class="note">${hoOn ? 'panic on (stock)' : 'panic off'}</span></h3>
@@ -1299,7 +1326,7 @@ async function renderGame(){
    </div>`;
 
   el$('config').innerHTML = opponents + drivers + hoPanel + linesPanel + aiCar + cars + tracks
-                          + hbPanel + resPanel + ddPanel + fixes;
+                          + hbPanel + mePanel + resPanel + ddPanel + fixes;
   if(hbPanel) for(const k of ['model', 'spawn']) paintLink(k);
 }
 
@@ -1508,6 +1535,12 @@ async function revertAiCar(){
   const r = await api('/api/primarycar', {revert: true});
   if(!r.ok) return toast(r.error, 'bad');
   AI_MOD = ''; toast(r.message); await refresh();
+}
+
+async function modernEngine(remove){
+  const r = await api('/api/modern_engine', {remove: !!remove});
+  if(!r.ok) return toast(r.error, 'bad');
+  toast(r.message); return refresh();
 }
 
 async function applyResolution(){
@@ -1954,6 +1987,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                                        "vertex_warning": r["vertex_warning"]})
                 except primarycar.PrimaryCarError as ex:
                     return self._json({"ok": False, "error": str(ex)})
+            if self.path == "/api/modern_engine":
+                try:
+                    msg = (modern_engine.remove(d) if req.get("remove") else modern_engine.install(d))
+                except modern_engine.ModernEngineError as e:
+                    return self._json({"ok": False, "error": str(e)}, 409)
+                return self._json({"ok": True, "message": msg})
             if self.path == "/api/resolution":
                 # Revert restores the pristine race.bin (stock 1024x768 table,
                 # no HUD fixes). A width/height rebuilds race.bin from the snapshot
@@ -2207,6 +2246,7 @@ def _status_payload(d: Path) -> dict:
         "car_disabled_count": sum(1 for c in cars if not c["active"]),
         "ai_field": ai_field, "ai_names": ai_names, "primary_car": primary,
         "engine_fixes": enginefix.status(d),
+        "modern_engine": dict(modern_engine.status(d), available=modern_engine.bundled()["available"]),
         "vertex_verts": verts, "vertex_max": vertexbuffer.FORMAT_CAP_VERTS,
         "resolution": res_info,
         "fp": _folder_fingerprint(d),
@@ -2350,6 +2390,7 @@ def _fix_carlist(d: Path) -> str:
 
 
 FIX_ACTIONS = {
+    "modern_engine": modern_engine.install,
     "vram": _fix_vram,
     "dekey": _fix_dekey,
     "backups": _fix_backups,
