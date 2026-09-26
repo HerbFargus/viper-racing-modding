@@ -10,12 +10,9 @@ viper.cf -- every one of the 85 fields matched a unique float32 (or, for num_gea
 int32) at a 4-byte-aligned offset, byte-exact, with no ambiguity once ties between
 identically-valued fields (e.g. several suspension fields sharing the value 5) were
 broken using their local declaration order and the surrounding confirmed offsets'
-contiguous layout. Fifteen more (tyre sizes, suspension compliance, tyre grip and
-stiffness scales, static rolling resistance) were named later, bringing it to 100.
-
-Not every byte in the payload is named here -- three stretches (right after
-fuel_capacity, 0xE8-0x107 before num_gears, and the last 16 bytes) are
-reserved/unidentified and are left untouched by build().
+contiguous layout. The rest were named later, mostly by tracing the v1.0 race.exe
+(CarFileCombine, apply_upgrade): every one of the 138 dwords in the payload is now
+named.
 """
 from __future__ import annotations
 
@@ -39,9 +36,25 @@ FIELD_MAP: dict[str, tuple[int, str]] = {
     "idle_speed": (0x48, "f"), "redline": (0x4C, "f"),
     "engine_inertia": (0x50, "f"), "engine_drag": (0x54, "f"),
     "fuel_consumption": (0x58, "f"), "fuel_capacity": (0x5C, "f"),
+    # Upgrade slots, traced through CarFileCombine. A .ugs upgrade is a list of
+    # (.cf offset, value) pairs that apply_upgrade pokes into the loaded .cf, and
+    # viper.ugs gives each part its own slot (AirInduction -> power_add1,
+    # WeightReduction1 -> mass_add1, ...). Power and torque are both scaled by
+    # every non-zero power_mult times (1 + sum of power_add hp / power_max);
+    # the mass_adds (lb) are added to mass. No shipped .cf or upgrade sets a
+    # power_mult, power_add10-12 or mass_add5-8.
+    **{f"power_mult{i + 1}": (0x60 + 4 * i, "f") for i in range(6)},
+    **{f"power_add{i + 1}": (0x78 + 4 * i, "f") for i in range(12)},
+    **{f"mass_add{i + 1}": (0xA8 + 4 * i, "f") for i in range(8)},
     "torque_balance": (0xD0, "f"),
     "fdiff_stiff": (0xD4, "f"), "rdiff_stiff": (0xD8, "f"), "cdiff_stiff": (0xDC, "f"),
     "trans_inertia": (0xE0, "f"), "trans_drag": (0xE4, "f"),
+    # A fixed gearbox: when gear_ratio1 is non-zero these replace the setup's
+    # gear sliders (0 in every .cf; the CloseRatioGearbox upgrade fills them,
+    # RacingGearbox zeroes them to make the gears adjustable again). The physics
+    # never reads gear_ratio8 -- reverse is gear 1 negated -- though viper.ugs
+    # writes 2.9 there, the real Viper's reverse ratio.
+    **{f"gear_ratio{i + 1}": (0xE8 + 4 * i, "f") for i in range(8)},
     "num_gears": (0x108, "i"),
     "rear_end_ratio1": (0xC8, "f"), "rear_end_ratio2": (0xCC, "f"),
     "fsprings1": (0x10C, "f"), "rsprings1": (0x110, "f"),
@@ -86,6 +99,10 @@ FIELD_MAP: dict[str, tuple[int, str]] = {
     "fspoiler1": (0x200, "f"), "rspoiler1": (0x204, "f"),
     "fspoiler2": (0x208, "f"), "rspoiler2": (0x20C, "f"),
     "fspoiler_drag": (0x210, "f"), "rspoiler_drag": (0x214, "f"),
+    # Spoiler values for the setup's aero kit (1 Low Drag, 2 High Downforce),
+    # used in place of the fspoiler/rspoiler lerp when non-zero.
+    "fspoiler_low_drag": (0x218, "f"), "rspoiler_low_drag": (0x21C, "f"),
+    "fspoiler_downforce": (0x220, "f"), "rspoiler_downforce": (0x224, "f"),
 }
 
 
@@ -104,9 +121,9 @@ def parse(data: bytes) -> dict[str, float]:
 def build(data: bytes, values: dict[str, float]) -> bytes:
     """Return a copy of a real .cf file's bytes with named fields overwritten.
 
-    Only the fields present in `values` are changed; every other byte (including
-    the unnamed/reserved stretches of the payload) is carried over unmodified from
-    `data`, which must be a real, complete .cf file to use as the base.
+    Only the fields present in `values` are changed; every other byte is carried
+    over unmodified from `data`, which must be a real, complete .cf file to use as
+    the base.
     """
     env = envelope.parse(data)
     if env.tag != TAG:
