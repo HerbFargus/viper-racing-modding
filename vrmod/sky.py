@@ -24,9 +24,10 @@ Tile size is NOT uniform in the wild. All eight stock retail tracks use
 **128x128** tiles (a 512x128 strip); most community add-ons use **256x256** --
 6 of the 9 in one real collection -- which is itself evidence the game is not
 limited to what the stock tracks happen to ship. Tiles are opaque, no colorkey,
-wrap 0 throughout. Colour mode and wrap are always read from the real tiles
-rather than assumed, so an unusual track round-trips unchanged; tile SIZE is
-kept as-is unless overridden (see MIN_TILE below).
+wrap mode 0 and de-res priority 0 throughout. Colour mode, wrap and de-res
+priority are always read from the real tiles rather than assumed, so an
+unusual track round-trips unchanged; tile SIZE is kept as-is unless overridden
+(see MIN_TILE below).
 """
 from __future__ import annotations
 
@@ -112,7 +113,7 @@ def tile_size_for(width: int) -> int:
 
 
 def build_tiles(pixels: bytes, width: int, height: int, size: int,
-                mode: str = "opaque", wrap: int = 0) -> list[bytes]:
+                mode: str = "opaque", wrap: int = 0, deres: int = 0) -> list[bytes]:
     """Cut a strip into four square tiles and encode each as .tex bytes."""
     target_w, target_h = size * len(TILES), size
     pixels = tex.resize_nearest(pixels, width, height, target_w, target_h)
@@ -122,9 +123,9 @@ def build_tiles(pixels: bytes, width: int, height: int, size: int,
         for y in range(size):
             src = (y * target_w + i * size) * 3
             tile[y * size * 3:(y + 1) * size * 3] = pixels[src:src + size * 3]
-        # sky ships with byte 0x01 clear, unlike every texture drawn on geometry
+        # sky ships with byte 0x01 (use mips) clear: the game loads its top level only
         out.append(tex.encode_to_tex(bytes(tile), size, mode=mode, wrap=wrap,
-                                     on_geometry=False))
+                                     deres=deres, use_mips=False))
     return out
 
 
@@ -136,7 +137,7 @@ def install(trk_path: str | Path, pixels: bytes, width: int, height: int,
     Returns (path, new tile size, original tile size) -- compare the last two
     to tell whether the track's sky resolution changed.
 
-    Tile size, colour mode and wrap are all inherited from the existing tiles
+    Tile size, colour mode, wrap and de-res priority are all inherited from the existing tiles
     unless tile_size overrides the size -- so by default this changes only the
     picture, never the format. See MIN_TILE's note on the 256px hardware limit
     and the patches said to lift it.
@@ -153,7 +154,8 @@ def install(trk_path: str | Path, pixels: bytes, width: int, height: int,
     size = _nearest_power_of_two(tile_size) if tile_size else original_size
     mode = "alpha" if first.has_alpha else "colorkey" if first.has_colorkey else "opaque"
 
-    for entry, raw in zip(originals, build_tiles(pixels, width, height, size, mode, first.wrap)):
+    for entry, raw in zip(originals, build_tiles(pixels, width, height, size, mode,
+                                               first.wrap, first.deres)):
         entries = archive.replace_entry(entries, entry.name, raw)
 
     layout = archive.read_layout(trk_path.read_bytes())

@@ -3,31 +3,47 @@
 
 Header (0SER payload, offsets relative to start of payload i.e. after the
 20-byte envelope from envelope.py -- these are the technical reference's
-full-file offsets 0x14-0x24 minus 0x14):
+full-file offsets 0x14-0x24 minus 0x14). Field meanings are from race.exe's
+own loader (txLoadSystem 0x45fd10, txSelect 0x4601d0, load_texmap_mip
+0x460820 -- see viper-port's out/agents/rtex/report.md), checked against every
+.tex in the retail install:
 
-    0x00  byte   flags: bit0=colorkey transparency, bit1=full alpha channel.
-                  0x00 and 0x01 and 0x02 are 2 bytes per pixel; 0x03 is FOUR,
-                  confirmed by payload size across every shipped texture
-                  (flags 3 at 128x128 is 87,512 bytes against 43,756 for the
-                  others) and it never ships larger than 128x128. This module
-                  writes 0x00, 0x01 and 0x02; it cannot yet write 0x03.
-    0x01  byte   1 for a texture drawn on 3D geometry, 0 for sky and 2D
-                  overlays. Surveying every texture in a full install splits
-                  cleanly: of 880, the only ones carrying 0 are sky1-4 across
-                  every track plus uptown's 2dtele.tex and oo1-4.tex. Every
-                  road, kerb, grass and prop texture carries 1. It is not about
-                  mipmapping -- both groups ship full mip chains. Written as 0
-                  here originally, which leaves an imported track's surfaces
-                  rendering as flat untextured colour.
-    0x02  byte   (unconfirmed)
-    0x03  byte   wrap flag (tileable vs. decal)
-    0x04  int32  for colorkey/alpha textures: the 1x1 mip level's own pixel
-                  value (same encoding as the base level -- RGB565 or
-                  ARGB4444), duplicated (same value as the 0x0C field below);
-                  0 for plain opaque textures.
-    0x08  int32  mip level count
-    0x0C  int32  duplicate of the 1x1 mip level's pixel value (see 0x04)
-    0x10+ padding, then mip chain -- see MIP CHAIN LAYOUT below
+    0x00  byte   format (`flags` here, for history -- it is an enum, not a
+                  bitfield): 0 opaque RGB565, 1 colour-keyed RGB565,
+                  2 ARGB4444, 3 dual, 4 the alpha half of a dual file. Any
+                  other value panics "tmap: unknown texture format".
+                  A dual (3) file is two whole payloads back to back: a keyed
+                  RGB565 one, then an ARGB4444 one whose own header says 4,
+                  which is why 3 is exactly twice the size of the rest. The
+                  game uses the second half on cards with alpha textures and
+                  the first everywhere else. This module writes 0, 1 and 2.
+    0x01  byte   use mips: 0 loads the top level only (still full size).
+                  0 on sky, the career-menu cars, envmap, 2D overlays and the
+                  Viper's damage textures; 1 on everything drawn on geometry,
+                  which is what encode_to_tex() writes unless told otherwise.
+    0x02  byte   wrap mode, per axis: 0 wrap/wrap, 1 wrap U + clamp V,
+                  2 clamp U + wrap V, 3 clamp/clamp. Anything else panics
+                  "unknown wrap mode" when the texture is drawn. Retail ships
+                  0 everywhere except 27 keyed textures carrying 1.
+    0x03  byte   de-res priority: non-zero keeps one more mip level when the
+                  game runs out of texture memory and de-rezes; 2 also drops
+                  the top level on cards with under 8 MB. Retail: 0, 1 (roads
+                  and other tiling surfaces, the car skins) or 2 (Viperd1-4,
+                  Viperw, wheels). This is the byte the module used to call
+                  "wrap".
+    0x04  u16    colour key, a raw 16-bit texel value; only formats 1 and 3
+                  use it, and the match is exact. Retail keys are arbitrary --
+                  the dominant background colour, often not the 1x1 texel.
+    0x06  u16    zero
+    0x08  int32  level count n; the size is 1 << (n - 1), so no separate
+                  width/height field is needed
+    0x0C+        the mip chain, smallest first -- see MIP CHAIN LAYOUT below.
+                  The 1x1 level is the texel at 0x0C.
+
+History: an earlier pass took 0x00-0x03 as a packed int16 w,h pair, a
+coincidental fit for a square 256x256 sample; they are four separate bytes.
+
+MIP CHAIN LAYOUT below
 
 There is no separate width/height field. The reference doc's earlier "packed
 int16 w,h at this offset" hypothesis was a coincidental fit for a square
@@ -45,12 +61,14 @@ Not simply "smallest mip first, tightly packed, largest last" -- there's a
 consistent 50-byte gap between where that naive model puts the base level and
 where it actually is, confirmed identical (exactly 50, regardless of image
 size) across four samples from 8x8 to 256x256. Solved by inspecting a small
-(8x8) synthetic test file byte-for-byte: the real layout is
+(8x8) synthetic test file byte-for-byte: the real layout, offsets relative to
+pixel_data (payload 0x10), is
 
-    [0x00:0x1C]  28 bytes, always zero in every sample -- reserved/unused.
-                 The 1x1 mip level is NOT stored here or anywhere else in the
-                 chain; its only storage is the duplicated header fields
-                 above (payload offsets 0x04 and 0x0C).
+    [0x00:0x1C]  28 bytes, always zero in every sample. These are the tail
+                 of the 1x1 level's own 32-byte slot, which starts at payload
+                 0x0C: the one texel, then zero padding. (This module still
+                 treats 0x0C-0x0F as a header field and writes the texel
+                 there; the bytes are the same either way.)
     [0x1C:0x3C]  the 2x2 mip level, but padded into a 4x4-sized slot (32
                  bytes): the 4 real pixels occupy the top-left 2x2 of what
                  would be a 4x4 image, row-stride 4 pixels, with the other
@@ -62,7 +80,9 @@ size) across four samples from 8x8 to 256x256. Solved by inspecting a small
 Algebraically this reconciles the "50-byte gap" exactly: the padded-2x2 slot
 costs 32 bytes instead of the 8 a tight 2x2 would need (+24), the 28-byte
 reserved block adds the rest (+24+28=52... the precise reconciliation is
-28 + (32-8) = 52 minus the 2 bytes saved by NOT storing 1x1 at all = 50).
+28 + (32-8) = 52 minus the 2 bytes of the 1x1 texel, which sits at payload
+0x0C before pixel_data starts = 50). race.exe's own loader agrees: every level
+below 4x4 gets a 32-byte slot with a 4-texel row pitch.
 Verified against 256x256 (asph.tex), 128x128 (fang.tex), 64x64 (under.tex),
 and a synthetic 8x8 file -- byte-for-byte identical predicted vs. actual
 base-level offset in every case.
@@ -102,8 +122,8 @@ field. That's what encode_to_tex() does in reverse:
     r5 = r8 >> 3;  g5 = g8 >> 3;  b5 = b8 >> 3
     v  = (r5 << 11) | (g5 << 6) | b5
 
-Full alpha (flags bit1 set, i.e. 0x02 or 0x03): same 16-bit-per-pixel budget,
-but packed as ARGB4444 instead of RGB565:
+Full alpha (format 0x02, and the second half of a dual 0x03 file): same
+16-bit-per-pixel budget, but packed as ARGB4444 instead of RGB565:
 
     a8 = a4 << 4;  r8 = r4 << 4;  g8 = g4 << 4;  b8 = b4 << 4
     -- encode: a4 = a8>>4, r4 = r8>>4, g4 = g8>>4, b4 = b8>>4
@@ -112,18 +132,14 @@ Confirmed by round-tripping a synthetic test image (solid color, a linear
 8-step alpha ramp) through the real encoder tool (mktex.exe /a) and decoding
 the result: every R/G/B nibble matched `channel8 >> 4` exactly, every A
 nibble matched the input ramp exactly, and the whole mip chain -- including
-the redundant 1x1-level value duplicated into the header -- downsamples by
-consistent pairwise averaging at every level.
+the 1x1 texel at payload 0x0C -- downsamples by consistent pairwise averaging
+at every level.
 
-CAVEAT: that test produced flags=0x02 (bit1 only). Every real in-game alpha
-texture sampled has flags=0x03 (both bits set) instead -- passing both /a and
-/t to the real encoder didn't reproduce 0x03, it fell back to colorkey-only
-(0x01) behavior and silently dropped the alpha switch. So it's UNCONFIRMED
-whether real 0x03 textures are really ARGB4444 like the 0x02 test, or
-something subtly different -- decoding several real 0x03 textures this way
-produces clean, uncorrupted images (visual support, not byte-exact proof).
-encode_to_tex() writes flags=0x03 for alpha output (matching real files) even
-though only 0x02 was byte-exact confirmed; pass flags explicitly to override.
+Most retail alpha textures are dual (0x03), not 0x02: a keyed RGB565 payload
+followed by a whole ARGB4444 payload with its own header (format 0x04). That
+is why decoding a 0x03 file as ARGB4444 from its END works -- the base level
+found there is the alpha half's. encode_to_tex() writes 0x02 for alpha
+output; it cannot write the dual layout.
 
 Colorkey-only (flags == 0x01, bit0 set / bit1 clear) is SOLVED: it's plain
 RGB565, byte-for-byte identical to the opaque encoding, with exactly one
@@ -156,17 +172,18 @@ from pathlib import Path
 from . import envelope
 
 HEADER_SIZE = 0x10  # size of the tex-specific header within the 0SER payload
-RESERVED_BLOCK_SIZE = 0x1C  # 28 zero bytes at the start of the mip chain
+RESERVED_BLOCK_SIZE = 0x1C  # zero: the rest of the 1x1 level's 32-byte slot
 PADDED_2X2_SLOT_SIZE = 32  # the 2x2 level, padded into a 4x4-pixel slot
 
 
 @dataclass
 class TexInfo:
-    flags: int
-    wrap: int
+    flags: int  # header 0x00: the format enum, see the module docstring
+    wrap: int  # header 0x02: wrap mode 0-3 (0 = wrap both axes)
     mip_count: int
     pixel_data: bytes  # everything after the tex-specific header
     colorkey: int = 0  # header 0x04: the transparent pixel value, see decode_base_level()
+    deres: int = 0  # header 0x03: de-res priority (0-2)
 
     @property
     def has_alpha(self) -> bool:
@@ -193,14 +210,14 @@ def parse(data: bytes) -> TexInfo:
         raise ValueError(f"not a .tex file (tag mnemonic {env.mnemonic!r})")
     payload = env.payload
     flags = payload[0x00]
-    wrap = payload[0x03]
     mip_count = struct.unpack_from("<i", payload, 0x08)[0]
     return TexInfo(
         flags=flags,
-        wrap=wrap,
+        wrap=payload[0x02],
         mip_count=mip_count,
         pixel_data=payload[HEADER_SIZE:],
-        colorkey=struct.unpack_from("<i", payload, 0x04)[0] & 0xFFFF,
+        colorkey=struct.unpack_from("<H", payload, 0x04)[0],
+        deres=payload[0x03],
     )
 
 
@@ -492,8 +509,9 @@ def encode_to_tex(
     *,
     mode: str,
     wrap: int = 0,
+    deres: int = 0,
     flags: int | None = None,
-    on_geometry: bool = True,
+    use_mips: bool = True,
 ) -> bytes:
     """Encode raw row-major pixel bytes into a standalone .tex file's bytes
     (0SER envelope included).
@@ -502,13 +520,12 @@ def encode_to_tex(
       "opaque"   -- RGB888 in (3 bytes/px), RGB565 out
       "alpha"    -- RGBA8888 in (4 bytes/px), ARGB4444 out, flags=0x02.
                      NOT 0x03, which this defaulted to until a track carrying
-                     one failed to load: flags 0x03 is a different, FOUR-byte
-                     per pixel format. Its shipped payloads are exactly twice
-                     the 0x02/0x00 size at the same dimension (128 -> 87,512
-                     against 43,756), and it never ships above 128x128. Writing
-                     ARGB4444 under flags 0x03 hands the game half the data it
-                     expects and it panics with "tmap: unknown texture format"
-                     before the track renders.
+                     one failed to load: 0x03 is the dual format, a keyed
+                     RGB565 payload followed by a whole ARGB4444 payload
+                     (128 -> 87,512 bytes against 43,756). Given one payload,
+                     the game takes the second half's header from the middle
+                     of the pixels and panics "tmap: unknown texture format"
+                     on whatever byte it finds there.
       "colorkey" -- RGBA8888 in (4 bytes/px); alpha<128 pixels become the
                      reserved transparent marker (raw 0x0000), everything
                      else is plain RGB565 (nudged off 0x0000 if it would
@@ -517,6 +534,11 @@ def encode_to_tex(
     `size` must be a power of two and >=8 (only 8x8-and-larger base levels
     have been round-trip verified -- see module docstring). `flags` overrides
     the mode's default if given.
+
+    `wrap` is header byte 0x02, the per-axis wrap mode (0 wraps both ways, as
+    nearly every stock texture does; 1-3 clamp one or both axes). `deres` is
+    byte 0x03, the de-res priority. `use_mips` is byte 0x01; False makes the
+    game load the top level only.
     """
     if mode not in _MODES:
         raise ValueError(f"mode must be one of {sorted(_MODES)}, got {mode!r}")
@@ -530,6 +552,9 @@ def encode_to_tex(
         )
     if flags is None:
         flags = default_flags
+    if wrap not in (0, 1, 2, 3):
+        # the game panics "unknown wrap mode" the first time it draws one
+        raise ValueError(f"wrap must be 0-3, got {wrap}")
 
     levels = _build_mip_chain(pixels, size, channels)  # levels[0]=base ... levels[-1]=1x1
     mip_count = len(levels)
@@ -559,7 +584,9 @@ def encode_to_tex(
 
     header = struct.pack(
         "<BBBBiii",
-        flags, 1 if on_geometry else 0, 0, wrap,
+        flags, 1 if use_mips else 0, wrap, deres,
+        # 0x04 is the colour key, which only formats 1 and 3 use. Writing the
+        # 1x1 texel there is inherited behaviour, not a format rule.
         onepix_value if (flags & 0x03) else 0,
         mip_count,
         onepix_value,

@@ -5562,20 +5562,16 @@ function main() {
       // surface instead of repeating, smearing every tiled road/grandstand
       // face. Repeat is safe to apply unconditionally: where UVs already sit
       // inside 0..1 it renders identically to clamp, so it only changes the
-      // out-of-range case, which is exactly where tiling is intended. (The
-      // .tex format does carry its own wrap flag, but it reads 0 even for
-      // surfaces that demonstrably tile, so it isn't usable for this.)
-      // Always repeat. The .tex `wrap` flag looks like it should decide this
-      // but measurably does NOT: on a real track nearly every wrap=0
-      // material still has UVs far outside 0..1 and so plainly needs
-      // tiling -- arch1.tex (buildings) spans u -0.20..24.00, brk1.tex
-      // -19.33..56.82, concr.tex -1242..358, and the main ground texy.tex
-      // -168..107. Clamping those collapses each face to one stretched edge
-      // pixel, which turned every building into a flat white box. Repeat is
-      // safe for the rest: where UVs already sit inside 0..1 the two modes
-      // render identically. (An earlier revision clamped on wrap=0 after
-      // wrongly blaming wrapping for mangled terrain -- that was really the
-      // fan-triangulation fallback, fixed separately in grf.py.)
+      // out-of-range case, which is exactly where tiling is intended.
+      // Always repeat. The .tex wrap mode (header byte 0x02) is 0 -- repeat
+      // on both axes -- on nearly every stock texture, arch1.tex (u
+      // -0.20..24.00), brk1.tex, concr.tex (-1242..358) and texy.tex
+      // included; the few 1s clamp V only. (An earlier revision clamped
+      // whenever byte 0x03 -- the de-res priority, long mistaken for the
+      // wrap flag -- was 0, which turned every building into a flat white
+      // box. It was added after wrongly blaming wrapping for mangled
+      // terrain, which was really the fan-triangulation fallback, fixed
+      // separately in grf.py.)
       t.wrapS = THREE.RepeatWrapping;
       t.wrapT = THREE.RepeatWrapping;
       // Ground/road surfaces tile their texture hundreds of times and are

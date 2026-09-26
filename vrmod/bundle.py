@@ -14,11 +14,11 @@ matter for a merge, and a listed-but-missing entry is a failure mode that cannot
 occur if the zip's contents ARE the contents. (`_manifest.txt` exists for packing
 a whole car, where layout and ordering matter -- a different job.)
 
-WHY GAME FORMATS AND NOT OBJ/PNG/WAV. A .tex records a wrap mode, a colorkey
-flag and a mip chain; a PNG records none of them, so converting one at install
-time means something other than the author picks those. This project has been
-bitten there already -- a new texture needs wrap=1, and wrap=0 makes the game
-reject it outright. Likewise the mesh: obj2mod recomputes vertex normals and
+WHY GAME FORMATS AND NOT OBJ/PNG/WAV. A .tex records a format, a wrap mode, a
+colour key and a mip chain; a PNG records none of them, so converting one at
+install time means something other than the author picks those. This project
+has been bitten there already -- an alpha texture written under the wrong
+format byte makes the game reject it outright. Likewise the mesh: obj2mod recomputes vertex normals and
 re-derives material ranges, and OBJ cannot express "these faces are double-sided
 on purpose" as against "this mesh is inside out".
 

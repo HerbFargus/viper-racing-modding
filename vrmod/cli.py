@@ -97,15 +97,18 @@ def _fit_new_texture(pixels: bytes, w: int, h: int, name: str,
     return fitted, target
 
 
-def _new_tex_mode_wrap(pixels: bytes) -> tuple[str, int]:
-    """Mode/wrap for a brand-new material's texture -- one with no original .tex
-    to copy those from. Opaque unless the imported image actually carries
-    transparency (an opaque skin forced to alpha is just wasteful); wrap=1, a
-    valid stock value. The game panics with "tmap: unknown texture format" on
-    wrap=0 -- no stock .tex uses it, every one is wrap=1 (tileable) or 2 (decal).
+def _new_tex_header(pixels: bytes) -> tuple[str, int, int]:
+    """Mode, wrap and de-res priority for a brand-new material's texture -- one
+    with no original .tex to copy those from. Opaque unless the imported image
+    actually carries transparency (an opaque skin forced to alpha is just
+    wasteful). Wrap 0 (both axes), as nearly every stock texture has; de-res
+    priority 1, as asph.tex and the car skins have -- the combination confirmed
+    in game. (De-res 1 was once written as "wrap=1" in the belief that wrap 0
+    caused "tmap: unknown texture format". It did not: that panic is the format
+    byte, from alpha textures then written as format 3.)
     `pixels` is RGBA here (read_tga_bytes always returns 4 channels)."""
     has_alpha = any(pixels[i] < 255 for i in range(3, len(pixels), 4))
-    return ("alpha" if has_alpha else "opaque"), 1
+    return ("alpha" if has_alpha else "opaque"), 0, 1
 
 
 def _store_edit_backup(path: Path) -> Path:
@@ -345,23 +348,22 @@ def _apply_commit(body: dict) -> tuple[Path, Path]:
         # may not be owned by this car yet (still inherited from a shared .res --
         # same situation as an unowned ball.mod/wheel). Checking the shared
         # archives too means an unowned texture still gets its real original
-        # mode/wrap preserved, not just a guess, even though upsert_entry below
+        # header bytes preserved, not just a guess, even though upsert_entry below
         # is about to turn it into a real per-car override.
         orig_raw = car.find_shared(car_path, entries, name)
         if orig_raw is not None:
             orig_info = tex.parse(orig_raw)
-            mode, wrap = _tex_mode(orig_info), orig_info.wrap
+            mode, wrap, deres = _tex_mode(orig_info), orig_info.wrap, orig_info.deres
             # Fit BEFORE any channel conversion: pixels are still RGBA here, and
             # h is still the real height. Doing it after the opaque branch below
             # would resample 3-channel data as though it were 4.
             pixels, w = _fit_to_original(pixels, w, h, orig_info, name, resized)
         else:
             # No original to match (a brand-new material -- e.g. a foreign body's
-            # own skin arriving via the shell's OBJ+.mtl import): pick mode/wrap
-            # from the image itself (opaque unless it has alpha, a valid wrap),
-            # and fit to a valid .tex size ourselves, since encode_to_tex demands
+            # own skin arriving via the shell's OBJ+.mtl import): pick the mode
+            # from the image itself (opaque unless it has alpha), and fit to a valid .tex size ourselves, since encode_to_tex demands
             # a square power of two >= 8 and an imported skin often isn't one.
-            mode, wrap = _new_tex_mode_wrap(pixels)
+            mode, wrap, deres = _new_tex_header(pixels)
             pixels, w = _fit_new_texture(pixels, w, h, name, resized)
         if mode == "opaque":
             # read_tga_bytes always returns RGBA (our TGAs are always 32-bit --
@@ -371,7 +373,7 @@ def _apply_commit(body: dict) -> tuple[Path, Path]:
             rgb = bytearray(len(pixels) // 4 * 3)
             rgb[0::3], rgb[1::3], rgb[2::3] = pixels[0::4], pixels[1::4], pixels[2::4]
             pixels = bytes(rgb)
-        new_tex = tex.encode_to_tex(pixels, w, mode=mode, wrap=wrap)
+        new_tex = tex.encode_to_tex(pixels, w, mode=mode, wrap=wrap, deres=deres)
         entries = archive.upsert_entry(entries, name, new_tex)
 
     for name, wav_b64 in (body.get("sounds") or {}).items():
@@ -466,16 +468,16 @@ def _apply_track_commit(body: dict) -> tuple[Path, Path]:
         orig_entry = next((e for e in entries if e.name.lower() == name.lower()), None)
         if orig_entry is not None:
             orig_info = tex.parse(envelope.build(orig_entry.tag, orig_entry.version, orig_entry.payload))
-            mode, wrap = _tex_mode(orig_info), orig_info.wrap
+            mode, wrap, deres = _tex_mode(orig_info), orig_info.wrap, orig_info.deres
             # Before the channel conversion below -- see the note in _apply_commit.
             pixels, w = _fit_to_original(pixels, w, h, orig_info, name, resized)
         else:
-            mode, wrap = _new_tex_mode_wrap(pixels)
+            mode, wrap, deres = _new_tex_header(pixels)
         if mode == "opaque":
             rgb = bytearray(len(pixels) // 4 * 3)
             rgb[0::3], rgb[1::3], rgb[2::3] = pixels[0::4], pixels[1::4], pixels[2::4]
             pixels = bytes(rgb)
-        new_tex = tex.encode_to_tex(pixels, w, mode=mode, wrap=wrap)
+        new_tex = tex.encode_to_tex(pixels, w, mode=mode, wrap=wrap, deres=deres)
         entries = archive.replace_entry(entries, name, new_tex)
 
     # The sky arrives as ONE panoramic TGA and is split back into the four
@@ -495,7 +497,7 @@ def _apply_track_commit(body: dict) -> tuple[Path, Path]:
         # a different one, and silently upgrading to 512 because someone edited
         # the exported strip at 2x could produce a track the stock game refuses
         # to load. `skyimport --tile-size` is the deliberate route.
-        tiles = sky.build_tiles(pixels, w, h, info.size, mode, info.wrap)
+        tiles = sky.build_tiles(pixels, w, h, info.size, mode, info.wrap, info.deres)
         for name, raw in zip(sky.TILES, tiles):
             real = next(e.name for e in entries if e.name.lower() == name)
             entries = archive.replace_entry(entries, real, raw)
@@ -1123,8 +1125,14 @@ def main(argv: list[str] | None = None) -> int:
              "pass explicitly for colorkey, which also needs a 32-bit source)",
     )
     p_tga2tex.add_argument(
-        "--wrap", type=int, default=0, choices=(0, 1),
-        help="1 for a tileable surface, 0 for a unique decal (default 0)",
+        "--wrap", type=int, default=0, choices=(0, 1, 2, 3),
+        help="0 wraps both axes (default, as nearly every stock texture); "
+             "1 clamps V, 2 clamps U, 3 clamps both",
+    )
+    p_tga2tex.add_argument(
+        "--deres", type=int, default=0, choices=(0, 1, 2),
+        help="de-res priority: 1 keeps an extra mip level when the game runs "
+             "short of texture memory (stock roads and car skins), 0 otherwise",
     )
 
     p_cfdump = sub.add_parser("cfdump", help="Dump a .cf car physics config as name/value text")
@@ -2172,7 +2180,7 @@ def main(argv: list[str] | None = None) -> int:
         sfx.wav_to_sfx(args.wav_file, args.sfx_file)
         print(f"wrote {args.sfx_file}")
     elif args.command == "tga2tex":
-        kwargs = {"wrap": args.wrap}
+        kwargs = {"wrap": args.wrap, "deres": args.deres}
         if args.mode is not None:
             kwargs["mode"] = args.mode
         tex.tga_to_tex(args.tga_file, args.tex_file, **kwargs)
