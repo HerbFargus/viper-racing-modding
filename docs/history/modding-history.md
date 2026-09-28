@@ -106,6 +106,15 @@ matches what the code shows. The main points, paraphrased
   **Tire Editor**.
 - **Matthias Nyberg** ("Matt") — the tyre/handling expertise behind the **Tire
   Editor**, and the source of the finished tyre sets it could apply.
+- **Kevin Combs** — released **RESTools** (MGI's own `mkres`/`mktex`/`mksfx`/`mkcar`,
+  with Frank Wolf's `rescrack`) for NASCAR Heat modding, "with the help of the
+  Monster Games developers and the producer for the game"; he went on to iRacing
+  as its Technical Art Director
+  ([staff profile](https://www.iracing.com/iracing-staff-member-profile-technical-art-director-kevin-combs/)).
+- **Ashes48** — Frank Wolf's closest collaborator: "the hex hacker king" who found
+  most of the settings Frank's tools edit, designed the replacement `race.res` that
+  WheelMan needs, and in Frank's words "kicked my ass to write the necessary
+  programs".
 - **Maurizio** — author of **VRDSC**, which advertised a dedicated server to the
   VRgt RaceFinder.
 - **BlasterMaster555** ("Impreza") — ran `wrxds.mine.nu`, from 2003 a Viper
@@ -123,18 +132,32 @@ matches what the code shows. The main points, paraphrased
 A capable but **entirely manual** set of tools. Where a binary survives in the
 preserved archives it's marked ✓.
 
-### Archive / packaging — Frank Wolf's **RESTools**
+### Archive / packaging — **RESTools**
 
-Most of the converters below were not loose utilities but one suite, **RESTools**
-by Frank P. Wolf, distributed from his own site (`members.aol.com/racingwolf999/`)
-— the same address his cars and CarMan came from. The wrxds tutorial (see
-*Preservation & sources*) walks through using them and names the set.
+Most of the converters below were not loose utilities but one suite, **RESTools**.
+Its `mk*` programs are **Monster Games' own in-house tools**: they carry MGI's 1998
+build dates and the same Microsoft linker 3.00 that built the game. **Kevin Combs**
+(now iRacing's Technical Art Director) released them for NASCAR Heat modding "with
+the help of the Monster Games developers and the producer for the game", in his
+own words in his
+[iRacing staff profile](https://www.iracing.com/iracing-staff-member-profile-technical-art-director-kevin-combs/).
+RESTools' own readme lists ResCrack, Mkres, Mktex and Mksfx and says: "These are
+not official releases from MGI … Myself, nor Employees from MGI can be held
+responsible". The exception is **rescrack**, which is community-built (MinGW,
+December 2000); Frank P. Wolf says he wrote it himself. Frank distributed the set
+from his own site (`members.aol.com/racingwolf999/`), the same address his cars and
+CarMan came from, which is why the community long credited RESTools to him. The
+wrxds tutorial (see *Preservation & sources*) walks through using them and names
+the set.
 
 - **rescrack.exe** ✓ — unpack a `.car` / `.res` / `.trk` archive into its loose
-  members, plus a `reslist.txt`.
-- **mkres.exe** ✓ — (re)pack an archive from a `reslist`.
-- **mkcar.exe** — build the `.car` itself. Named in the tutorial's step 4
-  alongside `mktex`/`mkres`/`mksfx`; no surviving binary located yet.
+  members, plus a `reslist.txt`. Frank P. Wolf's: "written by me in C++ based on
+  some code snippets somebody from MGI had dropped on the way" (his site).
+- **mkres.exe** ✓ — (re)pack an archive from a `reslist`. MGI's (1998-08-07).
+- **mkcar.exe** ✓ — MGI's (1998-08-19): `mkcar <src.txt> <dest.cf>`, which compiles
+  the car's `.cf` physics file from text, not the `.car` archive. Named in the
+  tutorial's step 4 alongside `mktex`/`mkres`/`mksfx`; it survives in Frank Wolf's
+  `toolpack2.zip`.
 - **extract.exe** ✓ (Sucahyo) — **not an unpacker.** A multi-function track
   utility, recovered 2026-09-10 with its own readme: `.ase` → vertex text for
   mkflt, `.ase` → `.ili`, `.ase` → **wall quad objects**, `.ase` → a "pipeline"
@@ -617,9 +640,9 @@ Two kinds of software are kept apart deliberately:
 ### Archive / packaging
 | Tool | Creator | Purpose | `vrmod` |
 |---|---|---|---|
-| **rescrack.exe** *(RESTools)* | Frank P. Wolf | Unpack `.car`/`.res`/`.trk` to loose members + `reslist.txt` | `vrmod unpack` |
-| **mkres.exe** *(RESTools)* | Frank P. Wolf | Repack an archive from a `reslist` | `vrmod pack` |
-| **mkcar.exe** *(RESTools)* | Frank P. Wolf | Build the `.car` itself | `vrmod pack` / `carfork` |
+| **rescrack.exe** *(RESTools)* | Frank P. Wolf (bundled into RESTools) | Unpack `.car`/`.res`/`.trk` to loose members + `reslist.txt` | `vrmod unpack` |
+| **mkres.exe** *(RESTools)* | Monster Games; released by Kevin Combs | Repack an archive from a `reslist` | `vrmod pack` |
+| **mkcar.exe** *(RESTools)* | Monster Games; released by Kevin Combs | Compile the `.cf` physics file from text | `vrmod pack` / `carfork` |
 | **extract.exe** | Sucahyo | Multi-function track utility — `.ase`→vertex text/`.ili`/wall quads/pipeline, mod2quad, `.bpp`→`.mod`, `.ase`→`camera.tab`, obstacle injection into `track.obt` | `vrmod trackgen` (`--walls`, and `mesh_to_wall_quads` for mod2quad); `bpp2obj`; obstacle records not yet written |
 | **VRcarEditor** | — (2008 tutorial by a community member) | A .NET front end that drives the car-stats chain: rescrack → cf2txt → *edit the text by hand* → mkcar → **reorderreslist** → mkres, thirteen steps across six tools to change one number. Carries no knowledge of the `.cf` fields itself | `vrmod cfdump` / `cfset` / `cfpatch` — one command, in place |
 | **VR-ResEdit** | Matthias Walden | GUI front end for the archive command-line tools — browse, extract, import, rename and discard members of a `.car`/`.res`/`.trk`, with drag-and-drop and multi-select. v0.96, freeware. Supports both Viper Racing and Nascar Heat resource types | Mod manager + `vrmod unpack`/`pack`/`list` |
@@ -642,10 +665,10 @@ Two kinds of software are kept apart deliberately:
 ### Textures & sound
 | Tool | Creator | Purpose | `vrmod` |
 |---|---|---|---|
-| **mktex / tex2tga / tga2tex** *(mktex: RESTools)* | Frank P. Wolf (mktex) | `.tex` ⇄ `.tga` | `vrmod tex2tga` / `tga2tex`, plus in-app import/export |
+| **mktex / tex2tga / tga2tex** *(mktex: RESTools)* | Monster Games (mktex, released by Kevin Combs) | `.tex` ⇄ `.tga` | `vrmod tex2tga` / `tga2tex`, plus in-app import/export |
 | **jpg2sky ("JPG 2 SKY")** | Sucahyo | Split one image into the 4 sky tiles | `vrmod skyexport` / `skyimport` (one panoramic TGA, both ways) |
 | **MKSTAMP / Stp2Tga / tga2stp** | Monster Games (MKSTAMP, in-house) | `.stp` menu screenshots and `Trackmap` | `stp.py`, `vrmod trackmap` |
-| **mksfx** *(RESTools)* | Frank P. Wolf | `.wav` → `.sfx` | `vrmod wav2sfx` / `sfx2wav` |
+| **mksfx** *(RESTools)* | Monster Games; released by Kevin Combs | `.wav` → `.sfx` | `vrmod wav2sfx` / `sfx2wav` |
 
 ### Tracks
 | Tool | Creator | Purpose | `vrmod` |
@@ -935,8 +958,9 @@ document. The tool list above — Zmodeler 1.07, XVi32, `vrzmodtemplate`, the
 `rescrack`/`mkres`/`mktex`/`mksfx` set — is documentation-derived knowledge, not
 anything recoverable from a binary, but no source was recorded for it. Reading
 the tutorial supplied what had been lost in the retelling: that those converters
-are **one suite** (Frank P. Wolf's **RESTools**), that it includes **`mkcar`**,
-and where it was distributed.
+are **one suite** (**RESTools**: MGI's own `mk*` tools released by Kevin Combs, plus
+Frank P. Wolf's `rescrack`), that it includes **`mkcar`**, and where it was
+distributed.
 
 One gap worth noting: those public archives are Val-centric. **Frank Wolf's ~155
 cars are not in them**, and his original site is long dead — so aggregated
