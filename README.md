@@ -126,6 +126,11 @@ has no DirectSound crackle, Alt-Tab comes back clean, and the engine's hard limi
 textures, the texture table) are lifted. `race.exe` / `race.bin` aren't changed, and it works on
 v1.0, v1.1 and the community 1.2.4–1.2.6 builds.
 
+On v1.0 it also puts `viperport.exe` beside `race.exe`: the **standalone**, which runs the game on
+the port's code alone. Your own `race.exe` is read as data, and none of its original code runs. It
+runs v1.0 only, so it is never put beside a `race.bin`. It accepts a vrmod-patched `race.exe` and
+refuses one with patches it doesn't know.
+
 Install or remove it from the desktop app's **Modern engine** panel, or:
 
 ```bash
@@ -133,8 +138,30 @@ python -m vrmod.cli modern-engine "C:\path\to\Viper Racing\Data"            # in
 python -m vrmod.cli modern-engine "C:\path\to\Viper Racing\Data" --remove
 ```
 
-The DLLs are bundled in `vrmod/assets/modern_engine/`; `scripts/update_modern_engine.py` refreshes
-them from a viper-racing-port build and records the commit in `SOURCE.txt`.
+### Play
+
+The app's **Play** button (top right, and in the Modern engine panel) starts the game the way this
+install starts. Its tooltip says which route it will take:
+
+| install | Play starts |
+|---|---|
+| v1.0 with the modern engine | `viperport.exe` if `viperport.exe --probe` says it will run this `race.exe`; otherwise `race.exe` through the DLL, and Play says why |
+| v1.0 without it | `race.exe` |
+| v1.1 and the community `race.bin` builds | the `Viper Racing.exe` launcher, which starts `race.bin` (through the DLL when installed) |
+
+The game starts detached, with its own folder as the working directory. A `viperport.exe` from
+before `--probe` existed can't be asked first. Play launches it and watches: if it exits with an
+error within a few seconds, Play starts `race.exe` instead. The doctor reports the same answer
+("Play runs the standalone engine", or why not).
+
+```bash
+python -m vrmod.cli play "C:\path\to\Viper Racing\Data" --dry-run   # which route, start nothing
+python -m vrmod.cli play "C:\path\to\Viper Racing\Data"
+```
+
+The files are bundled in `vrmod/assets/modern_engine/`: `dinput.dll`, `viperport.exe` and
+`SDL2.dll`. `scripts/update_modern_engine.py` refreshes them from a viper-racing-port build
+(`hook\build` and `loader\build`) and records the commit and each file's sha256 in `SOURCE.txt`.
 
 ## Status
 

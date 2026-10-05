@@ -323,6 +323,12 @@ input[type=range]:disabled{opacity:.45}
 #refresh-folder:hover{color:var(--fg);border-color:var(--acc)}
 #refresh-folder:disabled{opacity:.5;cursor:default}
 header .path{cursor:default}
+#play{font-size:12.5px;font-weight:600;padding:5px 15px;border-radius:99px;background:var(--acc);
+      color:#08131d;border:0;cursor:pointer;margin-left:8px}
+#play:hover{filter:brightness(1.08)}
+#play:disabled{opacity:.55;cursor:default}
+.play-route{font-size:12px;color:var(--dim);margin:10px 0 0}
+.play-route b{color:var(--fg);font-weight:600}
 </style>
 <header>
   <h1>Viper Racing</h1>
@@ -337,6 +343,8 @@ header .path{cursor:default}
   <!-- Install health lives behind a chip rather than a second screen: it is
        something you check occasionally, not a place you work. -->
   <button id="health" onclick="toggleHealth()" hidden></button>
+  <!-- Play: starts this install the way it starts (see modern_engine.play); the tooltip names the route. -->
+  <button id="play" onclick="playGame()" hidden>&#9654; Play</button>
 </header>
 <div id="health-panel" hidden><div class="inner" id="health-list"></div></div>
 
@@ -490,6 +498,7 @@ async function refresh(){
   el$('viewnav').hidden = need;
   el$('change-folder').hidden = need;
   el$('refresh-folder').hidden = need;
+  el$('play').hidden = need;
   el$('view-library').hidden = need || VIEW !== 'library';
   el$('view-game').hidden = need || VIEW !== 'game';
   if(need){ el$('dir').textContent = ''; el$('health').hidden = true; return; }
@@ -498,7 +507,48 @@ async function refresh(){
   checkFrameStale();      // after the render, so findSelected sees the new list
   renderToolbar();
   loadHealth();
+  loadPlayRoute();                      // not awaited: it may ask viperport.exe --probe first
   if(VIEW === 'game') renderGame();     // keep the configurator in step
+}
+
+// ---- Play ------------------------------------------------------------------
+// One button, the route decided server-side (modern_engine.play_route): viperport.exe on v1.0 with the
+// modern engine when it will run this race.exe, else race.exe (through the DLL when installed), or the
+// Viper Racing.exe launcher on the race.bin pressings. PLAY_ROUTE also feeds the Modern engine panel.
+let PLAY_ROUTE = null;
+
+function playRouteText(r){
+  if(!r) return '';
+  if(!r.ok) return r.error;
+  let t = 'Play starts ' + r.label + '.';
+  if(r.route === 'standalone' && r.probe === null)
+    t += ' (This viperport.exe can’t be asked first: if it stops at start-up, Play starts race.exe with the modern engine instead.)';
+  if(r.why) t += ' Not viperport.exe: ' + r.why + '.';
+  return t;
+}
+
+async function loadPlayRoute(){
+  try { PLAY_ROUTE = await api('/api/play?t=' + Date.now()); }
+  catch(e){ PLAY_ROUTE = null; }
+  const b = el$('play');
+  b.title = playRouteText(PLAY_ROUTE);
+  b.disabled = !!(PLAY_ROUTE && !PLAY_ROUTE.ok);
+  const line = el$('me-play-route');
+  if(line) line.innerHTML = PLAY_ROUTE ? esc(playRouteText(PLAY_ROUTE)) : '';
+}
+
+async function playGame(){
+  const b = el$('play');
+  b.disabled = true;                    // one launch per click; the game takes a moment to show
+  try {
+    const r = await api('/api/play', {});
+    if(!r.ok) return toast(r.error, 'bad');
+    toast(r.message, r.why ? 'warn' : undefined);
+  } catch(e){
+    toast('Couldn’t start the game: ' + (e && e.message ? e.message : e), 'bad');
+  } finally {
+    setTimeout(() => { b.disabled = !!(PLAY_ROUTE && !PLAY_ROUTE.ok); }, 3000);
+  }
 }
 
 // Choose (or change) the Data folder. In the desktop app this opens a native
@@ -1131,14 +1181,21 @@ async function renderGame(){
          engine's hard limits (512 physics objects, the ~119-texture crash, the texture table) and
          speeds up collisions with thousands of obstacles.</p>
        <div class="ai-row">
+         <button class="mini on" onclick="playGame()">&#9654; Play</button>
          ${on ? `<button class="mini" onclick="modernEngine(true)">Remove</button>
                  ${me.state === 'outdated' ? `<button class="mini on" onclick="modernEngine(false)">Update</button>` : ''}`
               : `<button class="mini on" onclick="modernEngine(false)">Install</button>`}
        </div>
+       <p class="play-route" id="me-play-route">${esc(playRouteText(PLAY_ROUTE))}</p>
        <p class="lede" style="margin:14px 0 0">A DLL beside the game (dinput.dll, with SDL2.dll and
          viperport.ini) &mdash; race.exe / race.bin aren't changed, and Remove puts the game back to stock.
          It works on v1.0, v1.1 and the community 1.2.4&ndash;1.2.6 builds. Takes effect on the next
          launch.${me.state === 'foreign' ? ' The dinput.dll already here belongs to another mod; it is set aside, and put back on Remove.' : ''}</p>
+       ${me.standalone !== null && me.standalone !== undefined ? `<p class="lede" style="margin:10px 0 0">On v1.0 it
+         also puts <b>viperport.exe</b> beside race.exe: the standalone, which runs the game on the port's
+         code alone &mdash; your race.exe is read as data, none of its original code runs. Play uses it
+         whenever it will run this race.exe (a vrmod-patched one is fine), and race.exe with the DLL
+         otherwise.${me.standalone === 'foreign' ? ' The viperport.exe already here isn’t the modern engine’s, so it is left alone.' : ''}</p>` : ''}
      </div>`;
   }
 
@@ -1623,6 +1680,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                               "fix": f.fix, "action": f.action, "link": f.link}
                              for f in rep.findings],
             })
+        if self.path == "/api/play":
+            # Which way Play starts the game (may ask viperport.exe --probe; cached until files change)
+            try:
+                return self._json(dict(modern_engine.play_route(d), ok=True))
+            except modern_engine.PlayError as e:
+                return self._json({"ok": False, "error": str(e)})
         if self.path == "/api/headon":
             try:
                 state = headon.status(d)
@@ -1987,6 +2050,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                                        "vertex_warning": r["vertex_warning"]})
                 except primarycar.PrimaryCarError as ex:
                     return self._json({"ok": False, "error": str(ex)})
+            if self.path == "/api/play":
+                try:
+                    return self._json(dict(modern_engine.play(d), ok=True))
+                except (modern_engine.PlayError, OSError) as e:
+                    return self._json({"ok": False, "error": f"Couldn't start the game: {e}"})
             if self.path == "/api/modern_engine":
                 try:
                     msg = (modern_engine.remove(d) if req.get("remove") else modern_engine.install(d))
