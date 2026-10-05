@@ -46,7 +46,7 @@ import threading
 import webbrowser
 from pathlib import Path
 
-from . import aifield, ainames, archive, enginefix, backups, carshot, cf, dekey, doctor, envelope, grf, hornball, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch, headon, drawdistance, writepaths, modassert, carlist, modern_engine
+from . import aifield, ainames, archive, enginefix, backups, carshot, cf, dekey, doctor, envelope, grf, hornball, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch, headon, drawdistance, writepaths, modassert, carlist, modern_engine, modtool
 
 _PAGE = r"""<!doctype html>
 <meta charset="utf-8"><title>Viper Racing -- Mod Manager</title>
@@ -469,7 +469,7 @@ async function loadHealth(){
       ${f.link ? `<div style="margin-top:5px"><a href="${esc(f.link)}" target="_blank"
         rel="noopener" style="color:var(--acc)">${esc(f.link)} &#8599;</a></div>` : ''}
       ${f.action ? `<div style="margin-top:7px"><button onclick="applyFix('${f.action}')"
-        >${({vram:'Apply startup fix',dpi:'Set DPI-aware',patch:'Apply enhancements',drivers:'Empty drivers.res',wp_logs:'Keep logs here',wp_userdir:'Keep settings here',modern_engine:'Install modern engine'})[f.action]
+        >${({vram:'Apply startup fix',dpi:'Set DPI-aware',patch:'Apply enhancements',drivers:'Empty drivers.res',wp_logs:'Keep logs here',wp_userdir:'Keep settings here',modern_engine:'Install modern engine',modtool:'Write modtool.res'})[f.action]
           || 'Apply this fix'}</button></div>` : ''}
     </div>`).join('');
 }
@@ -1196,6 +1196,14 @@ async function renderGame(){
          code alone &mdash; your race.exe is read as data, none of its original code runs. Play uses it
          whenever it will run this race.exe (a vrmod-patched one is fine), and race.exe with the DLL
          otherwise.${me.standalone === 'foreign' ? ' The viperport.exe already here isn’t the modern engine’s, so it is left alone.' : ''}</p>` : ''}
+       ${me.modtool ? `<p class="lede" style="margin:10px 0 0"><b>Model editor</b> (Ctrl+E on the main
+         menu): ${esc(({installed:'ready — vrmod’s modtool.res is in place.',
+                        outdated:'ready; a newer modtool.res is available.',
+                        standin:'the community stand-in modtool.res is here; 18 of its 21 tool buttons are one identical placeholder.',
+                        absent:'no modtool.res yet — Ctrl+E stops the game without it.',
+                        foreign:'a modtool.res vrmod didn’t write is here, and is left alone.'})[me.modtool.state] || me.modtool.state)}
+         ${['outdated','standin','absent'].includes(me.modtool.state)
+           ? `<button class="mini on" onclick="writeModtool()">Write modtool.res</button>` : ''}</p>` : ''}
      </div>`;
   }
 
@@ -1294,7 +1302,8 @@ async function renderGame(){
 
   const hoOn = ho.state === 'enabled';
   const fixBtn = {vram:'Apply', dpi:'Set DPI-aware', patch:'Apply', drivers:'Empty drivers.res',
-                  wp_logs:'Keep logs here', wp_userdir:'Keep settings here', modern_engine:'Install'};
+                  wp_logs:'Keep logs here', wp_userdir:'Keep settings here', modern_engine:'Install',
+                  modtool:'Write modtool.res'};
   const hoPanel = (ho.state === 'unknown' || ho.state === 'missing') ? '' : `
      <div class="ai-sec">
      <h3 class="sub-h">Head-on reaction <span class="note">${hoOn ? 'panic on (stock)' : 'panic off'}</span></h3>
@@ -1592,6 +1601,12 @@ async function revertAiCar(){
   const r = await api('/api/primarycar', {revert: true});
   if(!r.ok) return toast(r.error, 'bad');
   AI_MOD = ''; toast(r.message); await refresh();
+}
+
+async function writeModtool(){
+  const r = await api('/api/modtool', {});
+  if(!r.ok) return toast(r.error, 'bad');
+  toast(r.message); return refresh();
 }
 
 async function modernEngine(remove){
@@ -2061,6 +2076,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 except modern_engine.ModernEngineError as e:
                     return self._json({"ok": False, "error": str(e)}, 409)
                 return self._json({"ok": True, "message": msg})
+            if self.path == "/api/modtool":
+                try:
+                    msg = modtool.remove(d) if req.get("remove") else modtool.install(d)
+                except (modtool.ModtoolError, OSError) as e:
+                    return self._json({"ok": False, "error": str(e)}, 409)
+                return self._json({"ok": True, "message": msg})
             if self.path == "/api/resolution":
                 # Revert restores the pristine race.bin (stock 1024x768 table,
                 # no HUD fixes). A width/height rebuilds race.bin from the snapshot
@@ -2469,4 +2490,5 @@ FIX_ACTIONS = {
     "drivers": _fix_drivers,
     "modassert": _fix_modassert,
     "carlist": _fix_carlist,
+    "modtool": lambda d: modtool.install(d),
 }

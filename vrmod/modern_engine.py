@@ -39,6 +39,11 @@ any other v1.0; on the race.bin pressings the `Viper Racing.exe` launcher, which
 the engine DLL beside it when installed). A viperport.exe too old to know --probe is launched and
 watched instead: a non-zero exit within a few seconds counts as a refusal.
 
+THE MODEL EDITOR (v1.0 only). v1.0's race.exe carries MGI's model editor (Ctrl+E on the main menu),
+which needs a modtool.res no disc shipped. install() also writes vrmod's (modtool.py) when the one
+there is missing, the community stand-in or an earlier one of ours -- never over anyone else's -- and
+remove() takes it out, putting back the stand-in it replaced.
+
 The files come from vrmod/assets/modern_engine/, refreshed by scripts/update_modern_engine.py, whose
 SOURCE.txt names the viper-racing-port commit they were built from.
 """
@@ -50,6 +55,8 @@ import struct
 import subprocess
 import sys
 from pathlib import Path
+
+from . import modtool
 
 ASSETS = Path(__file__).resolve().parent / "assets" / "modern_engine"
 DLL, SDL, INI, LOG = "dinput.dll", "SDL2.dll", "viperport.ini", "viperport.log"
@@ -132,8 +139,9 @@ def _file_state(path: Path) -> str:
 
 def status(data_dir: str | Path) -> dict:
     """{"state": absent | installed | outdated | foreign, "standalone": viperport.exe's state, or None
-    where it doesn't apply (no v1.0 race.exe), "ini": {...} or None, "commit": bundled commit, "log":
-    path or None}. outdated = ours, but not the build vrmod bundles -- including a v1.0 install whose
+    where it doesn't apply (no v1.0 race.exe), "modtool": modtool.status() on v1.0 (the model
+    editor's resource set), else None, "ini": {...} or None, "commit": bundled commit, "log": path or
+    None}. outdated = ours, but not the build vrmod bundles -- including a v1.0 install whose
     engine predates the standalone (no viperport.exe yet), so Update brings it in."""
     d = Path(data_dir)
     state = _file_state(d / DLL)
@@ -149,6 +157,7 @@ def status(data_dir: str | Path) -> dict:
                 k, v = (s.strip() for s in line.split("=", 1))
                 ini[k.lower()] = v.lower()
     return {"state": state, "standalone": standalone, "ini": ini, "commit": bundled()["commit"],
+            "modtool": modtool.status(d) if race_exe_is_v10(d) else None,
             "log": str(d / LOG) if (d / LOG).is_file() else None}
 
 
@@ -193,10 +202,25 @@ def install(data_dir: str | Path) -> str:
     elif exe.is_file() and is_ours(exe):
         exe.unlink()                     # the standalone runs v1.0 only: never leave it beside race.bin
         notes.append(f"took out a {EXE} -- the standalone runs v1.0's race.exe only")
+    if race_exe_is_v10(d):
+        notes.append(_install_modtool(d))
     commit = bundled()["commit"] or "unknown"
     return (f"Modern engine installed (viper-racing-port {commit}): {', '.join(placed[:-1])} and {placed[-1]} "
             "beside the game. Takes effect on the next launch; its log is viperport.log"
             + ("; " + "; ".join(notes) if notes else "") + ".")
+
+
+def _install_modtool(d: Path) -> str:
+    """v1.0: the model editor's modtool.res, by modtool's rules (never over someone else's). A note."""
+    before = modtool.status(d)["state"]
+    if before == modtool.FOREIGN:
+        return f"the {modtool.NAME} here isn't vrmod's, so it was left alone (vrmod modtool --force replaces it)"
+    try:
+        modtool.install(d)
+    except (modtool.ModtoolError, OSError) as e:
+        return f"{modtool.NAME} for the model editor wasn't written ({e})"
+    kept = f", the community stand-in kept as {modtool.BACKUP}" if before == modtool.STANDIN else ""
+    return f"{modtool.NAME} for the model editor (Ctrl+E on the main menu) written{kept}"
 
 
 def remove(data_dir: str | Path) -> str:
@@ -217,6 +241,11 @@ def remove(data_dir: str | Path) -> str:
     if (d / FOREIGN_BACKUP).is_file() and not (d / DLL).exists():
         (d / FOREIGN_BACKUP).rename(d / DLL)
         back = f"; the earlier {DLL} is back in place"
+    if modtool.status(d)["state"] in (modtool.INSTALLED, modtool.OUTDATED):
+        modtool.remove(d)
+        gone.append(modtool.NAME)
+        if (d / modtool.NAME).is_file():
+            back += f"; the {modtool.NAME} it replaced is back in place"
     if not gone:
         return "The modern engine isn't installed here -- nothing to remove" + back + "."
     return f"Modern engine removed ({', '.join(gone)}){back}. The game runs stock on the next launch."

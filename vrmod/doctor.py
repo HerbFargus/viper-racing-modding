@@ -37,8 +37,8 @@ import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import (backups, carlist, dekey, mapfile, modassert, modern_engine, patchset, resolution, switcher,
-               vrampatch, writepaths)
+from . import (backups, carlist, dekey, mapfile, modassert, modern_engine, modtool, patchset, resolution,
+               switcher, vrampatch, writepaths)
 
 # Severity, worst first. "bad" means the game probably will not run or work
 # right; "warn" is worth acting on; "info" is context, not a problem.
@@ -391,6 +391,42 @@ def check(data_dir: str | Path) -> Report:
                 add(Finding(INFO, "Play uses race.exe: the standalone engine won't run this race.exe",
                             f"viperport.exe says: {line}. Play starts race.exe with the modern engine DLL "
                             "instead, which runs it fine."))
+
+    # ---- the model editor (v1.0's Ctrl+E) --------------------------------
+    # v1.0's race.exe has MGI's model editor, which must load modtool.res -- a file no disc shipped.
+    # Missing, the game stops ("Can't load resource set") the moment Ctrl+E is pressed.
+    if modern_engine.race_exe_is_v10(data_dir):
+        mt = modtool.status(data_dir)
+        ed = "Ctrl+E on the main menu opens MGI's model editor"
+        if mt["state"] == modtool.INSTALLED:
+            bg = ("its background cropped from your ui.res" if mt["background"] not in (None, "generated")
+                  else "a generated background")
+            add(Finding(OK, "Model editor ready",
+                        f"{ed} (the \"Texture Tool\"). Its modtool.res is vrmod's: a labelled button for "
+                        f"each of the 21 tools, {bg}, the vertex marker and its overlay textures."))
+        elif mt["state"] == modtool.OUTDATED:
+            add(Finding(INFO, "Model editor ready, and a newer modtool.res is available",
+                        f"{ed}. The modtool.res here was written by an older vrmod.",
+                        "Write it again to update it.", action="modtool"))
+        elif mt["state"] == modtool.STANDIN:
+            add(Finding(INFO, "Model editor: modtool.res is the community stand-in",
+                        f"{ed}, but 18 of the stand-in's 21 tool buttons are one identical placeholder, so "
+                        "the tools can't be told apart, and edge mode has no wedge.tex. vrmod can write one "
+                        f"with a labelled button for every tool; the stand-in is kept as {modtool.BACKUP}.",
+                        "Write vrmod's modtool.res.", action="modtool"))
+        elif mt["state"] == modtool.ABSENT:
+            add(Finding(INFO, "Model editor not set up: no modtool.res",
+                        "v1.0's race.exe has MGI's model editor behind Ctrl+E on the main menu, but it "
+                        "needs modtool.res, which no disc shipped. Without it the game stops with "
+                        "\"Can't load resource set\" when Ctrl+E is pressed.",
+                        "Write vrmod's modtool.res (its art is drawn by vrmod; the background comes "
+                        "from your own ui.res).", action="modtool"))
+        else:
+            add(Finding(INFO, "Model editor: a modtool.res vrmod didn't write",
+                        f"{ed} with the modtool.res that is here. It isn't the community stand-in or "
+                        "vrmod's, so vrmod leaves it alone.",
+                        "vrmod modtool <Data> --force replaces it (keeping it as "
+                        f"{modtool.BACKUP})."))
 
     # ---- the compatibility fix ------------------------------------------
     version = race_bin_version(data_dir)
