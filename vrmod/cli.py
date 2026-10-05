@@ -14,7 +14,7 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from . import aifield, archive, aspectfix, backups, bpp as bppmod, bundle, car, carshot, catalog as catalog_mod, ccs, cf, cockpit_tab, dekey, doctor, envelope, hornball, mapfile, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon, drawdistance, surface, writepaths, modassert, carlist, modern_engine
+from . import aifield, archive, aspectfix, backups, bpp as bppmod, bundle, car, carshot, catalog as catalog_mod, ccs, cf, cockpit_tab, dekey, doctor, envelope, hornball, mapfile, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon, drawdistance, surface, writepaths, modassert, carlist, modern_engine, modtool
 
 COMMIT_PATH = "/__vrmod_commit__"
 
@@ -930,6 +930,19 @@ def main(argv: list[str] | None = None) -> int:
     p_me.add_argument("data_dir", type=Path, help="the game's Data folder")
     p_me.add_argument("--remove", action="store_true", help="take it out again")
     p_me.add_argument("--status", action="store_true", help="only report what is installed")
+
+    p_mt = sub.add_parser(
+        "modtool",
+        help="Write modtool.res for v1.0's hidden model editor (Ctrl+E on the main menu): a labelled "
+             "button for each of its 21 tools, a background from your own ui.res, the vertex marker and "
+             "its overlay textures. Replaces a missing one or the community stand-in (kept as "
+             "modtool.res.vrmod-backup); leaves any other alone unless --force",
+    )
+    p_mt.add_argument("data_dir", type=Path, help="the game's Data folder (v1.0)")
+    p_mt.add_argument("--force", action="store_true",
+                      help="replace a modtool.res vrmod didn't write too (it is kept as modtool.res.vrmod-backup)")
+    p_mt.add_argument("--remove", action="store_true", help="take vrmod's out, putting back the one it replaced")
+    p_mt.add_argument("--status", action="store_true", help="only report what is there")
 
     p_play = sub.add_parser(
         "play",
@@ -1940,6 +1953,22 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print("  " + modern_engine.install(args.data_dir))
         except modern_engine.ModernEngineError as e:
+            print(f"  {e}")
+            return 1
+    elif args.command == "modtool":
+        try:
+            if args.status:
+                st = modtool.status(args.data_dir)
+                print(f"  {modtool.NAME}: {st['state']}"
+                      + (f" (background: {st['background']})" if st["background"] else "")
+                      + (f"; {modtool.BACKUP} is here" if st["backup"] else ""))
+                if not modtool.is_v10(args.data_dir):
+                    print("  (no v1.0 race.exe here -- the model editor is in v1.0 only)")
+            elif args.remove:
+                print("  " + modtool.remove(args.data_dir))
+            else:
+                print("  " + modtool.install(args.data_dir, force=args.force))
+        except (modtool.ModtoolError, OSError) as e:
             print(f"  {e}")
             return 1
     elif args.command == "play":

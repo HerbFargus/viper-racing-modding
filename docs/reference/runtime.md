@@ -3,7 +3,7 @@
 **Purpose:** what the game *does when it runs*, as opposed to what its files contain: **which detail
 level (LOD) you actually see in each camera view** and **how the AI reacts to other cars**, both
 measured in-game; the **command-line parameters** the executable accepts, read out of the binary; and
-**how world objects are created and freed**, which is what the exit panic reports on; and **what the launcher does before the engine starts**, which is a separate program with its own flags. Also **what a surface above the road does to a car** (§9): the launch pad; and **when the game draws a car's dash at all** (§10): it is skipped if the car's centre is behind the cockpit camera. And **how vrmod's Play starts the game** (§11): the launcher, `race.exe`, or the modern engine's standalone `viperport.exe`. Companions:
+**how world objects are created and freed**, which is what the exit panic reports on; and **what the launcher does before the engine starts**, which is a separate program with its own flags. Also **what a surface above the road does to a car** (§9): the launch pad; and **when the game draws a car's dash at all** (§10): it is skipped if the car's centre is behind the cockpit camera. And **how vrmod's Play starts the game** (§11): the launcher, `race.exe`, or the modern engine's standalone `viperport.exe`. And **what v1.0's hidden model editor loads** (§12): the `modtool.res` no disc shipped, which vrmod writes. Companions:
 [VIPER_RACING_FILE_FORMATS.md](file-formats.md) (byte layouts) and
 [VIPER_RACING_ASSET_TREE.md](asset-tree.md) (what's inside a `.car`/`.trk`).
 
@@ -1244,3 +1244,80 @@ because it passes unknown options on to the game, so vrmod checks for the option
 file first. Play launches such a build and watches it for a few seconds. A non-zero exit in that time
 counts as a refusal, and Play starts `race.exe` instead. Such a build reports a refusal in a message
 box, so the exit only comes once that box is closed.
+
+---
+
+## 12. v1.0's model editor and the `modtool.res` it loads 🟡 FROM THE CODE (not yet confirmed in game)
+
+v1.0's `race.exe` still contains MGI's in-house model editor. **Ctrl+E on the main menu** opens it
+(`EditMenu` -> `ModTool`), and its title bar reads "Texture Tool". It has a 3D view of the model
+(modes View, Triangles, Vertices, Edges and Geometry) and a texture view of the current surface,
+with its own tools and locks. It can also translate and scale the model, import `.dxf` / `.3ds`,
+open and save `.mod`, export `.3ds`, and write a surface's texture triangles as a `.bmp` paint
+template. v1.1 and later builds dropped it.
+
+**What it loads.** Every car's `.car`, then `race.res`, then `modtool.res`, each through
+`ResourceSetMustLoad`, which panics `Can't load resource set "%s"` when the file isn't there. No disc
+shipped `modtool.res`, so on a stock v1.0 pressing Ctrl+E stops the game. Everything below was read
+from viper-racing-port's rewrite (`hook/edit_tool.cpp`, `edit_view.cpp`, `ui_widget.cpp`,
+`gx_2d.cpp`) and checked against the strings in `race.exe`:
+
+| name in `modtool.res` | what reads it | what it has to be |
+|---|---|---|
+| `tview` `ttri` `tvert` `tedge` `tgeom` `.stp` | the 3D view's mode buttons (`BRadioButton`) | 2 frames: 0 unselected, 1 selected |
+| `tnewp` `tmovp` `ttrans` `tscale` `.stp` | the texture view's tools (`BRadioButton`) | as above |
+| `tnlock` `tulock` `tvlock` `tuvsnap` `.stp` | the texture view's locks (`BRadioButton`) | as above |
+| `tplane` `t3pput` `capture` `zoom` `newsurf` `surfprop` `.stp` | push buttons (`BButton`) | frame 0 up, 1 pressed; a 3rd/4th frame would be the focused look, a 5th disabled |
+| `browse` `mktmplt` `.stp` | buttons in the Surface Properties box | as above |
+| `carback.stp` | `ModelViewer::Draw`, behind the 3D view | drawn at the view's corner, **clipped to the view: 300 x 256** is all that shows |
+| `point.mod` | the marker on the picked vertex | turned 10° a frame, pulled to 1.1 in front of the camera (constant size on screen) |
+| `null.tex` | nothing directly | `point.mod`'s material |
+| `wire_f.tex` | `ModBuilderBuildGeometry`: the whole model in the triangle, vertex and geometry modes | three regions in u, v (below) |
+| `wedge.tex` | `build_edge_model`: the model in edge mode | eight half-quadrants (below) |
+
+`ok`, `cancel`, `lscroll`, `rscroll` and `cross.stp` come from `common.res`, and `prev`, `next`
+and `dialog1.stp` from `ui.res`. Both are always loaded, so `modtool.res` doesn't need them.
+`texture.stp` is named in the texture view's struct but never loaded.
+
+**Button sizes.** A button widget takes its size from its stamp, and the hit test is the stamp's
+rectangle (`gxStampHitTest` ignores pixels), so the size is set by the room in the layout. The mode
+buttons sit at x 20, 44, 68, 92 and 114 on y 360. `tedge` to `tgeom` is only 22 apart, so `tedge`
+can be at most 22 wide without overlapping. The other buttons on that row are 24 apart, and the next
+row starts at y 390. `capture` sits at (500, 341), between `lscroll` (480, 18 wide) and `rscroll`
+(520). `zoom` sits at (597, 317), the corner where the texture view's two scroll bars meet. `newsurf`
+and `surfprop` share the `prev` / `next` row, 70 apart. `browse` sits beside the texture name in
+the 320 x 200 Surface Properties box, and `mktmplt` sits between its `ok` and `cancel`. MGI's own
+tool buttons of this kind (the paint kit's) are uncompressed 24 x 21 two-frame stamps.
+
+**`wire_f.tex`.** `ModBuilderBuildGeometry` gives every triangle its own corners at u, v (0,0),
+(1,0), (0,1). `ModBuilderSelectTriangle` moves the picked triangle to (.5,.5) (0,1) (1,1) and the
+current surface's textured triangles to (.5,.5) (1,0) (1,1). So the texture is three regions, the
+top-left half and the bottom and right quarters, and each needs its triangle's edges drawn for the
+model to read as a wireframe.
+
+**`wedge.tex`.** `build_edge_model` maps each triangle onto one of eight half-quadrants of a 2 x 2
+grid, picked by its three edges' smoothing flags (`k = edge[2] + 2 edge[1] + 4 edge[0]`; edge i
+runs from corner i to corner i+1, as `mrModelPickEdge` numbers them; a set flag means smoothed). The
+texture draws each half-quadrant's edges as smoothed or hard. Every grid segment, including the
+ones that meet across the wrap, has the same flag on both sides, so the layout is consistent.
+
+**vrmod's `modtool.res`** (`vrmod/modtool.py`, `vrmod modtool <Data>`, also written by the modern
+engine's install on v1.0) has:
+
+- 21 buttons drawn by vrmod: a pictogram over a 3 x 5-pixel label, dark gunmetal with a bevel, and
+  a yellow ring with yellow ink for frame 1. Most are 24 x 27; `tedge` is 22 x 27, `capture` 20 x 19,
+  `zoom` 24 x 18, `newsurf` and `surfprop` 64 x 32, `browse` 64 x 20 and `mktmplt` 140 x 32.
+- A 300 x 256 `carback.stp` cropped from the dark chequered panel of the player's own `ui.res`
+  `catalog.stp`, at (36, 92), in that stamp's own palette. If that stamp is missing, compressed or
+  bright, vrmod draws a dark grid instead.
+- `point.mod`: two square pyramids that meet tip to tip at the vertex, each face written in both
+  windings. `null.tex` is a flat pink.
+- `wire_f.tex` and `wedge.tex`: opaque, 128 x 128, with no black texels (§7). In `wire_f.tex` the
+  normal region is light grey, the picked triangle yellow and the surface's triangles blue, all
+  with dark navy edges. In `wedge.tex` hard edges are bold orange and smoothed edges thin green.
+
+The community stand-in that circulated before (toolpack2) has the same names minus `wedge.tex`, and
+18 of its 21 buttons are one identical 24 x 21 placeholder. vrmod recognises it by sha256
+(`88091911...7f27`), replaces it, and keeps it as `modtool.res.vrmod-backup`. vrmod leaves any other
+`modtool.res` alone unless `--force` is given. A `modtool.res.vrmod` JSON record marks the file as
+vrmod's and names the generator version, which is how an older one shows as outdated.

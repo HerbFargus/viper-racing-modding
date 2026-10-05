@@ -163,6 +163,41 @@ The files are bundled in `vrmod/assets/modern_engine/`: `dinput.dll`, `viperport
 `SDL2.dll`. `scripts/update_modern_engine.py` refreshes them from a viper-racing-port build
 (`hook\build` and `loader\build`) and records the commit and each file's sha256 in `SOURCE.txt`.
 
+### The model editor (v1.0)
+
+v1.0's `race.exe` still contains MGI's in-house model editor. Its title bar says "Texture Tool", and
+**Ctrl+E on the main menu** opens it. It loads `modtool.res`, which no disc ever shipped. Without
+that file the game stops with "Can't load resource set" as soon as Ctrl+E is pressed. The only
+copy people had was a community stand-in in which 18 of the 21 tool buttons are the same
+placeholder, so the editor couldn't really be used.
+
+vrmod writes its own `modtool.res`. Nothing in it is MGI's:
+
+- **21 tool buttons, drawn by vrmod.** Each has a pictogram with a short label under it, sized to
+  its place in the editor's layout. Each also has a second frame for selected or pressed: a yellow
+  ring with yellow ink. The labels are View, Tris, Vert, Edge and Geom (the 3D view's modes); Add,
+  Move, All and Size (the texture tools); U Lck, V Lck, Snap and Free (the locks); Proj and 3 Pt (the
+  two texture transforms); Capt, Zoom, New Surf, Surf Props, Browse and Make Template.
+- **The 3D view's background**, cropped at install time from the dark panel in your own
+  `ui.res` (`catalog.stp`). If that isn't there, vrmod uses a generated dark grid instead.
+- **The vertex marker** (`point.mod`, `null.tex`) and the textures the editor puts on the model:
+  `wire_f.tex`, the wireframe in triangle, vertex and geometry modes, and `wedge.tex`, the smoothed
+  and hard edges in edge mode. The stand-in has no `wedge.tex`.
+
+Installing the modern engine on v1.0 writes it too, and so does the doctor's fix, or:
+
+```bash
+python -m vrmod.cli modtool "C:\path\to\Viper Racing\Data"            # write it
+python -m vrmod.cli modtool "C:\path\to\Viper Racing\Data" --status
+python -m vrmod.cli modtool "C:\path\to\Viper Racing\Data" --remove   # put back what was there
+```
+
+vrmod only replaces a missing `modtool.res`, the community stand-in (recognised by its sha256) or
+an earlier one of its own. It keeps the stand-in as `modtool.res.vrmod-backup`, and `--remove` (or
+removing the modern engine) puts it back. Any other `modtool.res` is someone's own work, so vrmod
+leaves it alone unless you pass `--force`.
+
+
 ## Status
 
 - Toolkit, CLI, and web UI — working.
