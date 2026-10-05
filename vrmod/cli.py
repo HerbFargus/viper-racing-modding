@@ -931,6 +931,15 @@ def main(argv: list[str] | None = None) -> int:
     p_me.add_argument("--remove", action="store_true", help="take it out again")
     p_me.add_argument("--status", action="store_true", help="only report what is installed")
 
+    p_play = sub.add_parser(
+        "play",
+        help="Start the game: on v1.0 with the modern engine, viperport.exe (the port's code alone) if it "
+             "will run this race.exe, else race.exe through the engine DLL; otherwise race.exe (v1.0) or "
+             "the Viper Racing.exe launcher (race.bin pressings)",
+    )
+    p_play.add_argument("data_dir", type=Path, help="the game's Data folder")
+    p_play.add_argument("--dry-run", action="store_true", help="say which route Play would take; start nothing")
+
     p_ma = sub.add_parser(
         "modassert",
         help="Silence the v1.0 RC's development-only module-ownership assertion, "
@@ -1924,11 +1933,27 @@ def main(argv: list[str] | None = None) -> int:
                     parts = [n for n, k in (("engine limits", "limits"), ("SDL window and input", "sdl"),
                                             ("OpenGL renderer", "gl"), ("SDL audio", "audio")) if on[k]]
                     print(f"  on: {', '.join(parts)}")
+                if st["standalone"] is not None:
+                    print(f"  standalone (viperport.exe, v1.0): {st['standalone']}")
             elif args.remove:
                 print("  " + modern_engine.remove(args.data_dir))
             else:
                 print("  " + modern_engine.install(args.data_dir))
         except modern_engine.ModernEngineError as e:
+            print(f"  {e}")
+            return 1
+    elif args.command == "play":
+        try:
+            if args.dry_run:
+                r = modern_engine.play_route(args.data_dir)
+                print(f"  Play starts {r['label']}" + (" (it can't be asked first: if it stops at start-up, "
+                      "race.exe with the modern engine instead)" if r["probe"] is None and r["route"] == "standalone" else ""))
+                if r["why"]:
+                    print(f"  not viperport.exe: {r['why']}")
+                print(f"  {r['exe']}  (in {r['cwd']})")
+            else:
+                print("  " + modern_engine.play(args.data_dir)["message"])
+        except (modern_engine.PlayError, OSError) as e:
             print(f"  {e}")
             return 1
     elif args.command == "modassert":

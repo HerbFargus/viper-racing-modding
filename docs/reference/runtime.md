@@ -3,7 +3,7 @@
 **Purpose:** what the game *does when it runs*, as opposed to what its files contain: **which detail
 level (LOD) you actually see in each camera view** and **how the AI reacts to other cars**, both
 measured in-game; the **command-line parameters** the executable accepts, read out of the binary; and
-**how world objects are created and freed**, which is what the exit panic reports on; and **what the launcher does before the engine starts**, which is a separate program with its own flags. Also **what a surface above the road does to a car** (§9): the launch pad; and **when the game draws a car's dash at all** (§10): it is skipped if the car's centre is behind the cockpit camera. Companions:
+**how world objects are created and freed**, which is what the exit panic reports on; and **what the launcher does before the engine starts**, which is a separate program with its own flags. Also **what a surface above the road does to a car** (§9): the launch pad; and **when the game draws a car's dash at all** (§10): it is skipped if the car's centre is behind the cockpit camera. And **how vrmod's Play starts the game** (§11): the launcher, `race.exe`, or the modern engine's standalone `viperport.exe`. Companions:
 [VIPER_RACING_FILE_FORMATS.md](file-formats.md) (byte layouts) and
 [VIPER_RACING_ASSET_TREE.md](asset-tree.md) (what's inside a `.car`/`.trk`).
 
@@ -1209,3 +1209,38 @@ vertex limit applies.
   (`cockpit_tab.py`).
 - **Framing.** Measured from a 1920×1080 cockpit screenshot, the view is about 84° wide and 54°
   tall. The camera looks straight down the car's +z.
+
+---
+
+## 11. Starting the game: the three routes vrmod's Play takes
+
+Which program starts the game depends on the pressing (§5), and with the modern engine installed
+there is a third choice on v1.0. vrmod's **Play** button and `vrmod play <Data>` pick one per launch
+(`modern_engine.play_route`), and start it detached, with its own folder as the working directory:
+
+| install | what Play starts |
+|---|---|
+| v1.0 with the modern engine | `viperport.exe`, the standalone, when `viperport.exe --probe --race race.exe` exits 0; otherwise `race.exe` through the engine DLL, and Play says why |
+| v1.0 without it | `race.exe`, in the Data folder (which is the game folder on v1.0) |
+| v1.1 and the community `race.bin` builds | `Viper Racing.exe`, beside Data or inside it on the disc layout. It starts `race.bin`, through the engine DLL when installed |
+
+**The modern engine** is viper-racing-port's `dinput.dll` (with `SDL2.dll` and `viperport.ini`),
+installed beside the game. The game imports DirectInput and Windows looks in the game's own folder
+first, so it loads with the game on every pressing. Neither `race.exe` nor `race.bin` is changed.
+
+**The standalone** (`viperport.exe`, v1.0 only) runs the game on the port's code alone. It maps the
+user's own v1.0 `race.exe` as data at 0x400000, resolves its imports, and loads the same
+`dinput.dll`. It then fills every original function body with `int3`, so any original code that runs
+is caught and named. It recognises v1.0 by the PE timestamp `0x362de68c`. It takes a vrmod-patched
+`race.exe`, because the DLL carries vrmod's patches as rewrites, and refuses one with patches it
+doesn't know. The `race.bin` builds keep the DLL route, so vrmod never puts `viperport.exe` beside a
+`race.bin`.
+
+**Asking before launching.** `viperport.exe --probe` answers without starting anything: exit 0 means
+it will run this `race.exe`. Any other exit code means it won't, and it prints one plain-language
+line saying why. vrmod shows that line in the Modern engine panel, on Play's tooltip, in the message
+after a fallback launch, and in the doctor. A `viperport.exe` built before `--probe` can't be asked,
+because it passes unknown options on to the game, so vrmod checks for the option's string in the
+file first. Play launches such a build and watches it for a few seconds. A non-zero exit in that time
+counts as a refusal, and Play starts `race.exe` instead. Such a build reports a refusal in a message
+box, so the exit only comes once that box is closed.

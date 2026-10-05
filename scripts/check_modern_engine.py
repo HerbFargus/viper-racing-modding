@@ -1,15 +1,18 @@
 """Check installing and removing the modern engine, and what the doctor says about it.
 
 Everything runs in temp folders: the modern engine is files beside the game, so a folder with a stand-in
-race.exe is enough to exercise install, reinstall, remove, a foreign dinput.dll being set aside and put
-back, an outdated build, and the doctor switching its startup-fix and audio advice off once the engine
-covers them.
+v1.0 race.exe (just its PE header) is enough to exercise install, reinstall, remove, the bundled
+viperport.exe going in beside it and out again, a foreign dinput.dll being set aside and put back, an
+outdated build, and the doctor switching its startup-fix and audio advice off once the engine covers
+them. Nothing is launched: `viperport.exe --probe` is answered by a stand-in. Play's route choice has
+its own checks, in check_play.py.
 
 Run:  python scripts/check_modern_engine.py
 """
 
 from __future__ import annotations
 
+import struct
 import sys
 import tempfile
 from pathlib import Path
@@ -31,14 +34,26 @@ def titles(d: Path) -> list[str]:
     return [f.title for f in doctor.check(d).findings]
 
 
+def v10_race_exe() -> bytes:
+    """A stand-in v1.0 race.exe: just the PE header, with v1.0's timestamp."""
+    b = bytearray(0x200)
+    b[0:2] = b"MZ"
+    struct.pack_into("<I", b, 0x3C, 0x80)
+    b[0x80:0x84] = b"PE\0\0"
+    struct.pack_into("<HHI", b, 0x84, 0x14C, 1, me.V10_TIMESTAMP)
+    return bytes(b)
+
+
 def main() -> None:
     if not me.bundled()["available"]:
         print("  the modern engine isn't bundled (vrmod/assets/modern_engine) -- run scripts/update_modern_engine.py")
         sys.exit(1)
     print(f"bundled: viper-racing-port {me.bundled()['commit']}")
+    check("the bundle includes viperport.exe (else run scripts/update_modern_engine.py)", me.bundled()["standalone"])
+    me._run_probe = lambda exe, race, cwd: (0, "stand-in: yes")   # never run the real viperport.exe here
     with tempfile.TemporaryDirectory() as tmp:
         d = Path(tmp)
-        (d / "race.exe").write_bytes(b"MZ" + b"\0" * 64)          # a stand-in: v1.0's layout
+        (d / "race.exe").write_bytes(v10_race_exe())             # a stand-in: v1.0's layout
 
         print("absent")
         check("status is absent", me.status(d)["state"] == me.ABSENT)
@@ -49,8 +64,9 @@ def main() -> None:
         print("install")
         msg = me.install(d)
         check("installed", me.status(d)["state"] == me.INSTALLED, msg)
-        for f in (me.DLL, me.SDL, me.INI):
+        for f in (me.DLL, me.SDL, me.INI, me.EXE):
             check(f"{f} in place", (d / f).is_file())
+        check("viperport.exe is the bundled one", me.status(d)["standalone"] == me.INSTALLED)
         check("everything on", all(me.active(d).values()), str(me.active(d)))
         t = titles(d)
         check("the doctor reports it", "Modern engine installed" in t)
@@ -69,7 +85,7 @@ def main() -> None:
         print("remove")
         msg = me.remove(d)
         check("absent again", me.status(d)["state"] == me.ABSENT, msg)
-        check("all three files gone", not any((d / f).exists() for f in (me.DLL, me.SDL, me.INI)))
+        check("all four files gone", not any((d / f).exists() for f in (me.DLL, me.SDL, me.INI, me.EXE)))
         check("remove twice is harmless", "nothing to remove" in me.remove(d))
 
         print("someone else's dinput.dll")

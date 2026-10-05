@@ -349,9 +349,12 @@ def check(data_dir: str | Path) -> Report:
                     "the screen's native resolution with widescreen, Alt-Tab comes back clean, and "
                     "the engine's object and texture limits are lifted. Its log is viperport.log."))
     elif me_state["state"] == modern_engine.OUTDATED:
+        no_exe = me_state["standalone"] == modern_engine.ABSENT and modern_engine.bundled()["standalone"]
         add(Finding(INFO, "Modern engine installed, and a newer build is available",
-                    "The DLL beside the game is an older viper-racing-port build than the one this "
-                    f"vrmod bundles ({me_state['commit']}).",
+                    "The modern engine beside the game is an older viper-racing-port build than the one "
+                    f"this vrmod bundles ({me_state['commit']})."
+                    + (" The newer one adds viperport.exe, which runs v1.0 on the port's code alone (your "
+                       "race.exe read as data); until then Play starts race.exe with the DLL." if no_exe else ""),
                     "Install again to update it.", action="modern_engine"))
     elif me_state["state"] == modern_engine.FOREIGN:
         add(Finding(INFO, "A dinput.dll that isn't the modern engine is beside the game",
@@ -364,6 +367,30 @@ def check(data_dir: str | Path) -> Report:
                     "crackle, clean Alt-Tab, and the engine's object and texture limits lifted. "
                     "Nothing in race.exe / race.bin is changed, and Remove takes it out again.",
                     "Install the modern engine.", action="modern_engine"))
+
+    # ---- the standalone (viperport.exe; v1.0 only) -----------------------
+    # Play runs viperport.exe when it says it will run this race.exe (its --probe), else race.exe
+    # through the DLL. This says which, and why, before anyone presses Play.
+    sa = me_state["standalone"]
+    if me_state["state"] in (modern_engine.INSTALLED, modern_engine.OUTDATED) and sa is not None:
+        # (absent while bundled shows as "a newer build is available" above, which says so)
+        if sa == modern_engine.FOREIGN:
+            add(Finding(INFO, "A viperport.exe that isn't the modern engine's is beside the game",
+                        "vrmod leaves it alone and Play starts race.exe with the modern engine instead."))
+        elif sa in (modern_engine.INSTALLED, modern_engine.OUTDATED):
+            ok, line = modern_engine.probe(data_dir)
+            if ok:
+                add(Finding(OK, "Play runs the standalone engine",
+                            "viperport.exe will run this race.exe on viper-racing-port's code alone "
+                            f"({line})."))
+            elif ok is None:
+                add(Finding(INFO, "Standalone engine installed, not checked ahead of launch",
+                            f"Play starts viperport.exe; {line}. If it refuses this race.exe at start-up, "
+                            "Play starts race.exe with the modern engine instead."))
+            else:
+                add(Finding(INFO, "Play uses race.exe: the standalone engine won't run this race.exe",
+                            f"viperport.exe says: {line}. Play starts race.exe with the modern engine DLL "
+                            "instead, which runs it fine."))
 
     # ---- the compatibility fix ------------------------------------------
     version = race_bin_version(data_dir)
