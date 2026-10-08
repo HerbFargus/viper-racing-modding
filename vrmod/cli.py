@@ -925,7 +925,8 @@ def main(argv: list[str] | None = None) -> int:
     p_me = sub.add_parser(
         "modern-engine",
         help="Install the modern engine beside the game (viper-racing-port's DLL: engine limits lifted, "
-             "SDL2 window and input, OpenGL renderer at native resolution, SDL audio), or remove it",
+             "SDL2 window and input, OpenGL renderer at native resolution, SDL audio), or remove it. On "
+             "Linux: the native engine (viperport, viperport.sh and SDL2) beside a v1.0 race.exe",
     )
     p_me.add_argument("data_dir", type=Path, help="the game's Data folder")
     p_me.add_argument("--remove", action="store_true", help="take it out again")
@@ -952,7 +953,8 @@ def main(argv: list[str] | None = None) -> int:
         "play",
         help="Start the game: on v1.0 with the modern engine, viperport.exe (the port's code alone) if it "
              "will run this race.exe, else race.exe through the engine DLL; otherwise race.exe (v1.0) or "
-             "the Viper Racing.exe launcher (race.bin pressings)",
+             "the Viper Racing.exe launcher (race.bin pressings). On Linux: viperport.sh, the native "
+             "modern engine, which needs v1.0's race.exe and the engine installed",
     )
     p_play.add_argument("data_dir", type=Path, help="the game's Data folder")
     p_play.add_argument("--dry-run", action="store_true", help="say which route Play would take; start nothing")
@@ -1945,15 +1947,18 @@ def main(argv: list[str] | None = None) -> int:
             if args.status:
                 st = modern_engine.status(args.data_dir)
                 on = modern_engine.active(args.data_dir)
-                print(f"  modern engine: {st['state']} (vrmod bundles viper-racing-port {st['commit']})")
+                print(f"  modern engine: {st['state']} (vrmod bundles viper-racing-port {st['commit']}"
+                      + (", the native Linux engine)" if st["platform"] == "linux" else ")"))
                 if st["state"] in (modern_engine.INSTALLED, modern_engine.OUTDATED):
                     parts = [n for n, k in (("engine limits", "limits"), ("SDL window and input", "sdl"),
                                             ("OpenGL renderer", "gl"), ("SDL audio", "audio")) if on[k]]
                     print(f"  on: {', '.join(parts)}")
                     g = st["graphics"]
                     print(f"  graphics: {g['preset']} (anisotropic {g['anisotropic']}, msaa {g['msaa']})")
-                if st["standalone"] is not None:
+                if st["standalone"] is not None and st["platform"] != "linux":
                     print(f"  standalone (viperport.exe, v1.0): {st['standalone']}")
+                if st["platform"] == "linux" and not modern_engine.race_exe_is_v10(args.data_dir):
+                    print(f"  (no v1.0 race.exe here -- {modern_engine.V10_ONLY})")
             elif args.graphics:
                 print("  " + modern_engine.set_graphics(args.data_dir, args.graphics))
             elif args.remove:

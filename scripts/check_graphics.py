@@ -135,7 +135,44 @@ perf=1
 """
 
 
+def linux_case(root: Path) -> None:
+    """Linux (forced, on any OS): the native engine's ini is created once and then left alone ([platform]
+    doesn't matter to it), and the presets work, an all-upper-case CONFIG/OPTIONS.CFG included."""
+    print("Linux: viperport.ini and the presets (an upper-case CD copy)")
+    me.IS_LINUX = True
+    try:
+        if not me.bundled()["available"]:
+            check("the Linux engine is bundled (vrmod/assets/modern_engine/linux)", False)
+            return
+        d = root / "linux" / "Data"
+        (d / "CONFIG").mkdir(parents=True)
+        (d / "RACE.EXE").write_bytes(v10_race_exe())
+        (d / "CONFIG" / "OPTIONS.CFG").write_bytes(GAME_OPTIONS.encode())
+        me.install(d)
+        check("the bundled ini, as is", (d / me.INI).read_text(encoding="utf-8") == me.INI_TEXT)
+        (d / me.INI).write_bytes(b"; mine\n[graphics]\nmsaa=2\n")
+        me.install(d)
+        check("reinstall leaves the player's ini alone (no [platform] added)",
+              (d / me.INI).read_bytes() == b"; mine\n[graphics]\nmsaa=2\n")
+        check("options.cfg found in CONFIG", (me.graphics(d)["options"] or "").lower() == str(d / "CONFIG" / "OPTIONS.CFG").lower(),
+              str(me.graphics(d)["options"]))
+        msg = me.set_graphics(d, "enhanced")
+        check("Enhanced written", gv(d) == {"anisotropic": 16, "msaa": 0, "preset": "enhanced"}, msg)
+        g = me.graphics(d)
+        check("the game's filtering and mipmaps switched on", g["filtering"] is True and g["mipmap"] is True, msg)
+        check("status carries the preset", me.status(d)["graphics"]["preset"] == "enhanced")
+        me.remove(d)
+        try:
+            me.set_graphics(d, "high")
+            check("set_graphics refused once removed", False)
+        except me.ModernEngineError as e:
+            check("set_graphics refused once removed", True, str(e))
+    finally:
+        me.IS_LINUX = False
+
+
 def main() -> None:
+    me.IS_LINUX = False                    # the Windows engine's ini handling; linux_case() covers Linux
     if not me.bundled()["available"]:
         print("  the modern engine isn't bundled (vrmod/assets/modern_engine) -- run scripts/update_modern_engine.py")
         sys.exit(1)
@@ -235,6 +272,7 @@ def main() -> None:
         check("an LF file stays LF", b"\r" not in (d / me.INI).read_bytes())
 
         options_case(Path(tmp) / "opts")
+        linux_case(Path(tmp) / "lin")
 
         print("remove, then the engine is gone")
         me.remove(d)

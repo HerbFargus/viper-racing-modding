@@ -1,0 +1,5 @@
+# The bundled Linux engine is copied byte for byte beside the game and checked against SOURCE.txt's
+# sha256s: never convert its line endings (viperport.sh must stay LF to run; the ELF and .so are binaries).
+vrmod/assets/modern_engine/linux/** -text
+vrmod/assets/modern_engine/linux/viperport binary
+vrmod/assets/modern_engine/linux/lib/** binary
