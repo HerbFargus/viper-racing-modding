@@ -13,6 +13,7 @@ care less about the arithmetic than about what the write leaves behind.
 """
 from __future__ import annotations
 
+import struct
 import sys
 import tempfile
 from pathlib import Path
@@ -20,6 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from vrmod import drawdistance as dd  # noqa: E402
+from vrmod import modern_engine as me  # noqa: E402
 
 CRLF = "\r\n"
 PASS = FAIL = 0
@@ -54,6 +56,16 @@ def options(value: str = "0.500000", *, eol: str = "\r\n", pad: str = "",
     lines += [f"detail_level 0.500000"]
     lines += [f"other_{i:03d} {i}" for i in range(after)]
     return eol.join(lines) + eol
+
+
+def v10_race_exe() -> bytes:
+    """A stand-in v1.0 race.exe: just the PE header, with v1.0's timestamp."""
+    b = bytearray(0x200)
+    b[0:2] = b"MZ"
+    struct.pack_into("<I", b, 0x3C, 0x80)
+    b[0x80:0x84] = b"PE\0\0"
+    struct.pack_into("<HHI", b, 0x84, 0x14C, 1, me.V10_TIMESTAMP)
+    return bytes(b)
 
 
 def raised(fn) -> str | None:
@@ -163,11 +175,37 @@ def main() -> int:
         check("an LF-only file stays LF-only",
               b"\r" not in lff.read_bytes(), "no CR introduced")
 
-        # options.def is the fallback when the game has never written a .cfg.
-        deff, _ = fake_install(tmp / "h", options(), name="options.def")
-        v, found = dd.read(deff)
-        check("falls back to options.def", v == 0.5 and found.name == "options.def",
-              found.name)
+        # options.def is the shipped default, not the player's setting: with no
+        # .cfg yet there is nothing to read, and the default is never written.
+        deff, df = fake_install(tmp / "h", options(), name="options.def")
+        def_before = df.read_bytes()
+        check("never reads or writes options.def",
+              raised(lambda: dd.read(deff)) is not None
+              and raised(lambda: dd.write(deff, dd.SLIDER_MAX)) is not None
+              and df.read_bytes() == def_before, "both raise, file untouched")
+
+        # v1.0 with the modern engine: the user directory is <Data>\Config and
+        # nothing else. A Config one level up belongs to some other copy, so
+        # before the first run (no <Data>\Config\options.cfg yet) this must
+        # refuse rather than edit that other install's file.
+        v10, parent_cfg = fake_install(tmp / "i", options())
+        (v10 / "race.exe").write_bytes(v10_race_exe())
+        parent_before = parent_cfg.read_bytes()
+        check("v1.0 ignores a parent-level Config\\options.cfg",
+              raised(lambda: dd.read(v10)) is not None
+              and raised(lambda: dd.write(v10, dd.SLIDER_MAX)) is not None
+              and parent_cfg.read_bytes() == parent_before, "both raise, file untouched")
+        check("v1.0 doesn't create <Data>\\Config\\options.cfg",
+              not (v10 / "Config" / "options.cfg").exists())
+
+        own = v10 / "Config" / "options.cfg"
+        own.parent.mkdir()
+        own.write_bytes(options().encode("latin-1"))
+        dd.write(v10, dd.SLIDER_MAX)
+        v, found = dd.read(v10)
+        check("v1.0 edits <Data>\\Config\\options.cfg once the game has written it",
+              v == 1.0 and found == own and parent_cfg.read_bytes() == parent_before,
+              f"{found.parent.parent.name}\\{found.parent.name}\\{found.name}")
 
     if len(sys.argv) > 1:
         live = Path(sys.argv[1])

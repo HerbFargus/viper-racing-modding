@@ -56,7 +56,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import modtool
+from . import modtool, writepaths
 
 ASSETS = Path(__file__).resolve().parent / "assets" / "modern_engine"
 DLL, SDL, INI, LOG = "dinput.dll", "SDL2.dll", "viperport.ini", "viperport.log"
@@ -125,6 +125,20 @@ def race_exe_is_v10(data_dir: str | Path) -> bool:
         return struct.unpack_from("<I", head, pe + 8)[0] == V10_TIMESTAMP
     except (OSError, struct.error):
         return False
+
+
+def game_options(data_dir: str | Path) -> Path | None:
+    """The options.cfg the game reads with the modern engine installed, or None before the game has
+    written one. On v1.0 the engine puts the user directory in <race.exe's folder>\\Config\\ -- the Data
+    folder's own Config, and nothing else (a Config one level up belongs to some other copy). On the
+    race.bin pressings it is the game's relative Config\\, found by the generic search
+    (writepaths.options_file). options.def, the shipped default, is never returned, so never written."""
+    d = Path(data_dir)
+    if race_exe_is_v10(d):
+        p = writepaths.config_dirs(d)[0] / writepaths.OPTIONS_CFG
+    else:
+        p = writepaths.options_file(d)
+    return p if p is not None and p.name.lower() == writepaths.OPTIONS_CFG and p.is_file() else None
 
 
 def _file_state(path: Path) -> str:
