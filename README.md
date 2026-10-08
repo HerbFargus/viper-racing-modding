@@ -119,7 +119,7 @@ the same idea pointed at 2,023 mods instead of one install.
 
 ## The modern engine
 
-An optional engine upgrade from the companion viper-racing-port project: a DLL placed beside the game (`dinput.dll`,
+An optional engine upgrade from the companion [viper-racing-port](https://github.com/HerbFargus/viper-racing-port) project (open source, GPL-3.0): a DLL placed beside the game (`dinput.dll`,
 with `SDL2.dll` and `viperport.ini`) that runs Viper Racing on OpenGL and SDL instead of DirectDraw,
 Direct3D and DirectSound. The 3D draws at the screen's native resolution with widescreen, the sound
 has no DirectSound crackle, Alt-Tab comes back clean, and the engine's hard limits (physics objects,
@@ -162,6 +162,22 @@ python -m vrmod.cli play "C:\path\to\Viper Racing\Data"
 The files are bundled in `vrmod/assets/modern_engine/`: `dinput.dll`, `viperport.exe` and
 `SDL2.dll`. `scripts/update_modern_engine.py` refreshes them from a viper-racing-port build
 (`hook\build` and `loader\build`) and records the commit and each file's sha256 in `SOURCE.txt`.
+
+### Without the mod manager: Windows and Linux downloads
+
+The engine is also released on its own, for players who only want to play, on the
+[viper-racing-port releases](https://github.com/HerbFargus/viper-racing-port/releases) page:
+
+| download | for | what's in it |
+|---|---|---|
+| `viperport-windows-<version>.zip` | Windows | `viperport.exe`, `dinput.dll`, `SDL2.dll`, `viperport.ini` and a readme: copy them beside `race.exe`, then run `viperport.exe` (v1.0), or start a 1.1 / 1.2.x game as usual |
+| `viperport-linux-<version>.tar.gz` | Linux (x86, glibc 2.35 or newer: Ubuntu 22.04, Mint 21, Debian 12, Fedora 36 and later) | a native build of the engine, no Wine: `viperport`, `viperport.sh`, SDL2 in `lib/` and `README-linux.txt` |
+
+**On Linux** the engine runs v1.0's `race.exe` natively: the game is a 32-bit program, so it needs
+your distro's 32-bit runtime and Mesa (one install line per distro family, in `README-linux.txt`).
+Copy the CD's `Data` folder somewhere writable, unpack the tarball into it and run
+`./viperport.sh` (`--menu` adds it to your application menu). Menus, sound, controllers and
+TCP/IP races with Windows players all work. The mod manager itself is Windows-only for now.
 
 ### The model editor (v1.0)
 
