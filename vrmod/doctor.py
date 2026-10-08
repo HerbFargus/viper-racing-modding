@@ -930,144 +930,147 @@ def check(data_dir: str | Path) -> Report:
     # many rows fit depends on the row height, which has not been measured. The
     # complaint is about where the list STARTS -- everything below it is what a
     # long list has to grow into before it leaves the window.
-    try:
-        cl = carlist.status(data_dir)
-        cars = len(casefold.glob(data_dir, "*.car"))
-        g = carlist.read(data_dir)
-        room = 480 - g.y
-        if cl == carlist.STOCK:
-            if cars > 8:
-                add(Finding(WARN, f"The car list starts halfway down, with {cars} cars",
-                            f"On the Hacks options screen the Vehicle list's top edge is "
-                            f"at y={g.y} on a 480-line frontend, leaving {room} pixels "
-                            f"before entries leave the window. The community fixed this "
-                            f"in the v1.2.4 BETA by moving it to y=124 -- "
-                            f"{480 - 124} pixels of room, 76 more -- and growing the box "
-                            f"from 200 to 255. They only ever did it in race.bin, so "
-                            f"this build never got it.",
-                            "Move it up: vrmod carlist <Data> --community (reversible)",
-                            action="carlist"))
-            else:
-                add(Finding(OK, "The car list is at its retail position",
-                            f"{cars} cars installed. The list starts at y={g.y}, leaving "
-                            f"{room} pixels of room -- fine for a small collection. "
-                            f"vrmod carlist <Data> --community moves it up to y=124 for "
-                            f"76 pixels more, which is what every community race.bin "
-                            f"ships."))
-        elif cl == carlist.COMMUNITY:
-            add(Finding(OK, "The car list has the community geometry",
-                        f"Top edge at y=124 and the box grown to 255, matching every "
-                        f"community race.bin from the 2005 v1.2.4 BETA onward -- "
-                        f"{room} pixels of room. {cars} cars installed."))
-        elif cl == carlist.CUSTOM:
-            add(Finding(OK, "The car list has been moved",
-                        f"{g}, leaving {room} pixels below the top edge. {cars} cars "
-                        f"installed."
-                        + (f" The box itself ends at {g.bottom}, past the 480-line "
-                           f"frontend, which is further than anything the community "
-                           f"shipped -- worth checking in game." if g.bottom > 480
-                           else "")))
-    except Exception:
-        pass
+    if not linux:   # (a race.exe code patch: the native Linux engine never runs that code, and has its own fix)
+        try:
+            cl = carlist.status(data_dir)
+            cars = len(casefold.glob(data_dir, "*.car"))
+            g = carlist.read(data_dir)
+            room = 480 - g.y
+            if cl == carlist.STOCK:
+                if cars > 8:
+                    add(Finding(WARN, f"The car list starts halfway down, with {cars} cars",
+                                f"On the Hacks options screen the Vehicle list's top edge is "
+                                f"at y={g.y} on a 480-line frontend, leaving {room} pixels "
+                                f"before entries leave the window. The community fixed this "
+                                f"in the v1.2.4 BETA by moving it to y=124 -- "
+                                f"{480 - 124} pixels of room, 76 more -- and growing the box "
+                                f"from 200 to 255. They only ever did it in race.bin, so "
+                                f"this build never got it.",
+                                "Move it up: vrmod carlist <Data> --community (reversible)",
+                                action="carlist"))
+                else:
+                    add(Finding(OK, "The car list is at its retail position",
+                                f"{cars} cars installed. The list starts at y={g.y}, leaving "
+                                f"{room} pixels of room -- fine for a small collection. "
+                                f"vrmod carlist <Data> --community moves it up to y=124 for "
+                                f"76 pixels more, which is what every community race.bin "
+                                f"ships."))
+            elif cl == carlist.COMMUNITY:
+                add(Finding(OK, "The car list has the community geometry",
+                            f"Top edge at y=124 and the box grown to 255, matching every "
+                            f"community race.bin from the 2005 v1.2.4 BETA onward -- "
+                            f"{room} pixels of room. {cars} cars installed."))
+            elif cl == carlist.CUSTOM:
+                add(Finding(OK, "The car list has been moved",
+                            f"{g}, leaving {room} pixels below the top edge. {cars} cars "
+                            f"installed."
+                            + (f" The box itself ends at {g.bottom}, past the 480-line "
+                               f"frontend, which is further than anything the community "
+                               f"shipped -- worth checking in game." if g.bottom > 480
+                               else "")))
+        except Exception:
+            pass
 
     # ---- the RC's development-only assertions ---------------------------
-    try:
-        ma = modassert.status(data_dir)
-        if ma == modassert.UNPATCHED:
-            add(Finding(INFO, "This build carries a development-only crash check",
-                        "The Release Candidate keeps a module-ownership assertion the "
-                        "shipped game does not: every single-entry module is owned by "
-                        "the task that registered it, and calling into one you do not "
-                        "own is FATAL -- it panics, calls abend(), and writes "
-                        "except.log. The mouse module trips it on a shutdown race, "
-                        "giving\n"
-                        '    Panic : "<main>" called module mouse owned by "(null)"\n'
-                        "where \"(null)\" means the module had already been ended and a "
-                        "window message arrived afterwards. The shipped builds compile "
-                        "this guard away: the function their MouseQueueEvent calls is a "
-                        "bare RET in v1.0's own race.bin, in v1.2.5 and in v1.2.6, so "
-                        "they perform no single-entry check at all. (They DO keep a "
-                        "separate fatal panic on the safe-module path, which this does "
-                        "not touch.)",
-                        "Silence it to match the shipped builds: vrmod modassert <Data> "
-                        "(reversible). One RET byte in the guard both callers share, "
-                        "which is the same semantics the releases get by shipping those "
-                        "callers empty.",
-                        action="modassert"))
-        elif ma == modassert.PATCHED:
-            add(Finding(OK, "The development-only crash check is silenced",
-                        "The RC's module-ownership assertion returns immediately, as it "
-                        "effectively does in every build MGI released. The shutdown race "
-                        "that tripped it on the mouse module no longer panics."))
-    except Exception as e:
-        add(Finding(INFO, "Could not read the module-assertion state",
-                    f"{type(e).__name__}: {e}"))
+    if not linux:   # (a race.exe code patch: the native Linux engine never runs that code, and has its own fix)
+        try:
+            ma = modassert.status(data_dir)
+            if ma == modassert.UNPATCHED:
+                add(Finding(INFO, "This build carries a development-only crash check",
+                            "The Release Candidate keeps a module-ownership assertion the "
+                            "shipped game does not: every single-entry module is owned by "
+                            "the task that registered it, and calling into one you do not "
+                            "own is FATAL -- it panics, calls abend(), and writes "
+                            "except.log. The mouse module trips it on a shutdown race, "
+                            "giving\n"
+                            '    Panic : "<main>" called module mouse owned by "(null)"\n'
+                            "where \"(null)\" means the module had already been ended and a "
+                            "window message arrived afterwards. The shipped builds compile "
+                            "this guard away: the function their MouseQueueEvent calls is a "
+                            "bare RET in v1.0's own race.bin, in v1.2.5 and in v1.2.6, so "
+                            "they perform no single-entry check at all. (They DO keep a "
+                            "separate fatal panic on the safe-module path, which this does "
+                            "not touch.)",
+                            "Silence it to match the shipped builds: vrmod modassert <Data> "
+                            "(reversible). One RET byte in the guard both callers share, "
+                            "which is the same semantics the releases get by shipping those "
+                            "callers empty.",
+                            action="modassert"))
+            elif ma == modassert.PATCHED:
+                add(Finding(OK, "The development-only crash check is silenced",
+                            "The RC's module-ownership assertion returns immediately, as it "
+                            "effectively does in every build MGI released. The shutdown race "
+                            "that tripped it on the mouse module no longer panics."))
+        except Exception as e:
+            add(Finding(INFO, "Could not read the module-assertion state",
+                        f"{type(e).__name__}: {e}"))
 
     # ---- where the game writes ------------------------------------------
     # Not a fault, so INFO -- but the two consequences below bite in practice,
     # and neither is visible from inside the install folder.
-    try:
-        wstate = writepaths.status(data_dir)
-        wlive = writepaths.where(data_dir)
-        if wstate:
-            first = wlive.get("binary", live)
-            logs_state = wstate.get(first, {}).get(writepaths.LOGS_KIND)
-            user_state = wstate.get(first, {}).get(writepaths.USER_DIR_KIND)
+    if not linux:   # (a race.exe code patch: the native Linux engine never runs that code, and has its own fix)
+        try:
+            wstate = writepaths.status(data_dir)
+            wlive = writepaths.where(data_dir)
+            if wstate:
+                first = wlive.get("binary", live)
+                logs_state = wstate.get(first, {}).get(writepaths.LOGS_KIND)
+                user_state = wstate.get(first, {}).get(writepaths.USER_DIR_KIND)
 
-            # On Linux the C:\ literals and the VirtualStore don't apply: the engine maps the
-            # game's paths itself and keeps the options and saves in Config/ beside race.exe.
-            if logs_state == writepaths.UNPATCHED and not linux:
-                add(Finding(INFO, "Logs are written to the root of C:",
-                            f"This build writes {wlive.get('logs', '')}. The paths are "
-                            "absolute literals compiled into the engine, so they ignore "
-                            "where the game is installed. Without admin rights Windows "
-                            "redirects them into %LOCALAPPDATA%\\VirtualStore\\ instead, "
-                            "which is why they sometimes seem to vanish. Nobody ever "
-                            "fixed this -- not the 1.1 release, not the 2016 community "
-                            "build.",
-                            "Make them relative with: vrmod writepaths <Data> --logs "
-                            "(reversible). They then land in a log\\ folder beside the "
-                            "game -- resolved against the working directory it is "
-                            "STARTED from, so launch it from its own folder.",
-                            action="wp_logs"))
-            elif logs_state == writepaths.PATCHED:
-                folder = casefold.path(data_dir, writepaths.LOG_DIR)
-                if folder.is_dir():
-                    add(Finding(OK, "Logs are written beside the game",
-                                f"Relative paths ({wlive.get('logs', '')}), and the "
-                                f"{writepaths.LOG_DIR}\\ folder exists."))
-                else:
-                    add(Finding(BAD, f"Logs are relative but {writepaths.LOG_DIR}\\ "
-                                     "is missing",
-                                "The engine writes relative log paths but the folder "
-                                "they point at is not here. fopen does not create "
-                                "directories, so the log opens will fail SILENTLY -- "
-                                "including except.log, the crash dump, which is exactly "
-                                "the file you need when something goes wrong.",
-                                f"Create a folder named {writepaths.LOG_DIR} here, or "
-                                "run: vrmod writepaths <Data> --logs --revert"))
+                # On Linux the C:\ literals and the VirtualStore don't apply: the engine maps the
+                # game's paths itself and keeps the options and saves in Config/ beside race.exe.
+                if logs_state == writepaths.UNPATCHED and not linux:
+                    add(Finding(INFO, "Logs are written to the root of C:",
+                                f"This build writes {wlive.get('logs', '')}. The paths are "
+                                "absolute literals compiled into the engine, so they ignore "
+                                "where the game is installed. Without admin rights Windows "
+                                "redirects them into %LOCALAPPDATA%\\VirtualStore\\ instead, "
+                                "which is why they sometimes seem to vanish. Nobody ever "
+                                "fixed this -- not the 1.1 release, not the 2016 community "
+                                "build.",
+                                "Make them relative with: vrmod writepaths <Data> --logs "
+                                "(reversible). They then land in a log\\ folder beside the "
+                                "game -- resolved against the working directory it is "
+                                "STARTED from, so launch it from its own folder.",
+                                action="wp_logs"))
+                elif logs_state == writepaths.PATCHED:
+                    folder = casefold.path(data_dir, writepaths.LOG_DIR)
+                    if folder.is_dir():
+                        add(Finding(OK, "Logs are written beside the game",
+                                    f"Relative paths ({wlive.get('logs', '')}), and the "
+                                    f"{writepaths.LOG_DIR}\\ folder exists."))
+                    else:
+                        add(Finding(BAD, f"Logs are relative but {writepaths.LOG_DIR}\\ "
+                                         "is missing",
+                                    "The engine writes relative log paths but the folder "
+                                    "they point at is not here. fopen does not create "
+                                    "directories, so the log opens will fail SILENTLY -- "
+                                    "including except.log, the crash dump, which is exactly "
+                                    "the file you need when something goes wrong.",
+                                    f"Create a folder named {writepaths.LOG_DIR} here, or "
+                                    "run: vrmod writepaths <Data> --logs --revert"))
 
-            if user_state == writepaths.UNPATCHED and not linux:
-                add(Finding(INFO, "Settings and records are stored outside this install",
-                            f"This build writes its user data to {wlive.get('user_data', '')} "
-                            "-- a path compiled into the engine, not derived from where "
-                            "the game lives. Two consequences: every install on this "
-                            "machine shares ONE options.cfg, so a setting changed while "
-                            "testing one build is still set when you run another; and "
-                            "deleting an install resets nothing, because the settings, "
-                            "lap records and ghosts were never in it. The 1.1 release "
-                            "made this relative; this build predates that.",
-                            "Move it into the install with: vrmod writepaths <Data> "
-                            "--userdir (reversible; existing settings, records and "
-                            "ghosts are copied across).",
-                            action="wp_userdir"))
-            elif user_state == writepaths.PATCHED:
-                add(Finding(OK, "Settings and records are stored with this install",
-                            f"User data goes to {wlive.get('user_data', '')} beside the "
-                            "game, so this install has its own settings, lap records and "
-                            "ghosts rather than sharing them with every other copy."))
-    except Exception as e:
-        add(Finding(INFO, "Could not read the write-path state", f"{type(e).__name__}: {e}"))
+                if user_state == writepaths.UNPATCHED and not linux:
+                    add(Finding(INFO, "Settings and records are stored outside this install",
+                                f"This build writes its user data to {wlive.get('user_data', '')} "
+                                "-- a path compiled into the engine, not derived from where "
+                                "the game lives. Two consequences: every install on this "
+                                "machine shares ONE options.cfg, so a setting changed while "
+                                "testing one build is still set when you run another; and "
+                                "deleting an install resets nothing, because the settings, "
+                                "lap records and ghosts were never in it. The 1.1 release "
+                                "made this relative; this build predates that.",
+                                "Move it into the install with: vrmod writepaths <Data> "
+                                "--userdir (reversible; existing settings, records and "
+                                "ghosts are copied across).",
+                                action="wp_userdir"))
+                elif user_state == writepaths.PATCHED:
+                    add(Finding(OK, "Settings and records are stored with this install",
+                                f"User data goes to {wlive.get('user_data', '')} beside the "
+                                "game, so this install has its own settings, lap records and "
+                                "ghosts rather than sharing them with every other copy."))
+        except Exception as e:
+            add(Finding(INFO, "Could not read the write-path state", f"{type(e).__name__}: {e}"))
 
     # ---- resolution ------------------------------------------------------
     try:
