@@ -21,6 +21,8 @@ THE INI. install() creates viperport.ini when there is none, and otherwise only 
 [platform] switches are on -- every other line, comment and section the player added stays as it was,
 with the file's own line endings. The one other setting vrmod offers is the Graphics preset
 (set_graphics): [graphics] anisotropic= and msaa=, missing keys meaning 0 (the original look).
+Anisotropic filtering only applies where the game filters textures, so Enhanced and High also set
+`filtering yes` and `mipmap yes` in the game's options.cfg (Original leaves those alone).
 
 THE STANDALONE (v1.0 only). The bundle also carries viperport.exe, viper-racing-port's loader: it runs
 the game on the port's code alone. It maps the user's own v1.0 race.exe as data, fills every original
@@ -61,7 +63,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import modtool
+from . import drawdistance, modtool, writepaths
 
 ASSETS = Path(__file__).resolve().parent / "assets" / "modern_engine"
 DLL, SDL, INI, LOG = "dinput.dll", "SDL2.dll", "viperport.ini", "viperport.log"
@@ -334,7 +336,8 @@ def install(data_dir: str | Path) -> str:
 def graphics(data_dir: str | Path) -> dict:
     """The Graphics preset viperport.ini holds: {"preset": original | enhanced | high | custom,
     "anisotropic": int or None, "msaa": int or None} (None = a value that isn't a number). Missing keys,
-    or no ini at all, mean 0: the original look."""
+    or no ini at all, mean 0: the original look. Plus game_filtering(): whether the game's own texture
+    filtering and mipmaps are on, which the anisotropic filtering needs."""
     p = Path(data_dir) / INI
     raw = read_ini(p).get("graphics", {}) if p.is_file() else {}
     vals: dict = {}
@@ -344,7 +347,38 @@ def graphics(data_dir: str | Path) -> dict:
         except ValueError:
             vals[k] = None
     name = next((n for n, v in PRESETS.items() if v == vals), CUSTOM)
-    return dict(vals, preset=name)
+    return dict(vals, preset=name, **game_filtering(data_dir))
+
+
+# The game's own texture filtering: anisotropic filtering only applies where the game filters textures,
+# and its Graphics options "filtering" and "mipmap" (options.cfg `filtering no` / `mipmap no`) start off.
+# Enhanced and High switch both on; Original leaves them as they are.
+GAME_FILTER_KEYS = ("filtering", "mipmap")
+
+
+def game_options(data_dir: str | Path) -> Path | None:
+    """The options.cfg the game reads with the modern engine installed, or None before the game has
+    written one. On v1.0 the engine puts the user directory in <race.exe's folder>\\Config\\ -- the Data
+    folder's own Config, and nothing else (a Config one level up belongs to some other copy). On the
+    race.bin pressings it is the game's relative Config\\, found the way the draw-distance setting finds
+    it (writepaths.options_file). options.def, the shipped default, is never written."""
+    d = Path(data_dir)
+    if race_exe_is_v10(d):
+        p = writepaths.config_dirs(d)[0] / writepaths.OPTIONS_CFG
+    else:
+        p = writepaths.options_file(d)
+    return p if p is not None and p.name.lower() == writepaths.OPTIONS_CFG and p.is_file() else None
+
+
+def game_filtering(data_dir: str | Path) -> dict:
+    """{"options": options.cfg path or None, "filtering": True / False / None, "mipmap": ...} (None: no
+    options.cfg yet, or no such line in it)."""
+    p = game_options(data_dir)
+    out: dict = {"options": str(p) if p else None}
+    for k in GAME_FILTER_KEYS:
+        v = drawdistance.get_line(p, k) if p else None
+        out[k] = None if v is None else v.lower() == "yes"
+    return out
 
 
 def set_graphics(data_dir: str | Path, preset: str) -> str:
@@ -365,7 +399,26 @@ def set_graphics(data_dir: str | Path, preset: str) -> str:
     msg = f"Graphics set to {preset.capitalize()} (anisotropic filtering {af}, anti-aliasing {aa})."
     if msaa_before != vals["msaa"]:
         msg += " The anti-aliasing change takes effect the next time the game starts."
+    if preset != "original":                 # Original leaves the game's own filtering as it is
+        msg += " " + _game_filtering_on(d)
     return msg
+
+
+def _game_filtering_on(d: Path) -> str:
+    """Enhanced / High: `filtering yes` and `mipmap yes` in the game's options.cfg. A note for the message."""
+    p = game_options(d)
+    if p is None:
+        return ("The game hasn't written its options.cfg yet, so its texture filtering is still off: start the "
+                "game once and choose the preset again, or switch on filtering and mipmap in the game's "
+                "Graphics options.")
+    try:
+        changed = drawdistance.set_lines(p, {k: "yes" for k in GAME_FILTER_KEYS})
+    except (drawdistance.SettingError, OSError) as e:
+        return (f"The game's texture filtering wasn't switched on ({e}): switch on filtering and mipmap in "
+                "the game's Graphics options.")
+    return ("Switched on the game's texture filtering and mipmaps in its options.cfg (the game rewrites that "
+            "file when it exits, so do this with the game closed)." if changed else
+            "The game's texture filtering and mipmaps are already on.")
 
 
 def _install_modtool(d: Path) -> str:

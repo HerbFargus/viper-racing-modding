@@ -1197,11 +1197,15 @@ async function renderGame(){
                  `<option value="${v}" ${gfx.preset === v ? 'selected' : ''}>${l}</option>`).join('')}
            </select></div>
        </div>
+       ${on && (gfx.preset === 'enhanced' || gfx.preset === 'high') && !(gfx.filtering && gfx.mipmap)
+         ? `<p class="lede" style="margin:8px 0 0;color:var(--warn)">Textures stay unfiltered: switch on
+             filtering and mipmap in the game's Graphics options, or choose the preset again.</p>` : ''}
        <p class="lede" style="margin:8px 0 0">${on ? '' : 'Install the modern engine to choose. '}<b>Original</b>
          looks as the 1998 game did. <b>Enhanced</b> sharpens distant textures (16&times; anisotropic
          filtering) and smooths edges (2&times; anti-aliasing), fine on older PCs. <b>High</b> uses
-         4&times; anti-aliasing, for stronger graphics cards. Anti-aliasing changes take effect the next
-         time the game starts.</p>
+         4&times; anti-aliasing, for stronger graphics cards. Enhanced and High also switch on the game's
+         own texture filtering and mipmaps (from the game's first run on).
+         Anti-aliasing changes take effect the next time the game starts.</p>
        <p class="lede" style="margin:14px 0 0">A DLL beside the game (dinput.dll, with SDL2.dll and
          viperport.ini) &mdash; race.exe / race.bin aren't changed, and Remove puts the game back to stock.
          It works on v1.0, v1.1 and the community 1.2.4&ndash;1.2.6 builds. Takes effect on the next
@@ -1633,7 +1637,8 @@ async function modernEngine(remove){
 // The Modern engine panel's one Graphics control: a preset written to viperport.ini's [graphics].
 const GRAPHICS_HELP = 'Original: as the 1998 game. Enhanced: sharper distant textures (16x anisotropic) '
   + 'and smoother edges (2x anti-aliasing), fine on older PCs. High: 4x anti-aliasing, for stronger '
-  + 'graphics cards. Anti-aliasing changes take effect the next time the game starts.';
+  + 'graphics cards. Enhanced and High also switch on the game’s own texture filtering and mipmaps '
+  + '(after the game has run once). Anti-aliasing changes take effect the next time the game starts.';
 async function setGraphics(preset){
   if(preset === 'custom') return;
   const r = await api('/api/modern_engine', {graphics: preset});

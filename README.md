@@ -143,7 +143,9 @@ distant textures (16x anisotropic filtering) and smoother edges (2x anti-aliasin
 older PCs. High raises anti-aliasing to 4x, for stronger graphics cards. It is written to
 `viperport.ini` as `[graphics]` `anisotropic=` and `msaa=` (a missing key means 0, the original), and
 anti-aliasing changes take effect the next time the game starts. Other values set by hand show as
-Custom. Install and Update keep the rest of `viperport.ini` as you left it, and only switch the
+Custom. Anisotropic filtering only applies where the game filters its textures, so Enhanced and High
+also switch on `filtering` and `mipmap` in the game's own `options.cfg` (once the game has written
+one; Original leaves them as they are, and the game's Graphics options can still change them). Install and Update keep the rest of `viperport.ini` as you left it, and only switch the
 `[platform]` settings back on. From the command line, `--graphics original|enhanced|high` sets it and
 `--status` shows it.
 
