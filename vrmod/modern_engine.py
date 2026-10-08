@@ -92,7 +92,7 @@ PLATFORM = {"sdl": "1", "renderer": "gl", "audio": "sdl"}   # what install() mak
 
 # Graphics presets: [graphics] in viperport.ini. Missing keys mean 0, the original look.
 PRESETS = {"original": {"anisotropic": 0, "msaa": 0},
-           "enhanced": {"anisotropic": 16, "msaa": 2},
+           "enhanced": {"anisotropic": 16, "msaa": 0},   # (2x MSAA cost ~13 fps on an HD 4000 laptop)
            "high": {"anisotropic": 16, "msaa": 4}}
 CUSTOM = "custom"
 GRAPHICS_COMMENTS = {

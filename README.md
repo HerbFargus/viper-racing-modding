@@ -139,8 +139,8 @@ python -m vrmod.cli modern-engine "C:\path\to\Viper Racing\Data" --remove
 ```
 
 The panel's one setting is **Graphics**. Original looks as the 1998 game did. Enhanced gives sharper
-distant textures (16x anisotropic filtering) and smoother edges (2x anti-aliasing), and runs fine on
-older PCs. High raises anti-aliasing to 4x, for stronger graphics cards. It is written to
+distant textures (16x anisotropic filtering) at almost no cost, so it runs fine on older PCs. High
+adds 4x anti-aliasing for smoother edges, for stronger graphics cards. It is written to
 `viperport.ini` as `[graphics]` `anisotropic=` and `msaa=` (a missing key means 0, the original), and
 anti-aliasing changes take effect the next time the game starts. Other values set by hand show as
 Custom. Anisotropic filtering only applies where the game filters its textures, so Enhanced and High

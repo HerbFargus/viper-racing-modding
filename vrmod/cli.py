@@ -932,7 +932,7 @@ def main(argv: list[str] | None = None) -> int:
     p_me.add_argument("--status", action="store_true", help="only report what is installed")
     p_me.add_argument("--graphics", choices=sorted(modern_engine.PRESETS, key=list(modern_engine.PRESETS).index),
                       help="set the Graphics preset in viperport.ini: original (as the 1998 game), enhanced "
-                           "(16x anisotropic filtering, 2x anti-aliasing) or high (16x, 4x anti-aliasing); "
+                           "(16x anisotropic filtering) or high (16x anisotropic, 4x anti-aliasing); "
                            "anti-aliasing changes take effect the next time the game starts")
 
     p_mt = sub.add_parser(
