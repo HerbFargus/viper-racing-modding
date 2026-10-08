@@ -23,7 +23,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import backups, resolution, vrampatch
+from . import backups, casefold, resolution, vrampatch
 
 RACE_BIN = "race.bin"
 
@@ -104,7 +104,7 @@ def install(data_dir: str | Path, source: str | Path) -> tuple[BinInfo, BinInfo 
     of that name is never overwritten.
     """
     data_dir = Path(data_dir)
-    target = data_dir / RACE_BIN
+    target = casefold.path(data_dir, RACE_BIN)
     incoming = inspect(source)                    # raises before anything is touched
 
     replaced = None

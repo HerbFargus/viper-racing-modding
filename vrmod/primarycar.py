@@ -33,7 +33,7 @@ import dataclasses
 import shutil
 from pathlib import Path
 
-from . import archive, vertexbuffer
+from . import archive, casefold, vertexbuffer
 
 TARGET = "viper.car"                       # the primary car the AI always load
 TARGET_PREFIX = "viper"
@@ -113,7 +113,7 @@ def _retag_body_to_paint_slot(entries):
 
 def _base_and_backup(data_dir: Path) -> tuple[Path, Path]:
     d = Path(data_dir)
-    target = d / TARGET
+    target = casefold.path(d, TARGET)
     backup = d / BACKUP
     if not backup.exists():
         if not target.exists():
@@ -173,7 +173,7 @@ def install(data_dir: str | Path, mod_car: str | Path, *, paint_slots: bool = Fa
 
 def status(data_dir: str | Path) -> str:
     d = Path(data_dir)
-    if not (d / TARGET).exists():
+    if not casefold.exists(d, TARGET):
         return "no viper.car"
     if not (d / BACKUP).exists():
         return "stock (never overlaid)"
@@ -185,6 +185,6 @@ def revert(data_dir: str | Path) -> str:
     backup = d / BACKUP
     if not backup.exists():
         raise PrimaryCarError(f"no {BACKUP} to restore from")
-    shutil.copy2(backup, d / TARGET)
+    shutil.copy2(backup, casefold.path(d, TARGET))
     backup.unlink()
     return f"restored {TARGET} from {BACKUP}"

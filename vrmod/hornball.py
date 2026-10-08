@@ -111,7 +111,7 @@ import struct
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import archive, backups, pe, safewrite
+from . import archive, backups, casefold, pe, safewrite
 
 RACE_BIN = "race.bin"
 IMAGE_BASE = 0x400000
@@ -181,8 +181,8 @@ def _race_bin(data_dir: str | Path) -> Path:
     """The engine binary this install actually runs."""
     d = Path(data_dir)
     for n in ENGINE_NAMES:
-        if (d / n).is_file():
-            return d / n
+        if (f := casefold.find_file(d, n)) is not None:
+            return f
     raise HornballError(f"no {' or '.join(ENGINE_NAMES)} in {d}")
 
 
@@ -323,7 +323,7 @@ def ball_archives(data_dir: str | Path) -> list[Path]:
     for folder, pats in ((d, ("*.res", "*.car")), (d / "Disabled", ("*.car",))):
         if folder.is_dir():
             for pat in pats:
-                found += sorted(folder.glob(pat), key=lambda q: q.name.lower())
+                found += casefold.glob(folder, pat)
     return [f for f in found if f.is_file()]
 
 

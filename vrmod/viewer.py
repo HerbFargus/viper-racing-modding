@@ -14,7 +14,7 @@ import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import archive, car, cf, envelope, grf, ili, mod, sfx, tex
+from . import archive, car, casefold, cf, envelope, grf, ili, mod, sfx, tex
 
 _TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
 <title>__TITLE__</title>
@@ -4693,7 +4693,7 @@ def build_shell_html(
     # with the rest of Paint-drawer click-to-apply, see buildTextureDrawer).
     default_paint_texture = None
     if paint_dir is not None:
-        candidate = Path(paint_dir) / "paint0.tex"
+        candidate = casefold.path(paint_dir, "paint0.tex")
         if candidate.exists():
             default_paint_texture = candidate
 
@@ -7008,12 +7008,12 @@ def build_gallery(
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    car_paths = sorted(data_dir.rglob("*.car"))
+    car_paths = sorted(casefold.rglob(data_dir, "*.car"))
     # .tra is the same 0TSR container as .trk, just a different extension --
     # confirmed byte-identical in structure against a real fan-made track
     # (Telly), which carries the same track.grf/.bpp/.sol/.obt members.
-    track_paths = sorted([*data_dir.rglob("*.trk"), *data_dir.rglob("*.tra")])
-    resource_paths = sorted(data_dir.rglob("*.res"))
+    track_paths = sorted([*casefold.rglob(data_dir, "*.trk"), *casefold.rglob(data_dir, "*.tra")])
+    resource_paths = sorted(casefold.rglob(data_dir, "*.res"))
 
     used_names: set[str] = set()
 

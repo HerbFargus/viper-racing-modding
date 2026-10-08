@@ -41,7 +41,7 @@ import struct
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import backups, safewrite
+from . import backups, casefold, safewrite
 
 RACE_BIN = "race.bin"
 TEXT_SECTION = 1                 # .text is section 1 in every build seen
@@ -236,8 +236,8 @@ def engine(data_dir: str | Path) -> Path:
     """The engine binary in a Data folder, preferring the one that actually runs."""
     d = Path(data_dir)
     for n in ENGINE_NAMES:
-        if (d / n).is_file():
-            return d / n
+        if (f := casefold.find_file(d, n)) is not None:
+            return f
     raise MapError(f"no {' or '.join(ENGINE_NAMES)} in {d}")
 
 

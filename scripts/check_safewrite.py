@@ -36,6 +36,20 @@ def sha(p: Path) -> str:
     return hashlib.sha256(p.read_bytes()).hexdigest()
 
 
+def locked_case(locked: Path, new: bytes, before: str) -> None:
+    raised = False
+    try:
+        safewrite.write_atomic(locked, new, attempts=2)
+    except OSError:
+        raised = True
+    intact = sha(locked) == before
+    check("a target that cannot be replaced raises rather than truncating",
+          raised or intact, f"raised={raised}")
+    check("...and the original contents survive untouched", intact)
+    check("...leaving no temp file behind",
+          not list(locked.parent.glob("*" + safewrite.SUFFIX)))
+
+
 def main() -> None:
     tmp = Path(tempfile.mkdtemp(prefix="check_safewrite_"))
     try:
@@ -69,28 +83,36 @@ def main() -> None:
               bool(seen) and seen[0].parent == probe.parent, str(seen[0].parent))
 
         # a LOCKED target: the failure this exists for.
-        locked = tmp / "locked.exe"
-        locked.write_bytes(old)
-        before = sha(locked)
-        fh = os.open(locked, os.O_RDONLY | getattr(os, "O_BINARY", 0))
-        try:
-            # Deny replacement by holding an open handle AND making it read-only,
-            # which is the closest portable stand-in for the antivirus window.
-            os.chmod(locked, 0o444)
-            raised = False
+        if sys.platform == "win32":
+            locked = tmp / "locked.exe"
+            locked.write_bytes(old)
+            before = sha(locked)
+            fh = os.open(locked, os.O_RDONLY | getattr(os, "O_BINARY", 0))
             try:
-                safewrite.write_atomic(locked, new, attempts=2)
-            except OSError:
-                raised = True
-            intact = sha(locked) == before
-            check("a target that cannot be replaced raises rather than truncating",
-                  raised or intact, f"raised={raised}")
-            check("...and the original contents survive untouched", intact)
-            check("...leaving no temp file behind",
-                  not list(tmp.glob("*" + safewrite.SUFFIX)))
-        finally:
-            os.close(fh)
-            os.chmod(locked, 0o666)
+                # Deny replacement by holding an open handle AND making it read-only,
+                # which is the closest portable stand-in for the antivirus window.
+                os.chmod(locked, 0o444)
+                locked_case(locked, new, before)
+            finally:
+                os.close(fh)
+                os.chmod(locked, 0o666)
+        elif hasattr(os, "geteuid") and os.geteuid() == 0:
+            print("  skip  the locked-target case: running as root, which ignores the read-only "
+                  "folder that stands in for a lock off Windows")
+        else:
+            # POSIX lets a rename replace a read-only file, and an open handle locks nothing. What
+            # stops a replace there is the FOLDER: no write permission, no new temp file and no
+            # rename -- the same "can't be replaced" outcome.
+            sub = tmp / "readonly"
+            sub.mkdir()
+            locked = sub / "locked.exe"
+            locked.write_bytes(old)
+            before = sha(locked)
+            os.chmod(sub, 0o555)
+            try:
+                locked_case(locked, new, before)
+            finally:
+                os.chmod(sub, 0o755)
 
         # the contrast: what write_bytes does in the same situation
         victim = tmp / "victim.exe"

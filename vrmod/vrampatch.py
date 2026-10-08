@@ -57,7 +57,7 @@ import re
 import shutil
 from pathlib import Path
 
-from . import backups, safewrite
+from . import backups, casefold, safewrite
 
 # Engine binaries, LIVE ONE FIRST -- see "TWO LAYOUTS" above. Order is load-bearing:
 # status() reports on the live binary, and apply() returns its offset.
@@ -95,7 +95,7 @@ def _site(blob: bytes) -> int:
 def _present(data_dir: str | Path) -> list[Path]:
     """Every engine binary in the folder, the live one first."""
     d = Path(data_dir)
-    return [d / n for n in TARGETS if (d / n).is_file()]
+    return [f for n in TARGETS if (f := casefold.find_file(d, n)) is not None]
 
 
 def _status_of(f: Path) -> str:
@@ -115,7 +115,7 @@ def report(data_dir: str | Path) -> dict[str, str]:
     matters -- diagnosing a v1.0 install where only the dormant race.bin got
     patched, for instance.
     """
-    return {f.name: _status_of(f) for f in _present(data_dir)}
+    return {f.name.lower(): _status_of(f) for f in _present(data_dir)}
 
 
 def status(data_dir: str | Path) -> str:

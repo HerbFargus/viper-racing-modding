@@ -305,7 +305,7 @@ def unpack(archive_path: Path | str, out_dir: Path | str) -> list[str]:
     # of the file. Written as a comment so manifests stay readable and older
     # manifests (which have no such line) still parse.
     header = f"# layout: {'partitioned' if layout.partitioned else 'flat'}\n"
-    (out_dir / MANIFEST_NAME).write_text(header + "\n".join(names) + "\n")
+    (out_dir / MANIFEST_NAME).write_text(header + "\n".join(names) + "\n", encoding="utf-8")
     return names
 
 
@@ -391,7 +391,7 @@ def pack(in_dir: Path | str, archive_path: Path | str, partitioned: bool | None 
     names: list[str] = []
     manifest_partitioned: bool | None = None
     if manifest.exists():
-        for line in manifest.read_text().splitlines():
+        for line in manifest.read_text(encoding="utf-8-sig").splitlines():
             line = line.strip()
             if not line:
                 continue

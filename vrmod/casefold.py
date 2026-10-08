@@ -66,3 +66,24 @@ def glob(folder: str | Path, pattern: str) -> list[Path]:
                       key=lambda e: e.name.lower())
     except OSError:
         return []
+
+
+def find_file(folder: str | Path, name: str) -> Path | None:
+    """`find`, but only a regular file (a folder of the same name doesn't count)."""
+    p = find(folder, name)
+    return p if p is not None and p.is_file() else None
+
+
+def rglob(folder: str | Path, pattern: str) -> list[Path]:
+    """`glob` through `folder` and every folder under it (Path.rglob, any case), sorted by path."""
+    import os
+
+    folder = Path(folder)
+    low = pattern.lower()
+    out = []
+    for here, dirs, files in os.walk(folder):
+        dirs.sort(key=str.lower)
+        for name in (*dirs, *files):
+            if fnmatch.fnmatchcase(name.lower(), low):
+                out.append(Path(here) / name)
+    return sorted(out, key=lambda p: [s.lower() for s in p.relative_to(folder).parts])

@@ -36,7 +36,7 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import archive, envelope
+from . import archive, casefold, envelope
 
 # sha256 + size of every stock .trk, taken from a clean retail install.
 # verify_slot() uses these to tell "untouched stock" from "already modded",
@@ -109,11 +109,11 @@ def car_paths(data_dir: Path | str) -> list[tuple[Path, bool]]:
     and activating one converts it to the scheme used here.
     """
     d = Path(data_dir)
-    out = [(p, True) for p in sorted(d.glob(f"*{CAR_EXT}"), key=lambda f: f.stem.lower())]
-    out += [(p, False) for p in sorted(d.glob(f"*{CARMAN_EXT}"), key=lambda f: f.stem.lower())]
+    out = [(p, True) for p in sorted(casefold.glob(d, f"*{CAR_EXT}"), key=lambda f: f.stem.lower())]
+    out += [(p, False) for p in sorted(casefold.glob(d, f"*{CARMAN_EXT}"), key=lambda f: f.stem.lower())]
     dd = disabled_dir(d)
     if dd.is_dir():
-        out += [(p, False) for p in sorted(dd.glob(f"*{CAR_EXT}"), key=lambda f: f.stem.lower())]
+        out += [(p, False) for p in sorted(casefold.glob(dd, f"*{CAR_EXT}"), key=lambda f: f.stem.lower())]
     return out
 
 
@@ -125,7 +125,7 @@ def find_car(data_dir: Path | str, name: str) -> Path | None:
     two known directories returns None.
     """
     d = Path(data_dir)
-    for candidate in (d / name, disabled_dir(d) / name):
+    for candidate in (casefold.path(d, name), casefold.path(disabled_dir(d), name)):
         if candidate.is_file() and candidate.parent.resolve() in (
             d.resolve(), disabled_dir(d).resolve()
         ):
@@ -177,10 +177,11 @@ def set_car_active(data_dir: Path | str, name: str, active: bool) -> str:
         raise SwitcherError(f"{name} is not a car file")
 
     dst_dir = d if active else disabled_dir(d)
-    dst = dst_dir / (src.stem + CAR_EXT)
+    # Keep the car's own spelling (VIPER.CAR stays VIPER.CAR on Linux); only a .cat is renamed.
+    dst = dst_dir / (src.name if src.suffix.lower() == CAR_EXT else src.stem + CAR_EXT)
     if dst == src:
         return src.name
-    if dst.exists():
+    if casefold.exists(dst_dir, dst.name):
         where = "the Data folder" if active else f"{DISABLED_DIR}/"
         raise SwitcherError(
             f"can't move {src.name} into {where}: {dst.name} is already there. "
@@ -192,7 +193,7 @@ def set_car_active(data_dir: Path | str, name: str, active: bool) -> str:
     src.rename(dst)
     for c in companions:
         target = dst_dir / c.name
-        if not target.exists():
+        if not casefold.exists(dst_dir, c.name):
             c.rename(target)
         # If something of that name is already there, leave the companion put
         # rather than clobber it. The car itself has moved either way, which is
@@ -242,7 +243,7 @@ def read_display_name(data_dir: Path | str, slot: str) -> str:
     and then the value, terminated by the next separator -- so the value's
     extent is found by scanning, not by a length field (which isn't mapped).
     """
-    lang = Path(data_dir) / LANG_FILE
+    lang = casefold.path(data_dir, LANG_FILE)
     if not lang.exists():
         return slot.capitalize()
     blob = lang.read_bytes()
@@ -260,7 +261,7 @@ def _write_display_name(data_dir: Path, slot: str, name: str) -> tuple[str, str]
     key isn't present. The value is truncated (and space-padded) to the
     original field width so the file's size never changes -- see module
     docstring for why growing it isn't safe."""
-    lang = data_dir / LANG_FILE
+    lang = casefold.path(data_dir, LANG_FILE)
     blob = bytearray(lang.read_bytes())
     key = _lang_key(slot)
     i = blob.find(key)
@@ -278,7 +279,7 @@ def _write_display_name(data_dir: Path, slot: str, name: str) -> tuple[str, str]
 
 def verify_slot(data_dir: Path | str, slot: str) -> tuple[bool, str]:
     """Is this slot holding the untouched stock track? Returns (is_stock, detail)."""
-    p = Path(data_dir) / f"{slot}.trk"
+    p = casefold.path(data_dir, f"{slot}.trk")
     if not p.exists():
         return False, "missing"
     data = p.read_bytes()
@@ -294,9 +295,9 @@ def status(data_dir: Path | str) -> list[SlotStatus]:
     data_dir = Path(data_dir)
     out = []
     for slot in STOCK_TRACKS:
-        p = data_dir / f"{slot}.trk"
+        p = casefold.path(data_dir, f"{slot}.trk")
         is_stock, _ = verify_slot(data_dir, slot)
-        backups = sorted(data_dir.glob(f"{slot}_AS_*.btr"))
+        backups = sorted(casefold.glob(data_dir, f"{slot}_AS_*.btr"))
         occupied = None
         if backups and not is_stock:
             occupied = backups[-1].stem[len(slot) + 4:]
@@ -313,7 +314,7 @@ def status(data_dir: Path | str) -> list[SlotStatus]:
 
 
 def available_tracks(data_dir: Path | str) -> list[Path]:
-    return sorted(Path(data_dir).glob("*.tra"))
+    return sorted(casefold.glob(data_dir, "*.tra"))
 
 
 def plan_install(data_dir: Path | str, tra: Path | str, slot: str) -> InstallPlan:
@@ -343,7 +344,7 @@ def plan_install(data_dir: Path | str, tra: Path | str, slot: str) -> InstallPla
         return plan
 
     is_stock, detail = verify_slot(data_dir, slot)
-    backup = data_dir / f"{slot}_AS_{name}.btr"
+    backup = casefold.path(data_dir, f"{slot}_AS_{name}.btr")
     plan.backup_track = backup
     if is_stock:
         plan.steps.append(f"back up stock {slot}.trk -> {backup.name}")
@@ -355,7 +356,7 @@ def plan_install(data_dir: Path | str, tra: Path | str, slot: str) -> InstallPla
         )
     plan.steps.append(f"write {tra.name} -> {slot}.trk")
 
-    stp = data_dir / f"{name}.stp"
+    stp = casefold.path(data_dir, f"{name}.stp")
     if stp.exists():
         plan.screenshot = stp
         plan.steps.append(f"swap {stp.name} into {UI_RES} as {slot}.stp (backup {slot}.trm)")
@@ -390,21 +391,22 @@ def install(data_dir: Path | str, tra: Path | str, slot: str, *,
 
     name = tra.stem
     # 1. track file
-    backup = data_dir / f"{slot}_AS_{name}.btr"
-    slot_file = data_dir / f"{slot}.trk"
+    backup = casefold.path(data_dir, f"{slot}_AS_{name}.btr")
+    slot_file = casefold.path(data_dir, f"{slot}.trk")
     if slot_file.exists() and not backup.exists():
         shutil.copy2(slot_file, backup)
     shutil.copy2(tra, slot_file)
 
     # 2. menu screenshot, swapped into ui.res
-    stp = data_dir / f"{name}.stp"
+    stp = casefold.path(data_dir, f"{name}.stp")
     if stp.exists():
         _install_screenshot(data_dir, slot, stp)
 
     # 3. display name
-    lang_backup = data_dir / LANG_BACKUP
-    if not lang_backup.exists() and (data_dir / LANG_FILE).exists():
-        shutil.copy2(data_dir / LANG_FILE, lang_backup)
+    lang_backup = casefold.path(data_dir, LANG_BACKUP)
+    lang = casefold.find(data_dir, LANG_FILE)
+    if not lang_backup.exists() and lang is not None:
+        shutil.copy2(lang, lang_backup)
     _write_display_name(data_dir, slot, name)
     return plan
 
@@ -412,17 +414,17 @@ def install(data_dir: Path | str, tra: Path | str, slot: str, *,
 def _install_screenshot(data_dir: Path, slot: str, stp: Path) -> None:
     """Replace <slot>.stp inside ui.res, saving the original as <slot>.trm
     in the loose "!IGM"-prefixed form TrackMan uses."""
-    ui = data_dir / UI_RES
+    ui = casefold.path(data_dir, UI_RES)
     entries = archive.read_bytes(ui.read_bytes())
     target = f"{slot}.stp"
     existing = next((e for e in entries if e.name.lower() == target), None)
     if existing is None:
         raise SwitcherError(f"{UI_RES} has no {target} to replace")
 
-    trm = data_dir / f"{slot}.trm"
+    trm = casefold.path(data_dir, f"{slot}.trm")
     if not trm.exists():
         trm.write_bytes(MARKER + existing.payload)
-    if not (data_dir / UI_BACKUP).exists():
+    if not casefold.exists(data_dir, UI_BACKUP):
         shutil.copy2(ui, data_dir / UI_BACKUP)
 
     raw = stp.read_bytes()
@@ -441,19 +443,19 @@ def restore(data_dir: Path | str, slot: str) -> list[str]:
     """Put a slot back to whatever its backup holds. Returns what was done."""
     data_dir = Path(data_dir)
     done = []
-    backups = sorted(data_dir.glob(f"{slot}_AS_*.btr"))
+    backups = sorted(casefold.glob(data_dir, f"{slot}_AS_*.btr"))
     if backups:
         src = backups[-1]
-        shutil.copy2(src, data_dir / f"{slot}.trk")
+        shutil.copy2(src, casefold.path(data_dir, f"{slot}.trk"))
         done.append(f"restored {slot}.trk from {src.name}")
         for b in backups:
             b.unlink()
-    trm = data_dir / f"{slot}.trm"
+    trm = casefold.path(data_dir, f"{slot}.trm")
     if trm.exists():
         _install_screenshot_raw(data_dir, slot, trm.read_bytes())
         trm.unlink()
         done.append(f"restored {slot}.stp in {UI_RES}")
-    lang_backup = data_dir / LANG_BACKUP
+    lang_backup = casefold.path(data_dir, LANG_BACKUP)
     if lang_backup.exists():
         original = read_display_name_from(lang_backup.read_bytes(), slot)
         if original:
@@ -475,7 +477,7 @@ def read_display_name_from(blob: bytes, slot: str) -> str | None:
 
 
 def _install_screenshot_raw(data_dir: Path, slot: str, raw: bytes) -> None:
-    ui = data_dir / UI_RES
+    ui = casefold.path(data_dir, UI_RES)
     blob = ui.read_bytes()
     entries = archive.read_bytes(blob)
     existing = next((e for e in entries if e.name.lower() == f"{slot}.stp"), None)

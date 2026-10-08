@@ -29,7 +29,7 @@ import zipfile
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
-from . import archive, cf, envelope, mod as mod_mod
+from . import archive, casefold, cf, envelope, mod as mod_mod
 from . import car as car_mod
 
 # The engine builds member names from hardcoded format strings and looks up
@@ -788,7 +788,7 @@ def render_shots(records: list[CarRecord], root: Path | str, out_dir: Path | str
     tdir.mkdir(parents=True, exist_ok=True)
     shared = []
     if shared_from:
-        shared = [p for p in Path(shared_from).glob("*.res") if p.is_file()]
+        shared = [p for p in casefold.glob(shared_from, "*.res") if p.is_file()]
     n = 0
     with tempfile.TemporaryDirectory() as td:
         stage = Path(td)

@@ -34,7 +34,7 @@ import shutil
 import struct
 from pathlib import Path
 
-from . import backups, needlefix, pe, safewrite
+from . import backups, casefold, needlefix, pe, safewrite
 
 ENGINE_NAMES = ("race.exe", "race.bin")        # live one first: v1.0 runs race.exe
 BACKUP_SUFFIX = ".enginefix-backup"
@@ -210,8 +210,8 @@ def revert_bytes(blob: bytearray) -> None:
 def engine(data_dir: str | Path) -> Path:
     d = Path(data_dir)
     for n in ENGINE_NAMES:
-        if (d / n).is_file():
-            return d / n
+        if (f := casefold.find_file(d, n)) is not None:
+            return f
     raise EngineFixError(f"no {' or '.join(ENGINE_NAMES)} in {d}")
 
 
