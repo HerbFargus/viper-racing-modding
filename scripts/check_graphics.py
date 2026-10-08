@@ -198,8 +198,10 @@ def main() -> None:
         check("other values read as custom", g == {"anisotropic": 8, "msaa": 0, "preset": "custom"}, str(g))
         me.set_ini_keys(d / me.INI, "graphics", {"anisotropic": "lots"})
         check("a non-number is custom too", me.graphics(d)["preset"] == "custom")
+        (d / me.INI).write_bytes(b"[graphics]\nanisotropic=4\n")
+        check("a missing key is 0 (4, 0 is custom)", gv(d) == {"anisotropic": 4, "msaa": 0, "preset": "custom"})
         (d / me.INI).write_bytes(b"[graphics]\nanisotropic=16\n")
-        check("a missing key is 0 (16, 0 is custom)", gv(d) == {"anisotropic": 16, "msaa": 0, "preset": "custom"})
+        check("16x anisotropic alone reads as Enhanced", gv(d) == {"anisotropic": 16, "msaa": 0, "preset": "enhanced"})
         (d / me.INI).write_bytes(b"[graphics]\nanisotropic=0\nmsaa=0\n")
         check("zeros read as original", me.graphics(d)["preset"] == "original")
 

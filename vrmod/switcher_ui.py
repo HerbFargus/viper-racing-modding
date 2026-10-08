@@ -1202,7 +1202,7 @@ async function renderGame(){
              filtering and mipmap in the game's Graphics options, or choose the preset again.</p>` : ''}
        <p class="lede" style="margin:8px 0 0">${on ? '' : 'Install the modern engine to choose. '}<b>Original</b>
          looks as the 1998 game did. <b>Enhanced</b> sharpens distant textures (16&times; anisotropic
-         filtering) and smooths edges (2&times; anti-aliasing), fine on older PCs. <b>High</b> uses
+         filtering) at almost no cost, fine on older PCs. <b>High</b> also smooths edges with
          4&times; anti-aliasing, for stronger graphics cards. Enhanced and High also switch on the game's
          own texture filtering and mipmaps (from the game's first run on).
          Anti-aliasing changes take effect the next time the game starts.</p>
@@ -1635,8 +1635,8 @@ async function modernEngine(remove){
 }
 
 // The Modern engine panel's one Graphics control: a preset written to viperport.ini's [graphics].
-const GRAPHICS_HELP = 'Original: as the 1998 game. Enhanced: sharper distant textures (16x anisotropic) '
-  + 'and smoother edges (2x anti-aliasing), fine on older PCs. High: 4x anti-aliasing, for stronger '
+const GRAPHICS_HELP = 'Original: as the 1998 game. Enhanced: sharper distant textures (16x anisotropic), '
+  + 'almost free, fine on older PCs. High: also smoother edges (4x anti-aliasing), for stronger '
   + 'graphics cards. Enhanced and High also switch on the game’s own texture filtering and mipmaps '
   + '(after the game has run once). Anti-aliasing changes take effect the next time the game starts.';
 async function setGraphics(preset){
