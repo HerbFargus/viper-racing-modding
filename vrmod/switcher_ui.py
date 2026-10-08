@@ -1169,6 +1169,7 @@ async function renderGame(){
   let mePanel = '';
   if(me && me.available){
     const on = me.state === 'installed' || me.state === 'outdated';
+    const gfx = me.graphics || {preset: 'original'};
     const note = {installed:'installed', outdated:'installed (older build)', foreign:'not installed',
                   absent:'not installed'}[me.state] || me.state;
     mePanel = `
@@ -1187,6 +1188,20 @@ async function renderGame(){
               : `<button class="mini on" onclick="modernEngine(false)">Install</button>`}
        </div>
        <p class="play-route" id="me-play-route">${esc(playRouteText(PLAY_ROUTE))}</p>
+       <div class="ai-row" style="margin-top:12px">
+         <div><span class="field-label">Graphics</span><br>
+           <select id="me-graphics" class="mini" style="padding:7px 12px" onchange="setGraphics(this.value)"
+             ${on ? '' : 'disabled'} title="${esc(GRAPHICS_HELP)}">
+             ${(gfx.preset === 'custom' ? `<option value="custom" selected disabled>Custom (anisotropic ${esc(String(gfx.anisotropic))}, anti-aliasing ${esc(String(gfx.msaa))})</option>` : '')
+               + [['original','Original'],['enhanced','Enhanced'],['high','High']].map(([v, l]) =>
+                 `<option value="${v}" ${gfx.preset === v ? 'selected' : ''}>${l}</option>`).join('')}
+           </select></div>
+       </div>
+       <p class="lede" style="margin:8px 0 0">${on ? '' : 'Install the modern engine to choose. '}<b>Original</b>
+         looks as the 1998 game did. <b>Enhanced</b> sharpens distant textures (16&times; anisotropic
+         filtering) and smooths edges (2&times; anti-aliasing), fine on older PCs. <b>High</b> uses
+         4&times; anti-aliasing, for stronger graphics cards. Anti-aliasing changes take effect the next
+         time the game starts.</p>
        <p class="lede" style="margin:14px 0 0">A DLL beside the game (dinput.dll, with SDL2.dll and
          viperport.ini) &mdash; race.exe / race.bin aren't changed, and Remove puts the game back to stock.
          It works on v1.0, v1.1 and the community 1.2.4&ndash;1.2.6 builds. Takes effect on the next
@@ -1612,6 +1627,17 @@ async function writeModtool(){
 async function modernEngine(remove){
   const r = await api('/api/modern_engine', {remove: !!remove});
   if(!r.ok) return toast(r.error, 'bad');
+  toast(r.message); return refresh();
+}
+
+// The Modern engine panel's one Graphics control: a preset written to viperport.ini's [graphics].
+const GRAPHICS_HELP = 'Original: as the 1998 game. Enhanced: sharper distant textures (16x anisotropic) '
+  + 'and smoother edges (2x anti-aliasing), fine on older PCs. High: 4x anti-aliasing, for stronger '
+  + 'graphics cards. Anti-aliasing changes take effect the next time the game starts.';
+async function setGraphics(preset){
+  if(preset === 'custom') return;
+  const r = await api('/api/modern_engine', {graphics: preset});
+  if(!r.ok){ toast(r.error, 'bad'); return refresh(); }
   toast(r.message); return refresh();
 }
 
@@ -2072,7 +2098,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                     return self._json({"ok": False, "error": f"Couldn't start the game: {e}"})
             if self.path == "/api/modern_engine":
                 try:
-                    msg = (modern_engine.remove(d) if req.get("remove") else modern_engine.install(d))
+                    if req.get("graphics"):
+                        msg = modern_engine.set_graphics(d, str(req["graphics"]))
+                    else:
+                        msg = (modern_engine.remove(d) if req.get("remove") else modern_engine.install(d))
                 except modern_engine.ModernEngineError as e:
                     return self._json({"ok": False, "error": str(e)}, 409)
                 return self._json({"ok": True, "message": msg})

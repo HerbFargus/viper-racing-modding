@@ -930,6 +930,10 @@ def main(argv: list[str] | None = None) -> int:
     p_me.add_argument("data_dir", type=Path, help="the game's Data folder")
     p_me.add_argument("--remove", action="store_true", help="take it out again")
     p_me.add_argument("--status", action="store_true", help="only report what is installed")
+    p_me.add_argument("--graphics", choices=sorted(modern_engine.PRESETS, key=list(modern_engine.PRESETS).index),
+                      help="set the Graphics preset in viperport.ini: original (as the 1998 game), enhanced "
+                           "(16x anisotropic filtering, 2x anti-aliasing) or high (16x, 4x anti-aliasing); "
+                           "anti-aliasing changes take effect the next time the game starts")
 
     p_mt = sub.add_parser(
         "modtool",
@@ -1946,8 +1950,12 @@ def main(argv: list[str] | None = None) -> int:
                     parts = [n for n, k in (("engine limits", "limits"), ("SDL window and input", "sdl"),
                                             ("OpenGL renderer", "gl"), ("SDL audio", "audio")) if on[k]]
                     print(f"  on: {', '.join(parts)}")
+                    g = st["graphics"]
+                    print(f"  graphics: {g['preset']} (anisotropic {g['anisotropic']}, msaa {g['msaa']})")
                 if st["standalone"] is not None:
                     print(f"  standalone (viperport.exe, v1.0): {st['standalone']}")
+            elif args.graphics:
+                print("  " + modern_engine.set_graphics(args.data_dir, args.graphics))
             elif args.remove:
                 print("  " + modern_engine.remove(args.data_dir))
             else:
