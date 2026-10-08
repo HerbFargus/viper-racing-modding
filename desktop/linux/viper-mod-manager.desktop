@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Viper Racing Mod Manager
+Comment=Install cars and tracks and tune Viper Racing
+Exec=ViperModManager
+Icon=viper-mod-manager
+Terminal=false
+Categories=Game;Utility;
+StartupWMClass=ViperModManager

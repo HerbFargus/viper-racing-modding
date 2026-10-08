@@ -1,0 +1,5 @@
+# Files that run on Linux keep LF endings even in a Windows checkout
+# (core.autocrlf would otherwise hand bash a CR at the end of every line).
+*.sh text eol=lf
+*.desktop text eol=lf
+desktop/linux/AppRun text eol=lf

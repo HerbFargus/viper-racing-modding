@@ -14,6 +14,9 @@ Paths are anchored to the spec's own location (SPECPATH = this desktop/ dir) so
 the build works regardless of where PyInstaller is invoked from. vrmod lives one
 level up at the repo root, which is put on the path so collect_data_files can
 import it. Build with:  python -m PyInstaller --noconfirm desktop/viper-mod-manager.spec
+
+This is the Windows build. Linux has its own spec (viper-mod-manager-linux.spec,
+driven by scripts/build_appimage.sh).
 """
 import os
 import sys
@@ -24,7 +27,9 @@ APP_DIR = SPECPATH                        # desktop/  (provided by PyInstaller)
 ROOT = os.path.dirname(APP_DIR)           # repo root, where vrmod/ lives
 sys.path.insert(0, ROOT)                  # so collect_data_files("vrmod") resolves
 
-datas = collect_data_files("vrmod")
+# The Linux engine build (vrmod/assets/modern_engine/linux/) ships only in the
+# AppImage -- see viper-mod-manager-linux.spec for the mirror-image exclude.
+datas = collect_data_files("vrmod", excludes=["assets/modern_engine/linux"])
 binaries = collect_dynamic_libs("capstone")
 
 a = Analysis(

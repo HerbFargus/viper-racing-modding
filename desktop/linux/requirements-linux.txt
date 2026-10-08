@@ -1,0 +1,13 @@
+# Linux build of the desktop app -- scripts/build_appimage.sh installs this into
+# its venv. Same runtime deps as the top-level requirements.txt, plus pywebview's
+# Qt backend (PyQt6 + Qt WebEngine, bundled whole into the AppImage) and the
+# build tool, pinned so AppImage builds are reproducible.
+-r ../../requirements.txt
+pywebview[qt]==6.2.1
+PyQt6==6.11.0
+PyQt6-Qt6==6.11.2
+PyQt6-WebEngine==6.11.0
+PyQt6-WebEngine-Qt6==6.11.2
+QtPy==2.4.3
+capstone==5.0.9
+pyinstaller==6.22.3

@@ -27,10 +27,30 @@ WIN_SIZE = (1180, 800)
 MIN_SIZE = (900, 600)
 
 
+def _icon_path() -> str | None:
+    """The window icon (a PNG; Windows takes its icon from the .exe instead).
+    Frozen builds bundle it at the top of the unpacked tree; from source it sits
+    next to this file."""
+    if sys.platform == "win32":
+        return None
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    p = base / "icon.png"
+    return str(p) if p.is_file() else None
+
+
+def _config_dir() -> Path:
+    """Where per-user settings live: %APPDATA% on Windows, the XDG config dir
+    ($XDG_CONFIG_HOME, else ~/.config) everywhere else."""
+    if sys.platform == "win32":
+        base = os.environ.get("APPDATA") or str(Path.home())
+    else:
+        base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    return Path(base) / "ViperModManager"
+
+
 def _config_path() -> Path:
     """Per-user settings, e.g. the last-opened Data folder."""
-    base = os.environ.get("APPDATA") or str(Path.home())
-    d = Path(base) / "ViperModManager"
+    d = _config_dir()
     try:
         d.mkdir(parents=True, exist_ok=True)
     except OSError:
@@ -58,7 +78,7 @@ class Api:
     def pick_folder(self) -> dict:
         """Open the OS folder picker, validate, and point the server at it."""
         win = webview.active_window()
-        result = win.create_file_dialog(webview.FOLDER_DIALOG)
+        result = win.create_file_dialog(webview.FileDialog.FOLDER)
         if not result:
             return {"ok": False}                      # user cancelled
         path = result[0] if isinstance(result, (list, tuple)) else result
@@ -83,7 +103,7 @@ class Api:
         open the picker the moment you click "Change...", show you the real path
         it will use, and only then write on confirm."""
         win = webview.active_window()
-        result = win.create_file_dialog(webview.FOLDER_DIALOG)
+        result = win.create_file_dialog(webview.FileDialog.FOLDER)
         if not result:
             return {"ok": False}                       # user cancelled
         folder = result[0] if isinstance(result, (list, tuple)) else result
@@ -115,7 +135,7 @@ class Api:
         downloadBytes.)"""
         import base64
         win = webview.active_window()
-        result = win.create_file_dialog(webview.SAVE_DIALOG, save_filename=filename)
+        result = win.create_file_dialog(webview.FileDialog.SAVE, save_filename=filename)
         if not result:
             return {"ok": False}                       # user cancelled
         path = result[0] if isinstance(result, (list, tuple)) else result
@@ -138,7 +158,14 @@ def main() -> None:
     webview.create_window(
         APP_NAME, f"http://127.0.0.1:{port}/",
         js_api=Api(), width=WIN_SIZE[0], height=WIN_SIZE[1], min_size=MIN_SIZE)
-    webview.start()
+    # The Linux AppImage bundles Qt WebEngine and nothing else, so name it
+    # rather than let pywebview try GTK first (PYWEBVIEW_GUI still overrides).
+    # From source, pywebview picks whichever backend is installed.
+    gui = None
+    if (sys.platform.startswith("linux") and getattr(sys, "frozen", False)
+            and not os.environ.get("PYWEBVIEW_GUI")):
+        gui = "qt"
+    webview.start(gui=gui, icon=_icon_path())
 
 
 if __name__ == "__main__":
