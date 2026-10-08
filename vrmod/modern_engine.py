@@ -17,6 +17,13 @@ It supports v1.0 race.exe, v1.1 race.bin and the community 1.2.4-1.2.6 race.bin,
 build it doesn't recognise. One switch, everything on (see the project notes on keeping options simple):
 `install` writes all three platform switches on; `remove` takes it all out again.
 
+THE INI. install() creates viperport.ini when there is none, and otherwise only makes sure the three
+[platform] switches are on -- every other line, comment and section the player added stays as it was,
+with the file's own line endings. The one other setting vrmod offers is the Graphics preset
+(set_graphics): [graphics] anisotropic= and msaa=, missing keys meaning 0 (the original look).
+Anisotropic filtering only applies where the game filters textures, so Enhanced and High also set
+`filtering yes` and `mipmap yes` in the game's options.cfg (Original leaves those alone).
+
 THE STANDALONE (v1.0 only). The bundle also carries viperport.exe, viper-racing-port's loader: it runs
 the game on the port's code alone. It maps the user's own v1.0 race.exe as data, fills every original
 function with int3 and runs the port's rewrite of each, using the same dinput.dll and SDL2.dll. It
@@ -56,7 +63,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import modtool, writepaths
+from . import drawdistance, modtool, writepaths
 
 ASSETS = Path(__file__).resolve().parent / "assets" / "modern_engine"
 DLL, SDL, INI, LOG = "dinput.dll", "SDL2.dll", "viperport.ini", "viperport.log"
@@ -81,8 +88,119 @@ audio=sdl
 """
 
 
+PLATFORM = {"sdl": "1", "renderer": "gl", "audio": "sdl"}   # what install() makes sure of in [platform]
+
+# Graphics presets: [graphics] in viperport.ini. Missing keys mean 0, the original look.
+PRESETS = {"original": {"anisotropic": 0, "msaa": 0},
+           "enhanced": {"anisotropic": 16, "msaa": 2},
+           "high": {"anisotropic": 16, "msaa": 4}}
+CUSTOM = "custom"
+GRAPHICS_COMMENTS = {
+    "anisotropic": "; anisotropic texture filtering: 0 (off, as the original), 2, 4, 8 or 16",
+    "msaa": "; multisample anti-aliasing of the 3D: 0 (off, as the original), 2, 4 or 8 -- takes effect at the next start",
+}
+
+
 class ModernEngineError(Exception):
     pass
+
+
+# ---- viperport.ini: read and edit in place ----------------------------------------------------------
+# Section-aware and careful: an edit touches only the keys it sets, so comments, other sections, the
+# order of lines, a BOM and the file's own line endings all survive.
+
+def _ini_load(path: Path) -> tuple[list[str], str, bool, str]:
+    """(lines, newline, whether it ends with one, BOM or '')."""
+    text = path.read_bytes().decode("utf-8", errors="surrogateescape")
+    bom = ""
+    if text.startswith("﻿"):
+        bom, text = "﻿", text[1:]
+    nl = "\r\n" if "\r\n" in text else "\n"
+    return text.splitlines(), nl, text.endswith(("\n", "\r")), bom
+
+
+def _ini_save(path: Path, lines: list[str], nl: str, trailing: bool, bom: str) -> None:
+    text = bom + nl.join(lines) + (nl if trailing else "")
+    path.write_bytes(text.encode("utf-8", errors="surrogateescape"))
+
+
+def _section_of(line: str) -> str | None:
+    s = line.split(";", 1)[0].strip()
+    return s[1:-1].strip().lower() if s.startswith("[") and s.endswith("]") else None
+
+
+def _key_value(line: str) -> tuple[str, str] | None:
+    s = line.split(";", 1)[0].strip()
+    if "=" not in s or s.startswith("["):
+        return None
+    k, v = s.split("=", 1)
+    return k.strip().lower(), v.strip()
+
+
+def read_ini(path: str | Path) -> dict:
+    """{section: {key: value}}, names lower-cased, comments dropped; keys before any section go under ""."""
+    out: dict = {"": {}}
+    sec = ""
+    for line in _ini_load(Path(path))[0]:
+        name = _section_of(line)
+        if name is not None:
+            sec = name
+            out.setdefault(sec, {})
+        elif (kv := _key_value(line)) is not None:
+            out[sec][kv[0]] = kv[1]
+    return out
+
+
+def set_ini_keys(path: str | Path, section: str, values: dict, comments: dict | None = None) -> bool:
+    """Set key=value for each of `values` in [section] of the ini at `path`, keeping every other line as
+    it is. A key already there is rewritten in place (each copy of it in that section); a missing one is
+    added at the end of the section, after its line from `comments` if there is one; a missing section is
+    added at the end of the file. Returns whether the file changed."""
+    path = Path(path)
+    lines, nl, trailing, bom = _ini_load(path)
+    sec, comments = section.lower(), comments or {}
+    want = {k.lower(): str(v) for k, v in values.items()}
+    new = list(lines)
+    starts = [i for i, ln in enumerate(new) if _section_of(ln) == sec]
+    start = starts[-1] if starts else None      # a section written twice: the last copy is the one read last
+    seen = set()
+    for s0 in starts[:-1]:                      # earlier copies: rewrite their keys too, add nothing
+        for i in range(s0 + 1, len(new)):
+            if _section_of(new[i]) is not None:
+                break
+            kv = _key_value(new[i])
+            if kv and kv[0] in want and kv[1] != want[kv[0]]:
+                new[i] = f"{new[i].split('=', 1)[0].rstrip()}={want[kv[0]]}"
+    if start is None:
+        while new and not new[-1].strip():
+            new.pop()
+        block = ([""] if new else []) + [f"[{section}]"]
+        for k, v in values.items():
+            block += ([comments[k]] if k in comments else []) + [f"{k}={v}"]
+        new += block
+        trailing = True
+    else:
+        end = next((i for i in range(start + 1, len(new)) if _section_of(new[i]) is not None), len(new))
+        for i in range(start + 1, end):
+            kv = _key_value(new[i])
+            if kv and kv[0] in want:
+                seen.add(kv[0])
+                if kv[1] != want[kv[0]]:
+                    new[i] = f"{new[i].split('=', 1)[0].rstrip()}={want[kv[0]]}"
+        last = end
+        while last > start + 1 and not new[last - 1].strip():
+            last -= 1                    # after the section's last line, before the blank gap to the next
+        add = []
+        for k, v in values.items():
+            if k.lower() not in seen:
+                add += ([comments[k]] if k in comments else []) + [f"{k}={v}"]
+        if add and last == len(new):
+            trailing = True
+        new[last:last] = add
+    if new == lines:
+        return False
+    _ini_save(path, new, nl, trailing, bom)
+    return True
 
 
 def _sha(p: Path) -> str:
@@ -155,7 +273,7 @@ def status(data_dir: str | Path) -> dict:
     """{"state": absent | installed | outdated | foreign, "standalone": viperport.exe's state, or None
     where it doesn't apply (no v1.0 race.exe), "modtool": modtool.status() on v1.0 (the model
     editor's resource set), else None, "ini": {...} or None, "commit": bundled commit, "log": path or
-    None}. outdated = ours, but not the build vrmod bundles -- including a v1.0 install whose
+    None, "graphics": graphics()}. outdated = ours, but not the build vrmod bundles -- including a v1.0 install whose
     engine predates the standalone (no viperport.exe yet), so Update brings it in."""
     d = Path(data_dir)
     state = _file_state(d / DLL)
@@ -171,6 +289,7 @@ def status(data_dir: str | Path) -> dict:
                 k, v = (s.strip() for s in line.split("=", 1))
                 ini[k.lower()] = v.lower()
     return {"state": state, "standalone": standalone, "ini": ini, "commit": bundled()["commit"],
+            "graphics": graphics(d),
             "modtool": modtool.status(d) if race_exe_is_v10(d) else None,
             "log": str(d / LOG) if (d / LOG).is_file() else None}
 
@@ -204,7 +323,11 @@ def install(data_dir: str | Path) -> str:
     if (d / SDL).is_file() and _sha(d / SDL) != _sha(ASSETS / SDL):
         notes.append(f"replaced a different {SDL}")
     shutil.copy2(ASSETS / SDL, d / SDL)
-    (d / INI).write_text(INI_TEXT, encoding="utf-8")
+    if (d / INI).is_file():              # the player's own settings stay: only the platform switches are ours
+        if set_ini_keys(d / INI, "platform", PLATFORM):
+            notes.append(f"switched the {INI} platform settings back on (the rest of it is as it was)")
+    else:
+        (d / INI).write_text(INI_TEXT, encoding="utf-8")
     placed = [DLL, SDL, INI]
     exe = d / EXE
     if race_exe_is_v10(d) and bundled()["standalone"]:
@@ -222,6 +345,80 @@ def install(data_dir: str | Path) -> str:
     return (f"Modern engine installed (viper-racing-port {commit}): {', '.join(placed[:-1])} and {placed[-1]} "
             "beside the game. Takes effect on the next launch; its log is viperport.log"
             + ("; " + "; ".join(notes) if notes else "") + ".")
+
+
+def graphics(data_dir: str | Path) -> dict:
+    """The Graphics preset viperport.ini holds: {"preset": original | enhanced | high | custom,
+    "anisotropic": int or None, "msaa": int or None} (None = a value that isn't a number). Missing keys,
+    or no ini at all, mean 0: the original look. Plus game_filtering(): whether the game's own texture
+    filtering and mipmaps are on, which the anisotropic filtering needs."""
+    p = Path(data_dir) / INI
+    raw = read_ini(p).get("graphics", {}) if p.is_file() else {}
+    vals: dict = {}
+    for k in ("anisotropic", "msaa"):
+        try:
+            vals[k] = int(raw.get(k) or "0")
+        except ValueError:
+            vals[k] = None
+    name = next((n for n, v in PRESETS.items() if v == vals), CUSTOM)
+    return dict(vals, preset=name, **game_filtering(data_dir))
+
+
+# The game's own texture filtering: anisotropic filtering only applies where the game filters textures,
+# and its Graphics options "filtering" and "mipmap" (options.cfg `filtering no` / `mipmap no`) start off.
+# Enhanced and High switch both on; Original leaves them as they are.
+GAME_FILTER_KEYS = ("filtering", "mipmap")
+
+
+def game_filtering(data_dir: str | Path) -> dict:
+    """{"options": options.cfg path or None, "filtering": True / False / None, "mipmap": ...} (None: no
+    options.cfg yet, or no such line in it)."""
+    p = game_options(data_dir)
+    out: dict = {"options": str(p) if p else None}
+    for k in GAME_FILTER_KEYS:
+        v = drawdistance.get_line(p, k) if p else None
+        out[k] = None if v is None else v.lower() == "yes"
+    return out
+
+
+def set_graphics(data_dir: str | Path, preset: str) -> str:
+    """Write a Graphics preset into viperport.ini's [graphics] -- anisotropic= and msaa=, nothing else."""
+    d = Path(data_dir)
+    preset = (preset or "").strip().lower()
+    if preset not in PRESETS:
+        raise ModernEngineError(f"no graphics preset {preset!r} -- one of {', '.join(PRESETS)}")
+    if status(d)["state"] not in (INSTALLED, OUTDATED):
+        raise ModernEngineError("the modern engine isn't installed here -- install it first")
+    if not (d / INI).is_file():
+        (d / INI).write_text(INI_TEXT, encoding="utf-8")
+    msaa_before = graphics(d)["msaa"]
+    vals = PRESETS[preset]
+    set_ini_keys(d / INI, "graphics", vals, GRAPHICS_COMMENTS)
+    af = f"{vals['anisotropic']}x" if vals["anisotropic"] else "off"
+    aa = f"{vals['msaa']}x" if vals["msaa"] else "off"
+    msg = f"Graphics set to {preset.capitalize()} (anisotropic filtering {af}, anti-aliasing {aa})."
+    if msaa_before != vals["msaa"]:
+        msg += " The anti-aliasing change takes effect the next time the game starts."
+    if preset != "original":                 # Original leaves the game's own filtering as it is
+        msg += " " + _game_filtering_on(d)
+    return msg
+
+
+def _game_filtering_on(d: Path) -> str:
+    """Enhanced / High: `filtering yes` and `mipmap yes` in the game's options.cfg. A note for the message."""
+    p = game_options(d)
+    if p is None:
+        return ("The game hasn't written its options.cfg yet, so its texture filtering is still off: start the "
+                "game once and choose the preset again, or switch on filtering and mipmap in the game's "
+                "Graphics options.")
+    try:
+        changed = drawdistance.set_lines(p, {k: "yes" for k in GAME_FILTER_KEYS})
+    except (drawdistance.SettingError, OSError) as e:
+        return (f"The game's texture filtering wasn't switched on ({e}): switch on filtering and mipmap in "
+                "the game's Graphics options.")
+    return ("Switched on the game's texture filtering and mipmaps in its options.cfg (the game rewrites that "
+            "file when it exits, so do this with the game closed)." if changed else
+            "The game's texture filtering and mipmaps are already on.")
 
 
 def _install_modtool(d: Path) -> str:

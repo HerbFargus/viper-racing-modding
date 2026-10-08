@@ -47,7 +47,15 @@ INFINITY_VALUE = 100.0       # what the community view extender writes
 # The key, its separator, the number, then trailing blanks and an optional CR --
 # `$` in MULTILINE matches before the LF, so a CRLF file leaves the CR to match
 # here rather than being swallowed into the value.
-_LINE = re.compile(rf"^({KEY}[ \t]+)([-\d.eE+]+)([ \t]*\r?)$", re.M)
+_NUMBER = r"[-\d.eE+]+"
+
+
+def _line_re(key: str, value: str = r"\S+") -> re.Pattern:
+    """An options.cfg line by name: (key and its separator)(value)(trailing blanks, optional CR)."""
+    return re.compile(rf"^({re.escape(key)}[ \t]+)({value})([ \t]*\r?)$", re.M)
+
+
+_LINE = _line_re(KEY, _NUMBER)
 
 
 class SettingError(RuntimeError):
@@ -110,10 +118,33 @@ def write(data_dir: str | Path, value: float) -> tuple[float, Path]:
     if value <= 0:
         raise SettingError(f"{KEY} must be positive, got {value:g}")
     p = _options(data_dir)
-    text = _read_raw(p)
-    if not _LINE.search(text):
-        raise SettingError(f"no {KEY} line in {p.name}")
-    new = _LINE.sub(lambda m: f"{m.group(1)}{value:.6f}{m.group(3)}", text, count=1)
+    set_lines(p, {KEY: f"{value:.6f}"}, value=_NUMBER)
+    return value, p
+
+
+# ---- any options.cfg line by name -------------------------------------------------------------------
+# The same reader and writer as draw_distance's, for other callers (the modern engine's Graphics preset
+# sets `filtering` and `mipmap`). By key, never by line number; the rest of the file byte for byte.
+
+def get_line(p: str | Path, key: str) -> str | None:
+    """The value on `key`'s line in the options file `p`, or None when there is no such line."""
+    m = _line_re(key).search(_read_raw(Path(p)))
+    return m.group(2) if m else None
+
+
+def set_lines(p: str | Path, values: dict, *, value: str = r"\S+") -> bool:
+    """Set each `key: value` on that key's existing line of the options file `p` (the first such line),
+    keeping the key's spacing, the line ending and every other byte. Raises SettingError -- writing
+    nothing -- when a key has no line. Returns whether the file changed."""
+    p = Path(p)
+    text = new = _read_raw(p)
+    for key, val in values.items():
+        pat = _line_re(key, value)
+        if not pat.search(new):
+            raise SettingError(f"no {key} line in {p.name}")
+        new = pat.sub(lambda m: f"{m.group(1)}{val}{m.group(3)}", new, count=1)
+    if new == text:
+        return False
     with p.open("w", encoding="latin-1", newline="") as fh:
         fh.write(new)
-    return value, p
+    return True
