@@ -1,0 +1,23 @@
+#!/bin/sh
+# AppImage entry point for Viper Racing Mod Manager. The PyInstaller one-folder
+# build lives in usr/lib/ViperModManager; it carries its own Python, Qt and Qt
+# WebEngine, so all this does is set a couple of Qt knobs and exec it.
+HERE="$(dirname "$(readlink -f "$0")")"
+
+# Qt WebEngine's Chromium sandbox needs unprivileged user namespaces, which
+# Ubuntu 24.04+ blocks for unconfined binaries via AppArmor (and an AppImage
+# can't ship the setuid helper the fallback wants) -- it would just crash.
+# The page we show is our own, served from 127.0.0.1, so run without it.
+export QTWEBENGINE_DISABLE_SANDBOX="${QTWEBENGINE_DISABLE_SANDBOX:-1}"
+
+# Prefer native Wayland where there is a Wayland session, else X11 (Steam Deck
+# desktop mode, Mint Cinnamon). Both platform plugins are bundled.
+if [ -z "$QT_QPA_PLATFORM" ]; then
+    if [ -n "$WAYLAND_DISPLAY" ]; then
+        export QT_QPA_PLATFORM="wayland;xcb"
+    else
+        export QT_QPA_PLATFORM="xcb"
+    fi
+fi
+
+exec "$HERE/usr/lib/ViperModManager/ViperModManager" "$@"
