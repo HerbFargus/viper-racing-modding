@@ -34,8 +34,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .aifield import options_path
-
 KEY = "draw_distance"
 
 # From the transform in race.bin: effective = value * SCALE + BASE.
@@ -89,11 +87,16 @@ def value_for(units: float) -> float:
 
 
 def _options(data_dir: str | Path) -> Path:
-    p = options_path(data_dir)
+    """The options.cfg to read and write: modern_engine.game_options, the same
+    rule the Graphics preset uses. On v1.0 that is only <Data>\\Config -- the
+    generic search would also take a Config one level up, which belongs to some
+    other copy of the game -- and options.def, the shipped default, is never
+    touched."""
+    from . import modern_engine          # here, not at the top: modern_engine reads options.cfg too
+    p = modern_engine.game_options(data_dir)
     if p is None:
         raise SettingError(
-            "no options.cfg or options.def found -- run the game once so it "
-            "writes one")
+            "no options.cfg yet -- run the game once so it writes one")
     return p
 
 
