@@ -1207,11 +1207,16 @@ async function renderGame(){
          4&times; anti-aliasing, for stronger graphics cards. Enhanced and High also switch on the game's
          own texture filtering and mipmaps (from the game's first run on).
          Anti-aliasing changes take effect the next time the game starts.</p>
-       <p class="lede" style="margin:14px 0 0">A DLL beside the game (dinput.dll, with SDL2.dll and
+       ${me.platform === 'linux' ? `<p class="lede" style="margin:14px 0 0">On Linux it installs
+         <b>viperport</b>, its launcher viperport.sh and SDL2 (lib/) beside race.exe, with viperport.ini
+         &mdash; the game on the port's code alone, natively: your race.exe is read as data and isn't
+         changed, and Remove takes it all out again. It runs v1.0's race.exe only (the race.bin builds
+         are Windows-only), and Play starts it.${me.state === 'foreign' ? ' The viperport already here isn’t the modern engine’s: move it aside to install.' : ''}</p>`
+       : `<p class="lede" style="margin:14px 0 0">A DLL beside the game (dinput.dll, with SDL2.dll and
          viperport.ini) &mdash; race.exe / race.bin aren't changed, and Remove puts the game back to stock.
          It works on v1.0, v1.1 and the community 1.2.4&ndash;1.2.6 builds. Takes effect on the next
-         launch.${me.state === 'foreign' ? ' The dinput.dll already here belongs to another mod; it is set aside, and put back on Remove.' : ''}</p>
-       ${me.standalone !== null && me.standalone !== undefined ? `<p class="lede" style="margin:10px 0 0">On v1.0 it
+         launch.${me.state === 'foreign' ? ' The dinput.dll already here belongs to another mod; it is set aside, and put back on Remove.' : ''}</p>`}
+       ${me.platform !== 'linux' && me.standalone !== null && me.standalone !== undefined ? `<p class="lede" style="margin:10px 0 0">On v1.0 it
          also puts <b>viperport.exe</b> beside race.exe: the standalone, which runs the game on the port's
          code alone &mdash; your race.exe is read as data, none of its original code runs. Play uses it
          whenever it will run this race.exe (a vrmod-patched one is fine), and race.exe with the DLL
