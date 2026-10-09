@@ -134,15 +134,14 @@ road. What differs between the two games is the camera, not the world.
 The default build no longer scatters 200 cows over the map. It places:
 
 - **50 in the centre plaza**, the diamond the four sloped blocks enclose, 35-120 m
-  from its middle. 20 of them, picked at random, are `obj obstacle ball`
-  cows (500 lb, centred in their sphere) that roll when hit, and 30 are solid tubes. The record is
-  `X,Z:ROT MASS` -- read off parse_obstacle; it was long written as if the
-  last two were height and radius, which made every knockable cow mass 1.4. A knockable
-  cow's static copy is taken out of the drawn mesh, or a ghost stays standing
-  where it was knocked from.
-- **50 more in the middle ring**, everything between the plaza and the berm
-  (`|dx| + |dy| >= 16` tiles from the centre), all solid, at least 12 m from a
-  tower.
+  from its middle, and **50 in the middle ring**, everything between the plaza
+  and the berm (`|dx| + |dy| >= 16` tiles from the centre), at least 12 m from a
+  tower. All but 10 (`ARENA_SOLID_COWS`), picked at random, are `obj obstacle
+  ball` cows (250 lb, centred in their sphere) that roll when hit; the 10 are
+  solid tubes. The record is `X,Z:ROT MASS` -- read off parse_obstacle; it was
+  long written as if the last two were height and radius, which made every
+  knockable cow mass 1.4. A knockable cow's static copy is taken out of the
+  drawn mesh, or a ghost stays standing where it was knocked from.
 - **One cow statue, 60 m tall** (`ARENA_STATUE_HEIGHT`), on the centre. The
   cow's belly is at 0.75 of its 1.93 m, so a car drives under it; only its legs
   are solid, a tube on each hoof up to the belly (`arena.cow_legs`). It has its own

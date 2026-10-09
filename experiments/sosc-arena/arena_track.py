@@ -115,7 +115,10 @@ FACING_MESH = "cowface.mod"
 # .mod member in the archive and a line of text in a file we already write.
 # Where the wobble route needs a record type nobody has decoded, this one needs
 # only a name to resolve.
-OBSTACLE_COWS = int(os.environ.get("ARENA_OBSTACLE", "20"))
+# Every cow is knockable except SOLID_COWS, picked at random from both herds
+# (user, 2026-10-09: "all bouncy except 10"). ARENA_OBSTACLE caps the count.
+SOLID_COWS = int(os.environ.get("ARENA_SOLID_COWS", "10"))
+OBSTACLE_COWS = int(os.environ.get("ARENA_OBSTACLE", "1000"))
 # ball | cube | prism -- the collision shape the Ball phob is given. Driven in
 # game, a prism cow topples when hit and SETTLES, where a ball cow drops and
 # keeps rolling away like the horn ball it is built from. BALL by default (the
@@ -135,8 +138,8 @@ OBSTACLE_MESH = os.environ.get("ARENA_OBSTACLE_MESH", "cow.mod")
 # jeeps 3,200, the horn ball 3,000; the boulder run settled on 100,000). It was
 # written as 1.4 (believed a radius), and then 15: either way a toy beside a
 # 3,000 lb car, so every cow bounced off like a beach ball. 1,200 is a real cow;
-# 500 is the user's pick for a ball cow that rolls.
-OBSTACLE_MASS = float(os.environ.get("ARENA_OBSTACLE_MASS", "500"))
+# the user tried 500 for a ball cow, then settled lower at 250.
+OBSTACLE_MASS = float(os.environ.get("ARENA_OBSTACLE_MASS", "250"))
 # A BALL obstacle's sphere is centred on the mesh's origin, so for `ball` the
 # cow is centred in it (cow_mesh_member); a prism stands on its feet.
 # ARENA_COW_TUBES=0 drops the cows' .sol tubes. With them in place the car hits
@@ -823,10 +826,11 @@ def main(argv):
     # draws its own cow.mod, so the static cow at its spot has to go, or a
     # ghost cow stays standing where the real one was knocked away.
     # Picked at random, not nearest the line: with the herd gathered in the
-    # middle, "nearest the ring" put every beach-ball cow on the herd's edge.
-    # Only from the centre herd: the middle-ring herd after it is all solid.
-    pool = range(min(len(rest_cows), stats.get("middle_cows") or len(rest_cows)))
-    pick = set(random.Random(7).sample(pool, min(OBSTACLE_COWS, len(pool))))
+    # middle, "nearest the ring" put every knockable cow on the herd's edge.
+    # From both herds: all but SOLID_COWS of them.
+    pool = range(len(rest_cows))
+    n = max(0, min(OBSTACLE_COWS, len(rest_cows) - SOLID_COWS))
+    pick = set(random.Random(7).sample(pool, n))
     knockable = [c for i, c in enumerate(rest_cows) if i in pick]
     solid = [c for i, c in enumerate(rest_cows) if i not in pick]
     gone = set(placed_cows) | set(knockable)
