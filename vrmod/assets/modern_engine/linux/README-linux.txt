@@ -5,7 +5,7 @@ viperport runs Viper Racing (MGI / Sierra, 1998) natively on Linux: no Wine. It 
 whole game, function by function, checked against the original, with an OpenGL renderer, SDL2 sound
 and input, and the original's limits lifted. It needs your own copy of the game.
 
-Version: 2026.10.08-ea8f6be
+Version: 2026.10.08-98541a8
 
 
 What you need
@@ -50,13 +50,22 @@ Good to know
 * Log: viperport.log beside race.exe -- the first place to look if something goes wrong.
 * Graphics: add a [graphics] section to viperport.ini -- anisotropic=16 sharpens distant
   textures (switch on "filtering" and "mipmap" in the game's Graphics options too) and msaa=2
-  or 4 smooths edges (next start). Both are 0, the original look, until you change them.
+  or 4 smooths edges (next start); fxaa=1 is a cheaper smoothing that softens the picture a
+  little. All are 0, the original look, until you change them.
 * Performance: put  perf=1  under  [debug]  in viperport.ini and the log shows where each frame's
   time goes, every 5 seconds.
 * Multiplayer: TCP/IP (UDP) play works with Windows players -- tested on a LAN. IPX, serial and
   modem are Windows-only. Each player sees every car with their OWN copy of
   shared files -- your paint job and hornball look on everyone's car, as in the original game.
-* Controllers work in races; the menus use the mouse and keyboard, as in the original.
+* Controllers: a game controller (Xbox, PlayStation and the like) works without setting it up,
+  and can be plugged in or out at any time. In a race it drives alongside the keyboard: left
+  stick or D-pad steer, RT throttle, LT brake, A handbrake, B reverse, X horn, Y next camera,
+  Back puts the car back on the track, LB / RB
+  shift down / up, right stick look left / right (click: look back), Start the pause menu (in
+  it: D-pad, A choose, B back). In the menus the left stick or D-pad moves the pointer, A clicks,
+  X right-clicks and B is Esc. If you map any control to the joystick in Options > Controls,
+  races use your mapping instead, exactly as the original did. A wheel or plain joystick works
+  through Options > Controls, as in the original.
 
 
 Troubleshooting

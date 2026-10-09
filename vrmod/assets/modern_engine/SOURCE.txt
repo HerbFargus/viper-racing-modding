@@ -1,18 +1,18 @@
 The modern engine: viper-racing-port's dinput.dll, its standalone loader viperport.exe (v1.0 only),
 and SDL2 2.32.10 (zlib licence, SDL2-LICENSE.txt).
-viper-racing-port commit ea8f6be185baefb17d99de0d3fd9a0863eb5d745 (2026-10-08)
-sha256 138d2079cfadfd098077d1f22229163319410ceb8c4158d643115c3630099abf  dinput.dll
+viper-racing-port commit 98541a8a0a62d8a1228bf4798df24a6961846a22 (2026-10-08)
+sha256 3aec50a6bc811768acc85a16c032a760311ef59f9b0992e929c4c83e88844f1d  dinput.dll
 sha256 9b0646d2ba3dc4e5b067fd6b24b1d64e1f45d427d86d2ed13587fb02e28dee2c  viperport.exe
 sha256 68c78590d1997122c30c992ec79857d32e5e976a0f17c0a69a2e29eab0101d70  SDL2.dll
 
 Linux: viper-racing-port's native Linux standalone (v1.0's race.exe only), in linux/:
 viperport (32-bit ELF), its launcher viperport.sh, SDL2 (lib/libSDL2-2.0.so.0, zlib licence),
 README-linux.txt and LICENSES/.
-from viperport-linux-2026.10.08-ea8f6be.tar.gz (sha256 e5347943968b44d91b05003bcd174556f21dea8255aea3d1ea6a664eeea10e85)
-viper-racing-port linux commit ea8f6be (2026-10-08)
+from viperport-linux-2026.10.08-98541a8.tar.gz (sha256 14c39a9ee6d62d47a139dc3fd99b9c5e24f0a0e49c5f8b2a195c6e0a59b31744)
+viper-racing-port linux commit 98541a8 (2026-10-08)
 sha256 28e85c5aa4af9b4f1dfe6b4817aa3eefb3eaaee7fd735045016f29ccf50276a1  linux/LICENSES/GCC-RUNTIME-EXCEPTION.txt
 sha256 97f35b302b361680ec1e891e95d2d52097bb95abff361434916d99dc1305f127  linux/LICENSES/SDL2-LICENSE.txt
-sha256 3a8ceb1b69731a346c688e0c98b147f1aa4a4a5f7cee1d9405554f088de7b169  linux/README-linux.txt
+sha256 f8059cdabeafbfa510af9dae36dd648db127545b4ce3d6c05af0743de96d03fc  linux/README-linux.txt
 sha256 5cf69aed58fc7d47069fbc10e74a62177b39ca9ac3ab6f2b8df85668061b479c  linux/lib/libSDL2-2.0.so.0
-sha256 c3698f4ba28d86b7cb06e83b2220759b03f5612e83b825e6d188c8eaaab98783  linux/viperport
+sha256 19c9559d44f2b3e343b657cd077e6066c0ec08518bb45402aa5b5f84e730b3f7  linux/viperport
 sha256 37fcb7f89200eb8e4bf73e26690ec1899375b38ce341fec704e82b8bfa5e2e7c  linux/viperport.sh
