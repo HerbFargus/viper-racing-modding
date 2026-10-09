@@ -213,6 +213,11 @@ def main() -> int:
     print(f"cube(40) chain {counts}: {car.load_cost(counts) / 1e6:.1f}M per car")
     check(car.load_cost(counts) <= car.LOAD_BUDGET, "a generated chain fits the load budget when the mesh allows")
     check(all(a >= b for a, b in zip(counts, counts[1:])), "a generated chain never grows")
+    check(counts == [len(mod.parse(envelope.build(e.tag, e.version, e.payload)).vertices)
+                     for e in sorted((e for e in out if e.name.lower().endswith(".mod")), key=lambda e: e.name)],
+          "lod_vertex_counts reads the same counts as parsing each mesh")
+    check(abs(car.load_seconds([11040, 7174, 5762, 5762, 5762]) * 8 - 6.9) < 0.1,
+          "load_seconds reproduces the timed grid of 8 Willys (6.9 s over stock)")
 
     for name in ("azzaroni.car.bak", "willys.car", "viper.car"):
         path = INSTALL / name

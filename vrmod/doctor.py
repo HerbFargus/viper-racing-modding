@@ -41,8 +41,8 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import (backups, carlist, casefold, dekey, mapfile, modassert, modern_engine, modtool, patchset, resolution,
-               switcher, vrampatch, writepaths)
+from . import (archive, backups, car, carlist, casefold, dekey, mapfile, modassert, modern_engine, modtool, patchset,
+               resolution, switcher, vrampatch, writepaths)
 
 # Severity, worst first. "bad" means the game probably will not run or work
 # right; "warn" is worth acting on; "info" is context, not a problem.
@@ -970,6 +970,35 @@ def check(data_dir: str | Path) -> Report:
                                else "")))
         except Exception:
             pass
+
+    # ---- cars that make races slow to load ------------------------------
+    # The engine spends LOD 0 x (LODs 1-4) work on every copy of a car on the grid (car.py,
+    # "What a car's LODs cost"). Said in seconds, because nobody waiting at a loading screen
+    # knows what a LOD is.
+    slow = []
+    try:
+        for path in sorted(casefold.glob(data_dir, "*.car")):
+            try:
+                counts = car.lod_vertex_counts(archive.read(path))
+            except Exception:
+                continue
+            if car.load_cost(counts) > car.LOAD_BUDGET:
+                slow.append((path.stem, car.load_seconds(counts), counts[0]))
+    except Exception:
+        slow = []
+    if slow:
+        lines = "; ".join(f"{name}: about {sec:.1f} s each, {sec * car.GRID:.0f} s for a grid of "
+                          f"{car.GRID} ({v0:,}-vertex body)" for name, sec, v0 in slow)
+        add(Finding(WARN, (f"{slow[0][0]} is slow to load when the AI drive it" if len(slow) == 1
+                           else f"{len(slow)} cars are slow to load when the AI drive them"),
+                    f"Every copy of a car on the starting grid adds load time, and the time climbs "
+                    f"steeply with detail (twice the vertices, four times the wait): {lines}. Racing one "
+                    f"yourself against stock AI costs only the first figure; filling the grid "
+                    f"with it costs the second. Stock cars add about a thousandth of a second.",
+                    "Race it solo or against stock cars, or give it a lighter body: about "
+                    "4,500 vertices for a car the AI will drive too, about 12,800 if only you "
+                    "drive it. Generate LODs makes the rest of the car fit.",
+                    link=car.LOAD_DOC))
 
     # ---- the RC's development-only assertions ---------------------------
     if not linux:   # (a race.exe code patch: the native Linux engine never runs that code, and has its own fix)

@@ -2512,8 +2512,8 @@ def main(argv: list[str] | None = None) -> int:
         if not made:
             print("  (nothing generated -- all levels already present and --keep-existing set)")
         counts = car.lod_vertex_counts(out_entries)
-        print(f"  race-load cost: {car.load_cost(counts) / 1e6:.1f}M per car "
-              f"(LOD 0 x LODs 1-4; budget {car.LOAD_BUDGET / 1e6:.0f}M)")
+        print(f"  race load: about {car.load_seconds(counts):.2f} s per copy of this car "
+              f"on the original engine")
         warning = car.load_budget_warning(out_entries)
         if warning:
             print(f"warning: {warning}")

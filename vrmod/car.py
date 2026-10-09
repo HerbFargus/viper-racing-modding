@@ -615,39 +615,52 @@ _LOD_FRACS = (0.65, 0.45, 0.30, 0.20, 0.12, 0.07, 0.04)
 # What a car's LODs cost at race load on the original engine. Car::Car (v1.0 0x4364c0;
 # viper-racing-port hook/phys_car.cpp) maps every vertex of LODs 1-4 to its nearest LOD-0
 # vertex by brute force, once per car on the grid, so the work is LOD0 x (LOD1+2+3+4)
-# per car; LODs 5-7 don't enter it. Stock viper: 325 x 828 = 0.27M. The Willys with a
-# 7,174 LOD 1 and 5,762 LODs 2-4 (270M per car, 8 cars) hung race load noticeably.
-LOAD_BUDGET = 40_000_000  # steps per car: ~1 s over stock for a grid of 8 (3.2 s per billion, timed 2026-10-09)
+# per copy of the car; LODs 5-7 don't enter it, and a stock viper is 325 x 828 = 0.27M.
+# Timed in game (2026-10-09): 8 stock vipers loaded in 0.5 s, 8 Willys jeeps at 270M
+# each in 7.4 s -- 3.2 s per billion. docs/reference/runtime.md, "Why detailed cars make
+# races slow to load".
+SECONDS_PER_STEP = 3.2e-9
+LOAD_BUDGET = 40_000_000  # per copy: ~1 s over stock for a full grid of 8
+GRID = 8
+LOAD_DOC = ("https://herbfargus.github.io/viper-racing-modding/reference/runtime.html"
+            "#13-why-detailed-cars-make-races-slow-to-load--measured")
 
 
 def load_cost(vertex_counts: list[int]) -> int:
-    """Race-load cost per car of LODs with these vertex counts (LOD 0 first)."""
+    """Race-load work per copy of a car whose LODs have these vertex counts (LOD 0 first)."""
     return vertex_counts[0] * sum(vertex_counts[1:5]) if vertex_counts else 0
 
 
-def load_budget_warning(entries: list[archive.ArchiveEntry]) -> str | None:
-    """A line saying the car's LODs are over the original engine's load budget, or None."""
-    counts = lod_vertex_counts(entries)
-    cost = load_cost(counts)
-    if not LOAD_BUDGET or cost <= LOAD_BUDGET:
-        return None
-    return (f"race-load cost {cost / 1e6:.0f}M per car is over the original engine's budget of "
-            f"{LOAD_BUDGET / 1e6:.0f}M (LOD 0 x LODs 1-4 = {counts[0]:,} x {sum(counts[1:5]):,}): "
-            f"a grid of these will be slow to load. LOD 0 has too many seam corners for the LODs "
-            f"to shrink further without tearing -- a lighter LOD 0 is the fix")
+def load_seconds(vertex_counts: list[int]) -> float:
+    """Seconds each copy of the car adds to race loading on the original engine."""
+    return load_cost(vertex_counts) * SECONDS_PER_STEP
 
 
 def lod_vertex_counts(entries: list[archive.ArchiveEntry]) -> list[int]:
-    """Vertex counts of <prefix>0.mod, <prefix>1.mod, ... as far as they go unbroken."""
+    """Vertex counts of <prefix>0.mod, <prefix>1.mod, ... as far as they go unbroken.
+    Read from each mesh's header (the payload's first int32), so it's cheap enough
+    to run over a whole Data folder."""
     prefix = body_prefix(entries)
     by_name = {e.name.lower(): e for e in entries}
     counts = []
     for i in range(8):
         e = by_name.get(f"{(prefix or '').lower()}{i}.mod")
-        if e is None:
+        if e is None or len(e.payload) < 4:
             break
-        counts.append(len(mod.parse(envelope.build(e.tag, e.version, e.payload)).vertices))
+        counts.append(int.from_bytes(e.payload[:4], "little", signed=True))
     return counts
+
+
+def load_budget_warning(entries: list[archive.ArchiveEntry]) -> str | None:
+    """Plain words on how slowly a full grid of this car loads, or None if it's quick."""
+    counts = lod_vertex_counts(entries)
+    if load_cost(counts) <= LOAD_BUDGET:
+        return None
+    s = load_seconds(counts)
+    return (f"this car is slow to load in a crowd: on the original engine each copy adds "
+            f"about {s:.1f} s to race loading ({s * GRID:.0f} s with {GRID} of them on the grid). "
+            f"Keep LOD 0 to about 4,500 vertices for a car the AI will drive too, or about "
+            f"12,800 if only you drive it; this LOD 0 has {counts[0]:,}. See {LOAD_DOC}")
 
 
 def build_lod_chain(entries: list[archive.ArchiveEntry], *,
