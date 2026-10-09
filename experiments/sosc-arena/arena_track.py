@@ -131,9 +131,11 @@ OBSTACLE_MESH = os.environ.get("ARENA_OBSTACLE_MESH", "cow.mod")
 # The record's last number is the obstacle's MASS, not a radius: parse_obstacle
 # reads "X,Z:ROT MASS", takes the size from the model's extents, builds the
 # inertias as size^2 x 10.75 x mass, and drops the model with its lowest point
-# 4 m above the ground. It was written as 1.4 (believed a radius) -- a cow
-# lighter than the 4 that makes a beach ball. 15 is the user's "a little heavier".
-OBSTACLE_MASS = float(os.environ.get("ARENA_OBSTACLE_MASS", "15"))
+# 4 m above the ground. MASS IS IN POUNDS, the units of a car's .cf mass (the
+# jeeps 3,200, the horn ball 3,000; the boulder run settled on 100,000). It was
+# written as 1.4 (believed a radius), and then 15: either way a toy beside a
+# 3,000 lb car, so every cow bounced off like a beach ball. 1,200 is a cow.
+OBSTACLE_MASS = float(os.environ.get("ARENA_OBSTACLE_MASS", "1200"))
 # A BALL obstacle's sphere is centred on the mesh's origin, so for `ball` the
 # cow is centred in it (cow_mesh_member); a prism stands on its feet.
 # ARENA_COW_TUBES=0 drops the cows' .sol tubes. With them in place the car hits
