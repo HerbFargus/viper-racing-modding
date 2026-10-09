@@ -3,7 +3,7 @@
 **Purpose:** what the game *does when it runs*, as opposed to what its files contain: **which detail
 level (LOD) you actually see in each camera view** and **how the AI reacts to other cars**, both
 measured in-game; the **command-line parameters** the executable accepts, read out of the binary; and
-**how world objects are created and freed**, which is what the exit panic reports on; and **what the launcher does before the engine starts**, which is a separate program with its own flags. Also **what a surface above the road does to a car** (§9): the launch pad; and **when the game draws a car's dash at all** (§10): it is skipped if the car's centre is behind the cockpit camera. And **how vrmod's Play starts the game** (§11): the launcher, `race.exe`, or the modern engine's standalone `viperport.exe`. And **what v1.0's hidden model editor loads** (§12): the `modtool.res` no disc shipped, which vrmod writes. Companions:
+**how world objects are created and freed**, which is what the exit panic reports on; and **what the launcher does before the engine starts**, which is a separate program with its own flags. Also **what a surface above the road does to a car** (§9): the launch pad; and **when the game draws a car's dash at all** (§10): it is skipped if the car's centre is behind the cockpit camera. And **how vrmod's Play starts the game** (§11): the launcher, `race.exe`, or the modern engine's standalone `viperport.exe`. And **what v1.0's hidden model editor loads** (§12): the `modtool.res` no disc shipped, which vrmod writes. And **why detailed cars make races slow to load** (§13), and how big a car can be before they do. Companions:
 [VIPER_RACING_FILE_FORMATS.md](file-formats.md) (byte layouts) and
 [VIPER_RACING_ASSET_TREE.md](asset-tree.md) (what's inside a `.car`/`.trk`).
 
@@ -1321,3 +1321,65 @@ The community stand-in that circulated before (toolpack2) has the same names min
 (`88091911...7f27`), replaces it, and keeps it as `modtool.res.vrmod-backup`. vrmod leaves any other
 `modtool.res` alone unless `--force` is given. A `modtool.res.vrmod` JSON record marks the file as
 vrmod's and names the generator version, which is how an older one shows as outdated.
+
+---
+
+## 13. Why detailed cars make races slow to load ✅ MEASURED
+
+**What you notice:** a race takes several seconds longer to load when a detailed mod car is on the grid,
+and much longer when the AI drive it too. Stock cars load almost instantly however many there are.
+
+**Why:** when a race loads, the game prepares every car for damage. A dent is made on the full-detail
+body (`<prefix>0.mod`) and copied to the lower detail levels, so for each vertex of LODs 1-4 the game
+finds the nearest LOD 0 vertex. It does that the simple way, checking every LOD 0 vertex in turn, and
+it does it again for every copy of the car on the grid: nothing is shared between copies. So the work
+per copy is
+
+> LOD 0 vertices × (LOD 1 + LOD 2 + LOD 3 + LOD 4 vertices)
+
+LODs 5-7 aren't part of it. A stock viper is 325 × 828, about a quarter of a million checks. A detailed
+car can be a thousand times that, and because the size of the body multiplies the size of its LODs,
+**twice the vertices means four times the wait.** (Car::Car, v1.0 `0x4364c0`; viper-racing-port
+`hook/phys_car.cpp`.)
+
+**Measured** (v1.0 with the modern engine, 2026-10-09), 8 cars on the grid:
+
+| grid | LOD vertices | checks per copy | load |
+|---|---|---|---|
+| 8 stock vipers | 325 / 299 / 221 / 186 / 122 … | 0.27 million | 0.5 s |
+| 8 Willys jeeps | 11,040 / 7,174 / 5,762 / 5,762 / 5,762 … | 270 million | 7.4 s |
+
+That's about **3.2 seconds per billion checks** on that machine; a slower PC takes longer.
+
+**How big a car can be.** For about one second of extra loading, with LOD 1 the same as LOD 0 (LOD 1 is
+what the normal chase camera shows) and the usual falloff below it:
+
+| copies of the car on the grid | LOD 0 up to about |
+|---|---|
+| 1 (you, against stock AI, or solo) | 12,800 vertices |
+| 2 | 9,000 |
+| 4 | 6,400 |
+| 8 (a full grid of AI in it) | 4,500 |
+| 16 | 3,200 |
+
+The limit shrinks with the square root of the number of copies, and grows with the square root of the
+wait you'll accept: four seconds doubles every figure.
+
+**What vrmod does about it:**
+- `vrmod modlod` / **Generate LODs** sizes LODs 1-4 so a full grid of the car stays within about a second
+  (40 million checks per copy), and says how much load time each copy adds. Each level first drops the
+  car's separate pieces that would be under about 5 pixels at the distance it comes in (read from the car's
+  `L.tab`), as the stock viper's own LODs drop its wheel and effects pieces, then simplifies what's left
+  only as far as it can without moving the surface more than about 2.5 pixels. It never tears the mesh to get
+  there, so a body with many texture seams can still come out over; the fix then is a lighter LOD 0.
+- **The doctor** names any installed car that's slow to load in a crowd, in seconds.
+
+**The modern engine removes the wait.** viper-racing-port (from commit `7356e48`) does the same nearest-vertex
+search on a grid: the same maps, entry for entry, in a fraction of the time. Nine 4,261-vertex jeeps build in
+0.08 s instead of about 1.5 s, and the 11,040-vertex body in 0.022 s per car instead of 0.79 s. It logs
+`race load: cars built in X s` to `viperport.log`, and the doctor checks for it. The limits above still apply
+to anyone playing on the original `race.exe` or a community `race.bin`.
+
+Two related things to keep small for the same engine: the car's **shadow** is drawn every frame from one of
+its last LODs (`<prefix>7.mod` or `<prefix>6.mod` with eight levels, by the shadow setting), and the mapping stores vertex numbers in 16 bits, so a LOD 0
+over 65,535 vertices would map dents to the wrong places.

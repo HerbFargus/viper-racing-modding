@@ -606,11 +606,156 @@ def fork_car(entries: list[archive.ArchiveEntry], new_prefix: str
     return out
 
 
-# Default per-level vertex fractions of LOD0, for LOD1..LOD7 -- a gentle
-# geometric falloff (lots of detail near, little far). Override with explicit
-# targets. The stock cars pair levels (LOD0==LOD1 etc.); this is monotonic,
-# which is simpler and fine for a generated chain.
-_LOD_FRACS = (0.65, 0.45, 0.30, 0.20, 0.12, 0.07, 0.04)
+# Default per-level vertex fractions of LOD0, for LOD1..LOD7: the stock viper's own
+# falloff (325 -> 299 / 221 / 186 / 122 / 79 / 48 / 26). LODs 1-3 are all on screen in
+# ordinary racing (the chase camera draws LOD 1, a car 20-60 m ahead is LOD 3), so they
+# stay close to LOD 0; a steeper falloff made the switches between them obvious.
+_LOD_FRACS = (0.92, 0.68, 0.57, 0.38, 0.24, 0.15, 0.08)
+
+# The distances at which each LOD gives way to the next, from <prefix>L.tab: the
+# viper's, which every car seen so far copies. Read per car by lod_distances().
+_VIPER_LOD_DISTANCES = (10.0, 15.0, 20.0, 60.0, 80.0, 100.0, 200.0, 1000.0)
+
+# A level drops the car's parts that would look smaller than this (radians) at the
+# distance where the level comes in: about 5 pixels of the game's 640x480, 54-degree
+# view. The jeep's antenna and steering wheel go at LOD 2 (15 m), its bumpers at 60 m.
+PART_VISIBLE = 0.01
+
+# And decimating what's left may move the surface by at most this much (radians, at the
+# same distance): about 2.5 pixels, 5 cm at LOD 1's 10 m, 30 cm at LOD 4's 60 m. A level
+# that can't shrink further within it stops there instead of growing shards.
+SHAPE_TOLERANCE = 0.005
+
+
+def lod_distances(entries: list[archive.ArchiveEntry]) -> tuple[float, ...]:
+    """The car's LOD switch distances in metres (record i: LOD i is drawn out to here),
+    from <prefix>L.tab -- 8 records of 3 fixed-width fields (17, 17, 33 bytes), at the
+    end of the payload. The viper's distances if the table is missing or unreadable."""
+    prefix = (body_prefix(entries) or "").lower()
+    e = next((x for x in entries if x.name.lower() == f"{prefix}l.tab"), None)
+    if e is None or len(e.payload) < 4:
+        return _VIPER_LOD_DISTANCES
+    p = e.payload
+    count = int.from_bytes(p[:4], "little", signed=True)
+    start = len(p) - count * 67
+    if not 0 < count <= 16 or start < 0:
+        return _VIPER_LOD_DISTANCES
+    try:
+        out = tuple(float(p[start + 67 * i: start + 67 * i + 17].split(b"\x00")[0])
+                    for i in range(count))
+    except ValueError:
+        return _VIPER_LOD_DISTANCES
+    return out if all(a < b for a, b in zip(out, out[1:])) else _VIPER_LOD_DISTANCES
+
+
+# The wheels' three models (CarObject::load_wheels / DrawWheel, v1.0 0x46ca60 / 0x46af10):
+# <prefix>L.tab's second column picks one per LOD row -- on the viper's table model 1
+# (wheel_1 / fwheel_1) out to 60 m, model 2 from 60 to 100 m, and 'x' (no wheels) beyond;
+# model 3 is the x-ray view. fwheel_* is the blurred one, drawn above 30 rad/s. So only
+# model 2 is a far level: 1 and 3 are seen close and stay as they are. Each model is
+# scaled to the tyre by its own bounding box, so the far level must keep that box exactly.
+WHEEL_MODELS = ("wheel_%d.mod", "fwheel_%d.mod")
+
+
+def wheel_far_distance(entries: list[archive.ArchiveEntry]) -> float:
+    """Where wheel model 2 comes in: the distance of the last L.tab row before the first
+    row whose wheel column is 1. 60 m (the viper's) if the table doesn't say."""
+    prefix = (body_prefix(entries) or "").lower()
+    e = next((x for x in entries if x.name.lower() == f"{prefix}l.tab"), None)
+    dists = lod_distances(entries)
+    if e is not None and len(e.payload) >= 4:
+        p = e.payload
+        count = int.from_bytes(p[:4], "little", signed=True)
+        start = len(p) - count * 67
+        if 0 < count <= len(dists) and start >= 0:
+            for i in range(1, count):
+                col = p[start + 67 * i + 17: start + 67 * i + 34].split(b"\x00")[0].strip()
+                if col == b"1":
+                    return dists[i - 1]
+    return 60.0
+
+
+def _extents(m: mod.Mesh) -> list[float]:
+    return [f(getattr(v, k) for v in m.vertices) for k in "xyz" for f in (min, max)]
+
+
+def build_wheel_far(entries: list[archive.ArchiveEntry], *, keep_existing: bool = False
+                    ) -> tuple[list[archive.ArchiveEntry], list[tuple[str, int]]]:
+    """Make the car's far wheel models (wheel_2 / fwheel_2) from its near ones (wheel_1 /
+    fwheel_1), the way build_lod_chain makes body levels: drop the parts too small to see
+    where they come in, then simplify within SHAPE_TOLERANCE. If that would change the
+    bounding box (the engine scales the model to the tyre by it), the far model is a copy
+    of the near one. Cars that use the shared stock wheels have no wheel_1 of their own
+    and are left alone."""
+    by = {e.name.lower(): e for e in entries}
+    d = wheel_far_distance(entries)
+    out, made = entries, []
+    for pattern in WHEEL_MODELS:
+        near, far = by.get(pattern % 1), pattern % 2
+        if near is None or (keep_existing and far in by):
+            continue
+        m = mod.parse(envelope.build(near.tag, near.version, near.payload))
+        dec = mod.decimate(mod.drop_parts(m, PART_VISIBLE * d), max(12, len(m.vertices) // 8),
+                           max_move=SHAPE_TOLERANCE * d, pin_extents=True)
+        if any(abs(a - b) > 1e-6 for a, b in zip(_extents(dec), _extents(m))):   # (a part that set it was dropped)
+            dec = m
+        name = by[far].name if far in by else far
+        out = archive.upsert_entry(out, name, mod.build(dec, version=near.version))
+        made.append((name, len(dec.vertices)))
+    return out, made
+
+
+# What a car's LODs cost at race load on the original engine. Car::Car (v1.0 0x4364c0;
+# viper-racing-port hook/phys_car.cpp) maps every vertex of LODs 1-4 to its nearest LOD-0
+# vertex by brute force, once per car on the grid, so the work is LOD0 x (LOD1+2+3+4)
+# per copy of the car; LODs 5-7 don't enter it, and a stock viper is 325 x 828 = 0.27M.
+# Timed in game (2026-10-09): 8 stock vipers loaded in 0.5 s, 8 Willys jeeps at 270M
+# each in 7.4 s -- 3.2 s per billion. docs/reference/runtime.md, "Why detailed cars make
+# races slow to load".
+SECONDS_PER_STEP = 3.2e-9
+LOAD_BUDGET = 40_000_000  # per copy: ~1 s over stock for a full grid of 8
+GRID = 8
+LOAD_DOC = ("https://herbfargus.github.io/viper-racing-modding/reference/runtime.html"
+            "#13-why-detailed-cars-make-races-slow-to-load--measured")
+
+
+def load_cost(vertex_counts: list[int]) -> int:
+    """Race-load work per copy of a car whose LODs have these vertex counts (LOD 0 first)."""
+    return vertex_counts[0] * sum(vertex_counts[1:5]) if vertex_counts else 0
+
+
+def load_seconds(vertex_counts: list[int]) -> float:
+    """Seconds each copy of the car adds to race loading on the original engine."""
+    return load_cost(vertex_counts) * SECONDS_PER_STEP
+
+
+def lod_vertex_counts(entries: list[archive.ArchiveEntry]) -> list[int]:
+    """Vertex counts of <prefix>0.mod, <prefix>1.mod, ... as far as they go unbroken.
+    Read from each mesh's header (the payload's first int32), so it's cheap enough
+    to run over a whole Data folder."""
+    prefix = body_prefix(entries)
+    by_name = {e.name.lower(): e for e in entries}
+    counts = []
+    for i in range(8):
+        e = by_name.get(f"{(prefix or '').lower()}{i}.mod")
+        if e is None or len(e.payload) < 4:
+            break
+        counts.append(int.from_bytes(e.payload[:4], "little", signed=True))
+    return counts
+
+
+def load_budget_warning(entries: list[archive.ArchiveEntry]) -> str | None:
+    """Plain words on how slowly a full grid of this car loads, or None if it's quick."""
+    counts = lod_vertex_counts(entries)
+    if load_cost(counts) <= LOAD_BUDGET:
+        return None
+    s = load_seconds(counts)
+    return (f"this car is slow to load in a crowd: on the original engine each copy adds "
+            f"about {s:.2f} s to race loading ({s * GRID:.1f} s with {GRID} of them on the grid). "
+            f"The cost is LOD 0 x (LODs 1-4) = {counts[0]:,} x {sum(counts[1:5]):,}; about 1 s for "
+            f"a full grid allows {LOAD_BUDGET / 1e6:.0f} million. With LODs 1-4 falling off like the "
+            f"stock viper's, that's a LOD 0 of about 4,500 vertices for a car the AI will drive too, "
+            f"or about 12,800 if only you drive it. See {LOAD_DOC}")
 
 
 def build_lod_chain(entries: list[archive.ArchiveEntry], *,
@@ -629,8 +774,12 @@ def build_lod_chain(entries: list[archive.ArchiveEntry], *,
 
     Returns (entries, made) where `made` is [(member, vertex_count), ...].
 
-    targets       explicit per-level vertex counts (LOD1 first); default is a
-                  geometric falloff of the body's vertex count (_LOD_FRACS).
+    targets       explicit per-level vertex counts (LOD1 first); default is the
+                  stock viper's falloff of the body's vertex count (_LOD_FRACS), with
+                  LODs 1-4 scaled down to fit LOAD_BUDGET and every later level
+                  kept no bigger than the one before. Decimation never tears a seam,
+                  so a mesh with many seam corners can still come out over budget:
+                  check load_cost(lod_vertex_counts(...)) afterwards.
     levels        how many LODs to generate (1..levels); default 7 (full chain).
     keep_existing don't overwrite a level that already exists -- so a hand-authored
                   LOD is preserved and only the missing ones are generated. The
@@ -648,26 +797,37 @@ def build_lod_chain(entries: list[archive.ArchiveEntry], *,
     V = len(body_mesh.vertices)
     if targets is None:
         targets = [max(12, int(round(V * f))) for f in _LOD_FRACS[:levels]]
+        near = V * sum(targets[:4])
+        if LOAD_BUDGET and near > LOAD_BUDGET:
+            scale = LOAD_BUDGET / near
+            targets = [max(12, int(t * scale)) if i < 4 else t for i, t in enumerate(targets)]
+        for i in range(1, len(targets)):
+            targets[i] = min(targets[i], targets[i - 1])
     have = {e.name.lower() for e in entries}
     out = entries
     made: list[tuple[str, int]] = []
-    # Decimate each level from LOD0 (best quality), but never let a level exceed
-    # the previous one: on a low-poly/small-block mesh the decimator safely "backs
-    # off" to the original rather than wiping a material's faces, which would break
-    # monotonicity -- so reuse the previous (smaller) level whenever that happens.
+    # Each level starts again from LOD0 (best quality): first the parts too small to
+    # see where the level comes in are dropped whole, then what's left is decimated
+    # if it's still over the level's target. Never let a level exceed the previous
+    # one -- the decimator stops short rather than spoil the shape, so reuse the
+    # previous (smaller) level whenever that happens.
+    distances = lod_distances(entries)
     prev_mesh, prev_v = body_mesh, V
     for i in range(1, levels + 1):
         name = f"{prefix}{i}.mod"
         if keep_existing and name.lower() in have:
             continue
         tgt = targets[i - 1] if i - 1 < len(targets) else targets[-1]
-        dec = mod.decimate(body_mesh, tgt)
+        near_edge = distances[i - 1] if i - 1 < len(distances) else distances[-1]
+        dec = mod.decimate(mod.drop_parts(body_mesh, PART_VISIBLE * near_edge), tgt,
+                           max_move=SHAPE_TOLERANCE * near_edge)
         if len(dec.vertices) >= prev_v:          # backed off / not smaller than previous level
             dec = prev_mesh
         out = archive.upsert_entry(out, name, mod.build(dec, version=body.version))
         made.append((name, len(dec.vertices)))
         prev_mesh, prev_v = dec, len(dec.vertices)
-    return out, made
+    out, wheels = build_wheel_far(out, keep_existing=keep_existing)
+    return out, made + wheels
 
 
 def car_material_names(entries: list[archive.ArchiveEntry]) -> set[str]:

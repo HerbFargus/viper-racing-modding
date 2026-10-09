@@ -342,6 +342,26 @@ def _linux_state(d: Path) -> str:
     return state
 
 
+# A build with the fast LOD vertex maps (viper-racing-port 7356e48): Car::Car's nearest-vertex
+# search on a grid, the same maps in a fraction of the time, so detailed cars no longer slow race
+# loading. It logs this line, so the string is in the binary of every build that has it.
+FAST_CAR_LOAD_MARK = b"race load: cars built in"
+_fast_cache: dict[tuple[str, float], bool] = {}
+
+
+def fast_car_load(data_dir: str | Path) -> bool:
+    """Is the engine that runs here one with the fast LOD vertex maps? (The port's DLL on Windows,
+    its native ELF on Linux; False when there is none.)"""
+    f = Path(data_dir) / (ELF if IS_LINUX else DLL)
+    try:
+        key = (str(f), f.stat().st_mtime)
+    except OSError:
+        return False
+    if key not in _fast_cache:
+        _fast_cache[key] = is_ours(f) and FAST_CAR_LOAD_MARK in f.read_bytes()
+    return _fast_cache[key]
+
+
 def status(data_dir: str | Path) -> dict:
     """{"state": absent | installed | outdated | foreign, "standalone": viperport.exe's state, or None
     where it doesn't apply (no v1.0 race.exe), "modtool": modtool.status() on v1.0 (the model

@@ -265,8 +265,10 @@ def _apply_commit(body: dict) -> tuple[Path, Path]:
         out_entries, made = car.build_lod_chain(entries)
         backup = _store_edit_backup(car_path)
         archive.write(out_entries, car_path)
+        warning = car.load_budget_warning(out_entries)
         return car_path, backup, [], [f"Generated {len(made)} LOD level(s): "
-                                      + ", ".join(f"{n} ({v}v)" for n, v in made)], None
+                                      + ", ".join(f"{n} ({v}v)" for n, v in made)]
+                                     + ([warning] if warning else []), None
     if "track_path" in body:
         return _apply_track_commit(body)
     car_path = Path(body["car_path"])
@@ -2369,6 +2371,9 @@ def main(argv: list[str] | None = None) -> int:
         if budget is not None and before > budget:
             mesh = mod.decimate(mesh, budget)
             print(f"decimated {before} -> {len(mesh.vertices)} vertices (budget {budget})")
+            if len(mesh.vertices) > budget:
+                print("warning: still over budget -- the rest are seam corners and open edges, "
+                      "which decimation keeps so the mesh doesn't tear")
         elif budget is None:
             biggest = mod.VERTEX_BUDGETS["hd"]
             if before > biggest:
@@ -2395,6 +2400,9 @@ def main(argv: list[str] | None = None) -> int:
         mesh = mod.decimate(mesh, budget)
         args.out_file.write_bytes(mod.build(mesh))
         print(f"wrote {args.out_file}: {before} -> {len(mesh.vertices)} vertices (budget {budget})")
+        if len(mesh.vertices) > budget:
+            print("warning: still over budget -- the rest are seam corners and open edges, "
+                  "which decimation keeps so the mesh doesn't tear")
     elif args.command == "carview":
         viewer.write_viewer_html(
             args.car_file, args.html_file, z_offset=args.z_offset, wheel_radius=args.wheel_radius,
@@ -2503,6 +2511,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {name}: {vc} verts")
         if not made:
             print("  (nothing generated -- all levels already present and --keep-existing set)")
+        counts = car.lod_vertex_counts(out_entries)
+        print(f"  race load: about {car.load_seconds(counts):.2f} s per copy of this car "
+              f"on the original engine")
+        warning = car.load_budget_warning(out_entries)
+        if warning:
+            print(f"warning: {warning}")
     elif args.command == "dekey":
         if args.revert:
             restored = dekey.revert(args.path)
