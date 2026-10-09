@@ -89,11 +89,12 @@ from __future__ import annotations
 
 import hashlib
 import shutil
+import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import aspectfix, enginefix, mapfile, needlefix, resolution, safewrite, tablefix, vertexbuffer, vrampatch
+from . import aspectfix, casefold, enginefix, mapfile, needlefix, resolution, safewrite, tablefix, vertexbuffer, vrampatch
 
 RACE_BIN = "race.bin"
 
@@ -133,8 +134,8 @@ def _race_bin(data_dir: str | Path) -> Path:
     """The engine binary this install actually runs."""
     d = Path(data_dir)
     for n in ENGINE_NAMES:
-        if (d / n).is_file():
-            return d / n
+        if (f := casefold.find_file(d, n)) is not None:
+            return f
     raise PatchSetError(f"no {' or '.join(ENGINE_NAMES)} in {d}")
 
 
@@ -143,7 +144,7 @@ def _snapshot_path(data_dir: str | Path) -> Path:
     d = Path(data_dir)
     eng = _race_bin(d)
     new = d / (eng.name + SNAPSHOT_SUFFIX)
-    if not new.exists() and eng.name == RACE_BIN and (d / SNAPSHOT).exists():
+    if not new.exists() and eng.name.lower() == RACE_BIN and (d / SNAPSHOT).exists():
         return d / SNAPSHOT                    # a baseline taken before the rename
     return new
 
@@ -444,7 +445,7 @@ def find_pristine_backup(data_dir: str | Path) -> tuple[Path, str] | None:
     from . import backups as backups_mod
     places = [d, backups_mod.folder(d)]
     cands = [p for place in places if place.is_dir()
-             for p in place.glob(eng.name + ".*")
+             for p in casefold.glob(place, eng.name + ".*")
              if p.is_file() and p != eng
              and (p.name.endswith("-backup") or p.name.endswith(SNAPSHOT_SUFFIX))
              and p.stat().st_size == size]
@@ -735,7 +736,8 @@ def _dpi_targets(data_dir: str | Path) -> list[Path]:
     whenever the folder being examined is the disc itself.
     """
     d = Path(data_dir)
-    return [d / RACE_EXE, d / RACE_BIN, d.parent / LAUNCHER, d / LAUNCHER]
+    return [casefold.path(d, RACE_EXE), casefold.path(d, RACE_BIN),
+            casefold.path(d.parent, LAUNCHER), casefold.path(d, LAUNCHER)]
 
 
 def scaling_active() -> bool | None:
@@ -795,6 +797,9 @@ def set_dpi_aware(data_dir: str | Path, enable: bool = True) -> str:
     -- refreshing the shim cache -- that this cannot reproduce. Always tell the
     user the dialog is the fallback; never report this as a completed fix.
     """
+    if sys.platform != "win32":
+        raise PatchSetError("DPI awareness is a Windows compatibility setting; there is nothing "
+                            "to set on this system")
     import winreg
     targets = [e for e in _dpi_targets(data_dir) if e.is_file()]
     if not targets:

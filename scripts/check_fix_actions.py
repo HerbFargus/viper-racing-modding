@@ -56,6 +56,10 @@ def main() -> int:
 
     check("doctor offers at least one fix", bool(emitted), f"{len(emitted)} actions")
 
+    # A Windows-only repair (the DPI flag) has no handler elsewhere -- and the doctor never offers
+    # it there either, which check_doctor_linux.py checks.
+    if sys.platform != "win32":
+        emitted -= switcher_ui.WINDOWS_ONLY_FIXES
     dead = sorted(emitted - handled)
     check("every action doctor offers has a handler -- no dead buttons",
           not dead, ", ".join(dead) if dead else "none")

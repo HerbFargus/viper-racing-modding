@@ -73,7 +73,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import archive, cf, cockpit_tab, envelope, mod
+from . import archive, casefold, cf, cockpit_tab, envelope, mod
 
 INCH_TO_M = 0.0254
 
@@ -126,7 +126,7 @@ def find_in_shared_archives(data_dir: str | Path, name: str) -> bytes | None:
     archives without belonging to any particular car."""
     data_dir = Path(data_dir)
     for res_name in DEFAULT_SHARED_ARCHIVES:
-        res_path = data_dir / res_name
+        res_path = casefold.path(data_dir, res_name)
         if not res_path.exists():
             continue
         raw = _entry_bytes(archive.read(res_path), name)
@@ -770,7 +770,7 @@ def resolve_textures(
 
     index_archive(car_path)
     for res_name in (shared_archives if shared_archives is not None else DEFAULT_SHARED_ARCHIVES):
-        index_archive(base / res_name)
+        index_archive(casefold.path(base, res_name))
 
     paint_bytes = Path(paint_texture).read_bytes() if paint_texture is not None else None
     return {name: lookup.get(name.lower(), paint_bytes) for name in material_names}

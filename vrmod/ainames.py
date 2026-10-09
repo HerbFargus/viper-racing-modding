@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from . import lng, writepaths
+from . import casefold, lng, writepaths
 
 SLOTS = 7
 KEY = "AIDriverName:{tier}:Driver{slot}"
@@ -73,12 +73,12 @@ def lang_file(data_dir: str | Path) -> Path:
     writepaths rather than assuming a sibling.
     """
     data_dir = Path(data_dir)
-    here = data_dir / LANG_FILE
+    here = casefold.path(data_dir, LANG_FILE)
     if here.is_file():
         return here
     for d in (data_dir.parent, *writepaths.config_dirs(data_dir)):
-        cand = Path(d) / LANG_FILE
-        if cand.is_file():
+        cand = casefold.find_file(d, LANG_FILE)
+        if cand is not None:
             return cand
     return here                       # report the obvious path in the error
 

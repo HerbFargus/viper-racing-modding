@@ -57,7 +57,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from . import backups, safewrite
+from . import backups, casefold, safewrite
 
 RACE_BIN = "race.bin"
 
@@ -71,8 +71,8 @@ def _engine(data_dir):
     from pathlib import Path as _P
     d = _P(data_dir)
     for n in ENGINE_NAMES:
-        if (d / n).is_file():
-            return d / n
+        if (f := casefold.find_file(d, n)) is not None:
+            return f
     return d / RACE_BIN          # nonexistent: callers report missing/raise
 
 # The prologue, used to find the function. No relocations in it, so it is

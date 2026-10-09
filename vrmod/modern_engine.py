@@ -51,19 +51,33 @@ which needs a modtool.res no disc shipped. install() also writes vrmod's (modtoo
 there is missing, the community stand-in or an earlier one of ours -- never over anyone else's -- and
 remove() takes it out, putting back the stand-in it replaced.
 
-The files come from vrmod/assets/modern_engine/, refreshed by scripts/update_modern_engine.py, whose
-SOURCE.txt names the viper-racing-port commit they were built from.
+LINUX. There is no DLL route on Linux: race.exe / race.bin are Windows programs, and vrmod never runs
+them there. The engine is viper-racing-port's native standalone instead -- `viperport` (a 32-bit ELF),
+its launcher `viperport.sh`, `lib/libSDL2-2.0.so.0`, README-linux.txt and LICENSES/ -- which, like
+viperport.exe, reads the user's v1.0 race.exe as data and runs the port's rewrite of every function.
+So on Linux (IS_LINUX) install() puts those files beside a v1.0 race.exe only and refuses anything else
+("the Linux engine runs v1.0's race.exe only"); status() reports the same shape as on Windows, with
+"state" (and "standalone") read from the ELF, ours by the viperport mark or the bundled sha256 and
+outdated when it, viperport.sh or the SDL2 library differ from the bundle; remove() takes those files out
+(lib/ and LICENSES/ too once empty). viperport.ini is created when absent and otherwise left as it is:
+the standalone forces SDL, so the [platform] switches don't matter there. Play starts viperport.sh from
+the Data folder after asking the ELF (`viperport --probe <race.exe>`), and there is no fallback: an
+install without the engine, or with no v1.0 race.exe, has no Linux route and says so.
+
+The files come from vrmod/assets/modern_engine/ (the Linux ones from its linux/ folder), refreshed by
+scripts/update_modern_engine.py, whose SOURCE.txt names the viper-racing-port commit they were built from.
 """
 from __future__ import annotations
 
 import hashlib
+import os
 import shutil
 import struct
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
-from . import drawdistance, modtool, writepaths
+from . import casefold, drawdistance, modtool, writepaths
 
 ASSETS = Path(__file__).resolve().parent / "assets" / "modern_engine"
 DLL, SDL, INI, LOG = "dinput.dll", "SDL2.dll", "viperport.ini", "viperport.log"
@@ -75,6 +89,26 @@ PROBE_FLAG = b"--probe"                   # a viperport.exe knows --probe only i
 V10_TIMESTAMP = 0x362DE68C                # v1.0 race.exe's PE timestamp -- what viperport.exe checks first
 
 ABSENT, INSTALLED, OUTDATED, FOREIGN = "absent", "installed", "outdated", "foreign"
+
+# ---- Linux: the native standalone (see LINUX above) ----
+IS_LINUX = sys.platform.startswith("linux")   # which engine this vrmod installs; the checks flip it on any OS
+LINUX_ASSETS = ASSETS / "linux"
+ELF, SH, LIBSDL = "viperport", "viperport.sh", "lib/libSDL2-2.0.so.0"   # beside race.exe, as in the tarball
+LINUX_README, LINUX_LICENSES = "README-linux.txt", "LICENSES"
+LINUX_JUNK = ("viperport-probe.txt", "viperport-check.txt")   # the ELF's --probe / --check reports
+V10_ONLY = "the Linux engine runs v1.0's race.exe only"
+
+
+def platform() -> str:
+    return "linux" if IS_LINUX else "windows"
+
+
+def linux_files() -> list[str]:
+    """The Linux engine's files, relative to the game folder: what install() copies (the bundle's
+    linux/ folder, ELF first) and remove() takes out."""
+    lic = LINUX_ASSETS / LINUX_LICENSES
+    docs = sorted(f"{LINUX_LICENSES}/{p.name}" for p in lic.iterdir() if p.is_file()) if lic.is_dir() else []
+    return [ELF, SH, LIBSDL, LINUX_README, *docs]
 
 INI_TEXT = """\
 ; viperport settings -- written by vrmod (Modern engine). The engine-limit fixes are always on.
@@ -203,39 +237,69 @@ def set_ini_keys(path: str | Path, section: str, values: dict, comments: dict | 
     return True
 
 
+_sha_cache: dict = {}
+
+
 def _sha(p: Path) -> str:
-    return hashlib.sha256(p.read_bytes()).hexdigest()
+    """sha256 of a file, remembered until it changes (status() asks often, and the Linux ELF is 7 MB)."""
+    st = p.stat()
+    key = (str(p), st.st_mtime_ns, st.st_size)
+    if key not in _sha_cache:
+        if len(_sha_cache) > 64:
+            _sha_cache.clear()
+        _sha_cache[key] = hashlib.sha256(p.read_bytes()).hexdigest()
+    return _sha_cache[key]
+
+
+def _same(p: Path, bundled_copy: Path) -> bool:
+    """Is `p` there, byte for byte the bundled file?"""
+    try:
+        return p.is_file() and bundled_copy.is_file() and _sha(p) == _sha(bundled_copy)
+    except OSError:
+        return False
 
 
 def bundled() -> dict:
-    """What vrmod ships: the viper-racing-port commit, and whether the standalone loader is in it."""
-    info = {"available": (ASSETS / DLL).is_file() and (ASSETS / SDL).is_file(),
-            "standalone": (ASSETS / EXE).is_file(), "commit": None}
+    """What vrmod ships for this platform: the viper-racing-port commit, whether the engine is there, and
+    whether the standalone is in it (on Linux the engine IS the standalone)."""
+    if IS_LINUX:
+        avail = all((LINUX_ASSETS / n).is_file() for n in (ELF, SH, LIBSDL))
+        info = {"available": avail, "standalone": avail, "commit": None, "platform": "linux"}
+        prefix = "viper-racing-port linux commit "
+    else:
+        info = {"available": (ASSETS / DLL).is_file() and (ASSETS / SDL).is_file(),
+                "standalone": (ASSETS / EXE).is_file(), "commit": None, "platform": "windows"}
+        prefix = "viper-racing-port commit "
     src = ASSETS / "SOURCE.txt"
     if src.is_file():
         for line in src.read_text(encoding="utf-8").splitlines():
-            if line.startswith("viper-racing-port commit "):
-                info["commit"] = line.split()[2][:7]
+            if line.startswith(prefix):
+                info["commit"] = line[len(prefix):].split()[0][:7]
     return info
 
 
-def is_ours(path: Path) -> bool:
-    """dinput.dll / viperport.exe: viper-racing-port's (it carries the mark, or is the bundled file)."""
+def is_ours(path: Path, bundled_copy: Path | None = None) -> bool:
+    """dinput.dll / viperport.exe / the Linux viperport: viper-racing-port's (it carries the mark, or is
+    the bundled file -- ASSETS/<its name> unless `bundled_copy` names another)."""
     try:
         data = path.read_bytes()
     except OSError:
         return False
     if MARK in data:
         return True
-    bundled_copy = ASSETS / path.name
+    bundled_copy = bundled_copy or ASSETS / path.name
     return bundled_copy.is_file() and hashlib.sha256(data).hexdigest() == _sha(bundled_copy)
 
 
 def race_exe_is_v10(data_dir: str | Path) -> bool:
     """Is there a v1.0 race.exe here -- the only build viperport.exe runs? Read from its PE header (the
-    timestamp viperport.exe checks first), so a vrmod-patched v1.0 race.exe still counts."""
+    timestamp viperport.exe checks first), so a vrmod-patched v1.0 race.exe still counts. Any case
+    (RACE.EXE off a CD, on Linux)."""
+    race = casefold.find(data_dir, RACE_EXE)
+    if race is None:
+        return False
     try:
-        with (Path(data_dir) / RACE_EXE).open("rb") as fh:
+        with race.open("rb") as fh:
             head = fh.read(0x400)
         pe = struct.unpack_from("<I", head, 0x3C)[0]
         if head[:2] != b"MZ" or head[pe:pe + 4] != b"PE\0\0":
@@ -252,34 +316,49 @@ def game_options(data_dir: str | Path) -> Path | None:
     race.bin pressings it is the game's relative Config\\, found by the generic search
     (writepaths.options_file). options.def, the shipped default, is never returned, so never written."""
     d = Path(data_dir)
-    if race_exe_is_v10(d):
-        p = writepaths.config_dirs(d)[0] / writepaths.OPTIONS_CFG
+    if race_exe_is_v10(d):              # any case: the Linux engine makes Config, a CD copy may have CONFIG
+        p = casefold.find(d, f"{writepaths.config_dirs(d)[0].name}/{writepaths.OPTIONS_CFG}")
     else:
         p = writepaths.options_file(d)
     return p if p is not None and p.name.lower() == writepaths.OPTIONS_CFG and p.is_file() else None
 
 
-def _file_state(path: Path) -> str:
+def _file_state(path: Path, bundled_copy: Path | None = None) -> str:
+    bundled_copy = bundled_copy or ASSETS / path.name
     if not path.is_file():
         return ABSENT
-    if not is_ours(path):
+    if not is_ours(path, bundled_copy):
         return FOREIGN
-    if (ASSETS / path.name).is_file() and _sha(path) != _sha(ASSETS / path.name):
+    if bundled_copy.is_file() and _sha(path) != _sha(bundled_copy):
         return OUTDATED
     return INSTALLED
+
+
+def _linux_state(d: Path) -> str:
+    """The Linux engine's state: the ELF's, and outdated too when its launcher or SDL2 isn't the bundle's."""
+    state = _file_state(d / ELF, LINUX_ASSETS / ELF)
+    if state == INSTALLED and not all(_same(d / n, LINUX_ASSETS / n) for n in (SH, LIBSDL)):
+        state = OUTDATED
+    return state
 
 
 def status(data_dir: str | Path) -> dict:
     """{"state": absent | installed | outdated | foreign, "standalone": viperport.exe's state, or None
     where it doesn't apply (no v1.0 race.exe), "modtool": modtool.status() on v1.0 (the model
     editor's resource set), else None, "ini": {...} or None, "commit": bundled commit, "log": path or
-    None, "graphics": graphics()}. outdated = ours, but not the build vrmod bundles -- including a v1.0 install whose
-    engine predates the standalone (no viperport.exe yet), so Update brings it in."""
+    None, "graphics": graphics(), "platform": "windows" | "linux"}. outdated = ours, but not the build vrmod
+    bundles -- including a v1.0 install whose engine predates the standalone (no viperport.exe yet), so
+    Update brings it in. On Linux "state" is the native engine's (the viperport ELF, its launcher and
+    SDL2), and "standalone" is that same state on v1.0 (the Linux engine is the standalone), else None."""
     d = Path(data_dir)
-    state = _file_state(d / DLL)
-    standalone = _file_state(d / EXE) if race_exe_is_v10(d) else None
-    if state == INSTALLED and bundled()["standalone"] and standalone in (ABSENT, OUTDATED):
-        state = OUTDATED
+    if IS_LINUX:
+        state = _linux_state(d)
+        standalone = state if race_exe_is_v10(d) else None
+    else:
+        state = _file_state(d / DLL)
+        standalone = _file_state(d / EXE) if race_exe_is_v10(d) else None
+        if state == INSTALLED and bundled()["standalone"] and standalone in (ABSENT, OUTDATED):
+            state = OUTDATED
     ini = None
     if (d / INI).is_file():
         ini = {}
@@ -291,13 +370,15 @@ def status(data_dir: str | Path) -> dict:
     return {"state": state, "standalone": standalone, "ini": ini, "commit": bundled()["commit"],
             "graphics": graphics(d),
             "modtool": modtool.status(d) if race_exe_is_v10(d) else None,
-            "log": str(d / LOG) if (d / LOG).is_file() else None}
+            "log": str(d / LOG) if (d / LOG).is_file() else None, "platform": platform()}
 
 
 def active(data_dir: str | Path) -> dict:
     """Which parts are actually on: the DLL is ours and the ini switches them on."""
     st = status(data_dir)
     ours = st["state"] in (INSTALLED, OUTDATED)
+    if IS_LINUX:                          # the native standalone is SDL, OpenGL and SDL audio, whatever the ini says
+        return {"limits": ours, "sdl": ours, "gl": ours, "audio": ours}
     ini = st["ini"] or {}
     sdl = ours and ini.get("sdl") == "1"
     return {"limits": ours, "sdl": sdl, "gl": sdl and ini.get("renderer") == "gl",
@@ -308,9 +389,12 @@ def install(data_dir: str | Path) -> str:
     """Put the bundled modern engine beside the game, everything on. Idempotent."""
     d = Path(data_dir)
     if not bundled()["available"]:
-        raise ModernEngineError(f"the modern engine isn't bundled with this vrmod ({ASSETS} is missing)")
+        raise ModernEngineError(f"the modern engine isn't bundled with this vrmod "
+                                f"({LINUX_ASSETS if IS_LINUX else ASSETS} is missing)")
     if not d.is_dir():
         raise ModernEngineError(f"no folder {d}")
+    if IS_LINUX:
+        return _install_linux(d)
     notes = []
     dll = d / DLL
     if dll.is_file() and not is_ours(dll):
@@ -345,6 +429,37 @@ def install(data_dir: str | Path) -> str:
     return (f"Modern engine installed (viper-racing-port {commit}): {', '.join(placed[:-1])} and {placed[-1]} "
             "beside the game. Takes effect on the next launch; its log is viperport.log"
             + ("; " + "; ".join(notes) if notes else "") + ".")
+
+
+def _not_v10_reason(d: Path) -> str:
+    """Why a folder has no v1.0 race.exe, for the Linux messages."""
+    if casefold.find(d, RACE_EXE) is not None:
+        return "this race.exe isn't v1.0"
+    if casefold.find(d, RACE_BIN) is not None:
+        return "this install has race.bin (v1.1 / 1.2.x) and no race.exe"
+    return f"there is no race.exe in {d}"
+
+
+def _install_linux(d: Path) -> str:
+    """Linux: the native standalone's files beside a v1.0 race.exe (and nowhere else), exec bits set."""
+    if not race_exe_is_v10(d):
+        raise ModernEngineError(f"{_not_v10_reason(d)} -- {V10_ONLY}")
+    if (d / ELF).is_file() and not is_ours(d / ELF, LINUX_ASSETS / ELF):
+        raise ModernEngineError(f"the {ELF} here isn't the modern engine's -- move it aside first")
+    for rel in linux_files():
+        dest = d / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.is_file() and not os.access(dest, os.W_OK):
+            dest.chmod(dest.stat().st_mode | 0o200)     # an earlier copy left read-only
+        shutil.copy2(LINUX_ASSETS / rel, dest)
+        if rel in (ELF, SH):
+            dest.chmod(dest.stat().st_mode | 0o111)
+    if not (d / INI).is_file():          # the player's own settings stay; [platform] doesn't matter here
+        (d / INI).write_text(INI_TEXT, encoding="utf-8")
+    note = _install_modtool(d)
+    commit = bundled()["commit"] or "unknown"
+    return (f"Modern engine installed (viper-racing-port {commit}, Linux): {ELF}, its launcher {SH} and SDL2 "
+            f"({LIBSDL}) beside race.exe, with {INI}. Play starts it; its log is {LOG}; {note}.")
 
 
 def graphics(data_dir: str | Path) -> dict:
@@ -437,6 +552,8 @@ def _install_modtool(d: Path) -> str:
 def remove(data_dir: str | Path) -> str:
     """Take the modern engine out again; puts back a dinput.dll it had set aside."""
     d = Path(data_dir)
+    if IS_LINUX:
+        return _remove_linux(d)
     gone = []
     for name in (DLL, EXE):
         if (d / name).is_file() and is_ours(d / name):
@@ -462,9 +579,43 @@ def remove(data_dir: str | Path) -> str:
     return f"Modern engine removed ({', '.join(gone)}){back}. The game runs stock on the next launch."
 
 
+def _remove_linux(d: Path) -> str:
+    """Linux: the ELF when it is ours; its launcher, SDL2, README and licences when the ELF was ours or
+    they are the bundle's own; viperport.ini; then lib/ and LICENSES/ if that left them empty."""
+    gone = []
+    pkg = (d / ELF).is_file() and is_ours(d / ELF, LINUX_ASSETS / ELF)
+    for rel in linux_files():
+        p = d / rel
+        if p.is_file() and (pkg if rel == ELF else pkg or _same(p, LINUX_ASSETS / rel)):
+            p.unlink()
+            gone.append(rel)
+    for rel in LINUX_JUNK:
+        if pkg and (d / rel).is_file():
+            (d / rel).unlink()
+    for sub in (str(PurePosixPath(LIBSDL).parent), LINUX_LICENSES):
+        try:
+            (d / sub).rmdir()                # only when empty
+        except OSError:
+            pass
+    if (d / INI).is_file():
+        (d / INI).unlink()
+        gone.append(INI)
+    back = ""
+    if modtool.status(d)["state"] in (modtool.INSTALLED, modtool.OUTDATED):
+        modtool.remove(d)
+        gone.append(modtool.NAME)
+        if (d / modtool.NAME).is_file():
+            back += f"; the {modtool.NAME} it replaced is back in place"
+    if not gone:
+        return "The modern engine isn't installed here -- nothing to remove" + back + "."
+    shown = [n for n in gone if not n.startswith(LINUX_LICENSES + "/") and n != LINUX_README]
+    return f"Modern engine removed ({', '.join(shown)}){back}. Play needs it to start the game on Linux."
+
+
 # ---- Play ------------------------------------------------------------------------------------------
 # Routes: the standalone (viperport.exe), race.exe (v1.0; through the DLL when the engine is installed),
-# or the launcher (the race.bin pressings: `Viper Racing.exe` starts race.bin).
+# or the launcher (the race.bin pressings: `Viper Racing.exe` starts race.bin). On Linux only the
+# standalone: viperport.sh, the native engine's launcher -- never race.exe or the launcher.
 STANDALONE, RACE, LAUNCH = "standalone", "race.exe", "launcher"
 PROBE_TIMEOUT = 20      # seconds for `viperport.exe --probe` to answer
 WATCH_SECONDS = 4       # without --probe: a viperport.exe that exits non-zero this soon refused
@@ -479,6 +630,7 @@ class PlayError(Exception):
 
 
 def supports_probe(exe: Path) -> bool:
+    """Does this viperport.exe / Linux viperport ELF know --probe? (Ask the ELF, not viperport.sh.)"""
     try:
         return PROBE_FLAG in Path(exe).read_bytes()
     except OSError:
@@ -486,16 +638,22 @@ def supports_probe(exe: Path) -> bool:
 
 
 def _run_probe(exe: Path, race: Path, cwd: Path) -> tuple[int, str]:
-    """Run `viperport.exe --probe --race <race.exe>`: (exit code, its stdout). Starts nothing."""
-    r = subprocess.run([str(exe), "--probe", "--race", str(race)], cwd=str(cwd), capture_output=True,
+    """Run `viperport.exe --probe --race <race.exe>` (Linux: `viperport --probe <race.exe>`): (exit code,
+    its stdout). Starts nothing."""
+    args = ["--probe", str(race)] if IS_LINUX else ["--probe", "--race", str(race)]
+    r = subprocess.run([str(exe), *args], cwd=str(cwd), capture_output=True, stdin=subprocess.DEVNULL,
                        text=True, errors="replace", timeout=PROBE_TIMEOUT, creationflags=_NO_WINDOW)
     return r.returncode, r.stdout or ""
 
 
 def _spawn(exe: Path, cwd: Path) -> subprocess.Popen:
-    """Start a game executable detached from vrmod, its own folder as the working directory."""
+    """Start a game executable detached from vrmod, its own folder as the working directory. Detached
+    the way each OS does it: creationflags on Windows, a new session on POSIX (each is the other's error)."""
+    if sys.platform != "win32" and Path(exe).suffix.lower() in (".exe", ".bin"):
+        raise PlayError(f"{Path(exe).name} is a Windows program -- vrmod doesn't start it here")
+    detach = {"creationflags": _DETACHED} if sys.platform == "win32" else {"start_new_session": True}
     return subprocess.Popen([str(exe)], cwd=str(cwd), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL, close_fds=True, creationflags=_DETACHED)
+                            stderr=subprocess.DEVNULL, close_fds=True, **detach)
 
 
 _probe_cache: dict = {}
@@ -513,27 +671,30 @@ def _stamp(*paths: Path) -> tuple:
 
 
 def probe(data_dir: str | Path) -> tuple[bool | None, str]:
-    """Will viperport.exe run this install's race.exe? (True / False, its one line saying why), or
-    (None, ...) when the installed viperport.exe predates --probe and can't be asked. Cached until
-    viperport.exe, dinput.dll or race.exe changes."""
+    """Will viperport.exe (Linux: the viperport ELF) run this install's race.exe? (True / False, its one
+    line saying why), or (None, ...) when the installed one predates --probe and can't be asked. Cached
+    until the engine or race.exe changes."""
     d = Path(data_dir)
-    exe, race = d / EXE, d / RACE_EXE
-    if not supports_probe(exe):
-        return None, f"this {EXE} predates --probe, so it can't be asked ahead of launch"
-    key = _stamp(exe, d / DLL, race)
+    exe, name = (d / ELF, ELF) if IS_LINUX else (d / EXE, EXE)
+    race = casefold.path(d, RACE_EXE)
+    key = _stamp(exe, d / (SH if IS_LINUX else DLL), race)
     if key in _probe_cache:
         return _probe_cache[key]
-    try:
-        code, out = _run_probe(exe, race, d)
-        line = next((ln.strip() for ln in out.splitlines() if ln.strip()), "")
-        for prefix in ("yes: ", "no: "):          # the probe's line starts with its answer; the exit code carries that
-            if line.startswith(prefix):
-                line = line[len(prefix):]
-        res =(code == 0, line or (f"{EXE} --probe said yes" if code == 0 else f"{EXE} --probe said no (exit code {code})"))
-    except subprocess.TimeoutExpired:
-        res = (False, f"{EXE} --probe didn't answer within {PROBE_TIMEOUT} s")
-    except OSError as e:
-        res = (False, f"{EXE} didn't start ({e})")
+    if not supports_probe(exe):
+        res = (None, f"this {name} predates --probe, so it can't be asked ahead of launch")
+    else:
+        try:
+            code, out = _run_probe(exe, race, d)
+            line = next((ln.strip() for ln in out.splitlines() if ln.strip()), "")
+            for prefix in ("yes: ", "no: "):      # the probe's line starts with its answer; the exit code carries that
+                if line.startswith(prefix):
+                    line = line[len(prefix):]
+            res = (code == 0, line or (f"{name} --probe said yes" if code == 0 else
+                                       f"{name} --probe said no (exit code {code})"))
+        except subprocess.TimeoutExpired:
+            res = (False, f"{name} --probe didn't answer within {PROBE_TIMEOUT} s")
+        except OSError as e:
+            res = (False, f"{name} didn't start ({e})")
     _probe_cache.clear()                  # one install's answer at a time is all anything asks for
     _probe_cache[key] = res
     return res
@@ -541,8 +702,8 @@ def probe(data_dir: str | Path) -> tuple[bool | None, str]:
 
 def _launcher(d: Path) -> Path | None:
     # An installed v1.1 tree keeps it beside Data\; the disc layout has it inside Data\.
-    for p in (d.parent / LAUNCHER, d / LAUNCHER):
-        if p.is_file():
+    for p in (casefold.find(d.parent, LAUNCHER), casefold.find(d, LAUNCHER)):
+        if p is not None and p.is_file():
             return p
     return None
 
@@ -551,14 +712,18 @@ def play_route(data_dir: str | Path) -> dict:
     """How Play would start this install, without starting it:
     {"route": standalone | race.exe | launcher, "exe": path, "cwd": path, "engine": DLL installed,
      "probe": True / False / None, "why": why not viperport.exe (v1.0 with the engine only) or None,
-     "label": what Play starts, for the UI}. Raises PlayError when there is nothing to start."""
+     "label": what Play starts, for the UI}. Raises PlayError when there is nothing to start -- on Linux
+    also when the engine isn't installed, or there is no v1.0 race.exe (the only Linux route is the
+    native standalone)."""
     d = Path(data_dir)
     if not d.is_dir():
         raise PlayError(f"no folder {d}")
     st = status(d)
     engine = st["state"] in (INSTALLED, OUTDATED)
-    race = d / RACE_EXE
-    if race.is_file():
+    if IS_LINUX:
+        return _linux_route(d, st, engine)
+    race = casefold.find(d, RACE_EXE)
+    if race is not None and race.is_file():
         why, ok = None, None
         if engine and st["standalone"] in (INSTALLED, OUTDATED):
             ok, line = probe(d)
@@ -574,14 +739,34 @@ def play_route(data_dir: str | Path) -> dict:
                 "label": "race.exe with the modern engine" if engine else "race.exe"}
     launcher = _launcher(d)
     if launcher is None:
-        if not (d / RACE_BIN).is_file():
+        if not casefold.exists(d, RACE_BIN):
             raise PlayError(f"no {RACE_EXE} or {RACE_BIN} in {d} -- is this the game's Data folder?")
         raise PlayError(f"no {LAUNCHER} beside {d} or in it -- race.bin is started by that launcher")
     return {"route": LAUNCH, "exe": str(launcher), "cwd": str(launcher.parent), "engine": engine, "probe": None,
             "why": None, "label": f"{LAUNCHER}, which starts race.bin" + (" with the modern engine" if engine else "")}
 
 
+def _linux_route(d: Path, st: dict, engine: bool) -> dict:
+    """Linux: viperport.sh from the Data folder, once the ELF says it will run this race.exe -- or a
+    PlayError saying why there is no Linux route."""
+    if not race_exe_is_v10(d):
+        if casefold.find(d, RACE_EXE) is None and casefold.find(d, RACE_BIN) is None:
+            raise PlayError(f"no {RACE_EXE} or {RACE_BIN} in {d} -- is this the game's Data folder?")
+        raise PlayError(f"no Linux route: {V10_ONLY} ({_not_v10_reason(d)})")
+    if not engine:
+        raise PlayError("install the modern engine to play on Linux (race.exe is a Windows program; the "
+                        "modern engine runs it natively)")
+    if not (d / SH).is_file():
+        raise PlayError(f"{SH} is missing -- Update the modern engine to put it back")
+    ok, line = probe(d)
+    if ok is False:
+        raise PlayError(f"the modern engine won't run this race.exe: {line}")
+    return {"route": STANDALONE, "exe": str(d / SH), "cwd": str(d), "engine": True, "probe": ok, "why": None,
+            "label": LINUX_LABEL}
+
+
 STANDALONE_LABEL = "viperport.exe: the game on the port's code alone"
+LINUX_LABEL = "viperport: the game on the port's code alone, native on Linux"
 
 
 def _started(r: dict) -> str:
@@ -591,7 +776,8 @@ def _started(r: dict) -> str:
 
 def play(data_dir: str | Path) -> dict:
     """Start the game, detached, by the route play_route() picks. Returns the route actually taken (as
-    play_route) plus "message": what started, and on a fallback why it isn't viperport.exe."""
+    play_route) plus "message": what started, and on a fallback why it isn't viperport.exe. On Linux
+    there is no fallback: a viperport that stops at start-up is a PlayError naming its log."""
     d = Path(data_dir)
     r = play_route(d)
     if r["route"] == STANDALONE:
@@ -610,6 +796,9 @@ def play(data_dir: str | Path) -> dict:
             if not code:                   # still running (or a clean exit): it started
                 return dict(r, message=_started(r))
             why = f"it stopped at start-up (exit code {code}) -- its message box or viperport.log says why"
-        r = dict(r, route=RACE, exe=str(d / RACE_EXE), probe=False, why=why, label="race.exe with the modern engine")
+        if IS_LINUX:
+            raise PlayError(f"viperport {why.replace('its message box or ', '')}")
+        r = dict(r, route=RACE, exe=str(casefold.path(d, RACE_EXE)), probe=False, why=why,
+                 label="race.exe with the modern engine")
     _spawn(Path(r["exe"]), Path(r["cwd"]))
     return dict(r, message=_started(r))

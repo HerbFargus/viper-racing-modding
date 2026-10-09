@@ -14,7 +14,7 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from . import aifield, archive, aspectfix, backups, bpp as bppmod, bundle, car, carshot, catalog as catalog_mod, ccs, cf, cockpit_tab, dekey, doctor, envelope, hornball, mapfile, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon, drawdistance, surface, writepaths, modassert, carlist, modern_engine, modtool
+from . import aifield, archive, aspectfix, backups, bpp as bppmod, bundle, car, carshot, casefold, catalog as catalog_mod, ccs, cf, cockpit_tab, dekey, doctor, envelope, hornball, mapfile, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon, drawdistance, surface, writepaths, modassert, carlist, modern_engine, modtool
 
 COMMIT_PATH = "/__vrmod_commit__"
 
@@ -138,9 +138,9 @@ def find_original_backup(car_path: Path) -> Path | None:
     for d in (backups.folder(car_path.parent), car_path.parent):
         if not d.is_dir():
             continue
-        if (d / plain).exists():
-            return d / plain
-        cands = sorted(d.glob(pattern), key=lambda p: p.stat().st_mtime)
+        if (p := casefold.find_file(d, plain)) is not None:
+            return p
+        cands = sorted(casefold.glob(d, pattern), key=lambda p: p.stat().st_mtime)
         if cands:
             return cands[0]
     return None
@@ -925,7 +925,8 @@ def main(argv: list[str] | None = None) -> int:
     p_me = sub.add_parser(
         "modern-engine",
         help="Install the modern engine beside the game (viper-racing-port's DLL: engine limits lifted, "
-             "SDL2 window and input, OpenGL renderer at native resolution, SDL audio), or remove it",
+             "SDL2 window and input, OpenGL renderer at native resolution, SDL audio), or remove it. On "
+             "Linux: the native engine (viperport, viperport.sh and SDL2) beside a v1.0 race.exe",
     )
     p_me.add_argument("data_dir", type=Path, help="the game's Data folder")
     p_me.add_argument("--remove", action="store_true", help="take it out again")
@@ -952,7 +953,8 @@ def main(argv: list[str] | None = None) -> int:
         "play",
         help="Start the game: on v1.0 with the modern engine, viperport.exe (the port's code alone) if it "
              "will run this race.exe, else race.exe through the engine DLL; otherwise race.exe (v1.0) or "
-             "the Viper Racing.exe launcher (race.bin pressings)",
+             "the Viper Racing.exe launcher (race.bin pressings). On Linux: viperport.sh, the native "
+             "modern engine, which needs v1.0's race.exe and the engine installed",
     )
     p_play.add_argument("data_dir", type=Path, help="the game's Data folder")
     p_play.add_argument("--dry-run", action="store_true", help="say which route Play would take; start nothing")
@@ -1691,7 +1693,7 @@ def main(argv: list[str] | None = None) -> int:
             show("installed", incoming)
             print("  the previous race.bin was backed up alongside it")
         else:
-            show("current", racebin.inspect(args.data_dir / racebin.RACE_BIN))
+            show("current", racebin.inspect(casefold.path(args.data_dir, racebin.RACE_BIN)))
     elif args.command == "bppsurface":
         from . import bpp as _bpp
         NAMES = {0: "asphalt", 10: "grass", 14: "water", 16: "rumble/apron", 20: "dirt?"}
@@ -1828,7 +1830,7 @@ def main(argv: list[str] | None = None) -> int:
             raw = envelope.parse(raw).payload
         b = bppmod.parse(raw)
         if args.command == "bpp2obj":
-            args.obj_file.write_text(bppmod.to_obj(b, args.trk_file.stem))
+            args.obj_file.write_text(bppmod.to_obj(b, args.trk_file.stem), encoding="utf-8")
             print(f"{len(b.triangles):,} collision triangles -> {args.obj_file}")
         else:
             reached = sum(1 for _ in bppmod.walk(b))
@@ -1945,15 +1947,18 @@ def main(argv: list[str] | None = None) -> int:
             if args.status:
                 st = modern_engine.status(args.data_dir)
                 on = modern_engine.active(args.data_dir)
-                print(f"  modern engine: {st['state']} (vrmod bundles viper-racing-port {st['commit']})")
+                print(f"  modern engine: {st['state']} (vrmod bundles viper-racing-port {st['commit']}"
+                      + (", the native Linux engine)" if st["platform"] == "linux" else ")"))
                 if st["state"] in (modern_engine.INSTALLED, modern_engine.OUTDATED):
                     parts = [n for n, k in (("engine limits", "limits"), ("SDL window and input", "sdl"),
                                             ("OpenGL renderer", "gl"), ("SDL audio", "audio")) if on[k]]
                     print(f"  on: {', '.join(parts)}")
                     g = st["graphics"]
                     print(f"  graphics: {g['preset']} (anisotropic {g['anisotropic']}, msaa {g['msaa']})")
-                if st["standalone"] is not None:
+                if st["standalone"] is not None and st["platform"] != "linux":
                     print(f"  standalone (viperport.exe, v1.0): {st['standalone']}")
+                if st["platform"] == "linux" and not modern_engine.race_exe_is_v10(args.data_dir):
+                    print(f"  (no v1.0 race.exe here -- {modern_engine.V10_ONLY})")
             elif args.graphics:
                 print("  " + modern_engine.set_graphics(args.data_dir, args.graphics))
             elif args.remove:
@@ -2013,7 +2018,7 @@ def main(argv: list[str] | None = None) -> int:
                   "compiled out\n  of the release, so the check simply does not exist "
                   "there.")
     elif args.command == "crashlog":
-        text = Path(args.log).read_text(errors="replace")
+        text = Path(args.log).read_text(encoding="latin-1")
         # An except.log normally sits in the install (or its log\ folder after
         # `vrmod writepaths --logs`), so look beside it before asking.
         cand = [args.data_dir] if args.data_dir else [
@@ -2277,12 +2282,12 @@ def main(argv: list[str] | None = None) -> int:
         values = cf.parse_file(args.cf_file)
         text = cf.to_text(values)
         if args.txt_file is not None:
-            args.txt_file.write_text(text)
+            args.txt_file.write_text(text, encoding="utf-8")
             print(f"wrote {args.txt_file}")
         else:
             print(text, end="")
     elif args.command == "txt2cf":
-        values = cf.parse_text(args.txt_file.read_text())
+        values = cf.parse_text(args.txt_file.read_text(encoding="utf-8-sig"))
         base_raw = args.base_cf.read_bytes()
         new_raw = cf.build(base_raw, values)
         args.out_file.write_bytes(new_raw)
@@ -2293,7 +2298,7 @@ def main(argv: list[str] | None = None) -> int:
             values = ccs.resolve(values, cf.parse_file(args.cf))
         text = ccs.to_text(values)
         if args.txt_file is not None:
-            args.txt_file.write_text(text)
+            args.txt_file.write_text(text, encoding="utf-8")
             print(f"wrote {args.txt_file}")
         else:
             print(text, end="")
@@ -2315,12 +2320,12 @@ def main(argv: list[str] | None = None) -> int:
         records = cockpit_tab.parse_file(args.tab_file)
         text = cockpit_tab.to_text(records)
         if args.txt_file is not None:
-            args.txt_file.write_text(text)
+            args.txt_file.write_text(text, encoding="utf-8")
             print(f"wrote {args.txt_file}")
         else:
             print(text, end="")
     elif args.command == "txt2cockpit":
-        records = cockpit_tab.parse_text(args.txt_file.read_text())
+        records = cockpit_tab.parse_text(args.txt_file.read_text(encoding="utf-8-sig"))
         base_raw = args.base_tab.read_bytes()
         new_raw = cockpit_tab.build(base_raw, records)
         args.out_file.write_bytes(new_raw)

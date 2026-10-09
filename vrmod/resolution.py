@@ -68,7 +68,7 @@ import struct
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import backups, safewrite
+from . import backups, casefold, safewrite
 
 RACE_BIN = "race.bin"
 SLOT = 12                    # bytes per label, including the NUL padding
@@ -122,8 +122,8 @@ def _race_bin(data_dir: Path) -> Path:
     """The engine binary whose mode table the game actually reads."""
     d = Path(data_dir)
     for n in ENGINE_NAMES:
-        if (d / n).is_file():
-            return d / n
+        if (f := casefold.find_file(d, n)) is not None:
+            return f
     raise ResolutionError(f"no {' or '.join(ENGINE_NAMES)} in {d}")
 
 

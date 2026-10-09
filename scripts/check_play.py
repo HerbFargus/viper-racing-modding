@@ -11,7 +11,9 @@ temp folders laid out like each pressing:
 Covers: install puts viperport.exe beside a v1.0 race.exe only and remove takes it out; an engine from
 before the standalone reads as outdated; a foreign viperport.exe is left alone; Play's route on each
 layout; the probe's yes / no / can't-ask / no-answer; its cache; the launch-and-watch fallback; and the
-doctor's standalone finding.
+doctor's standalone finding. Then Linux, forced on any OS (modern_engine.IS_LINUX): viperport.sh is
+the only route, after the ELF's --probe; no engine, no v1.0 race.exe or a probe's no is an error, and
+race.exe / race.bin / the launcher are never started (on a POSIX host, the real _spawn too).
 
 Run:  python scripts/check_play.py
 """
@@ -80,7 +82,146 @@ def titles(d: Path) -> list[str]:
     return [f.title for f in doctor.check(d).findings]
 
 
+REAL_SPAWN = me._spawn
+
+
+def linux_checks(root: Path, rec: Recorder) -> None:
+    """Play on Linux, forced on any OS (me.IS_LINUX): the only route is viperport.sh, after asking the ELF;
+    race.exe / race.bin / the launcher are never started."""
+    me.IS_LINUX = True
+    try:
+        lin = root / "assets" / "linux"
+        (lin / "lib").mkdir(parents=True)
+        (lin / "LICENSES").mkdir()
+        (lin / me.ELF).write_bytes(b"\x7fELF viperport native --probe --race --check")
+        (lin / me.SH).write_bytes(b"#!/bin/sh\nexec ./viperport --race race.exe\n")
+        (lin / me.LIBSDL).write_bytes(b"\x7fELF SDL2 stand-in")
+        (lin / me.LINUX_README).write_bytes(b"README stand-in\n")
+        (lin / "LICENSES" / "SDL2-LICENSE.txt").write_bytes(b"zlib\n")
+        with (root / "assets" / "SOURCE.txt").open("a") as fh:
+            fh.write("\nLinux: stand-in\nviper-racing-port linux commit abcdef0 (2026-10-08)\n")
+
+        print("Linux: the stand-in bundle")
+        check("available, standalone, its commit", me.bundled() == {"available": True, "standalone": True,
+              "commit": "abcdef0", "platform": "linux"}, str(me.bundled()))
+
+        print("Linux: v1.0 (RACE.EXE, as off a CD), no modern engine")
+        d = root / "lin10" / "Data"
+        d.mkdir(parents=True)
+        (d / "RACE.EXE").write_bytes(V10)
+        (d / "Viper Racing.exe").write_bytes(b"MZ launcher stand-in")   # never started on Linux
+        rec.probes.clear(); rec.spawns.clear()
+        try:
+            me.play_route(d)
+            check("no route without the engine", False)
+        except me.PlayError as e:
+            check("no route without the engine: install it", "install the modern engine to play on Linux" in str(e), str(e))
+        try:
+            me.play(d)
+            check("Play refuses without the engine", False)
+        except me.PlayError:
+            check("Play refuses without the engine, nothing started", not rec.spawns and not rec.probes, str(rec.spawns))
+
+        print("Linux: v1.0 + engine, the probe says yes")
+        me.install(d)
+        r = me.play_route(d)
+        check("route is the standalone via viperport.sh", r["route"] == me.STANDALONE and Path(r["exe"]) == d / me.SH
+              and Path(r["cwd"]) == d and r["probe"] is True and r["label"] == me.LINUX_LABEL, str(r))
+        check("probed on the ELF with RACE.EXE (any case: Windows hands the name back as asked)",
+              [(e, r.lower(), c) for e, r, c in rec.probes] == [(me.ELF, "race.exe", d)], str(rec.probes))
+        out = me.play(d)
+        check("viperport.sh spawned from the Data folder, nothing else", rec.spawns == [(me.SH, d)], str(rec.spawns))
+        check("message", out["message"] == f"Started {me.LINUX_LABEL}.", out["message"])
+        check("the answer is cached", len(rec.probes) == 1, str(rec.probes))
+
+        print("Linux: the probe says no")
+        rec.answer = (3, "no: this race.exe has a patch the port doesn't know\n")
+        (d / "RACE.EXE").write_bytes(V10 + b"patched")
+        rec.spawns.clear()
+        try:
+            me.play_route(d)
+            check("a no is an error (no fallback on Linux)", False)
+        except me.PlayError as e:
+            check("a no is an error, the probe's line in it", "patch the port doesn't know" in str(e), str(e))
+        try:
+            me.play(d)
+        except me.PlayError:
+            pass
+        check("nothing spawned, race.exe never", not rec.spawns, str(rec.spawns))
+        rec.answer = (0, "yes: v1.0 race.exe\n")
+
+        print("Linux: an ELF from before --probe")
+        (d / me.ELF).write_bytes(b"\x7fELF viperport native, older")
+        rec.probes.clear(); rec.spawns.clear()
+        r = me.play_route(d)
+        check("outdated, route unprobed", me.status(d)["state"] == me.OUTDATED and r["probe"] is None
+              and not rec.probes, str(r))
+        rec.exit_code = 2
+        try:
+            me.play(d)
+            check("a prompt non-zero exit is an error", False)
+        except me.PlayError as e:
+            check("a prompt non-zero exit is an error naming the log", "viperport.log" in str(e), str(e))
+        check("only viperport.sh was spawned", rec.spawns == [(me.SH, d)], str(rec.spawns))
+        rec.exit_code = None
+        me.install(d)
+
+        print("Linux: viperport.sh missing")
+        (d / me.SH).unlink()
+        try:
+            me.play_route(d)
+            check("no launcher script is an error", False)
+        except me.PlayError as e:
+            check("no launcher script is an error", me.SH in str(e), str(e))
+        me.install(d)
+
+        print("Linux: race.bin only")
+        g = root / "lin11"
+        d11 = g / "Data"
+        d11.mkdir(parents=True)
+        (d11 / "race.bin").write_bytes(b"MZ race.bin stand-in")
+        (g / "Viper Racing.exe").write_bytes(b"MZ launcher stand-in")
+        rec.spawns.clear()
+        try:
+            me.play_route(d11)
+            check("no Linux route", False)
+        except me.PlayError as e:
+            check("no Linux route: v1.0's race.exe only", str(e).startswith("no Linux route: " + me.V10_ONLY), str(e))
+        try:
+            me.play(d11)
+        except me.PlayError:
+            pass
+        check("the launcher is never started", not rec.spawns, str(rec.spawns))
+
+        print("Linux: nothing to start")
+        empty = root / "linempty"
+        empty.mkdir()
+        try:
+            me.play_route(empty)
+            check("not a Data folder is an error", False)
+        except me.PlayError as e:
+            check("not a Data folder is an error", "is this the game's Data folder" in str(e), str(e))
+
+        if sys.platform != "win32":
+            print("Linux: the real _spawn (this OS)")
+            try:
+                REAL_SPAWN(d / "RACE.EXE", d)
+                check("_spawn refuses a Windows program", False)
+            except me.PlayError as e:
+                check("_spawn refuses a Windows program", "Windows program" in str(e), str(e))
+            sh = root / "spawned.sh"
+            sh.write_text("#!/bin/sh\nps -o sid= -p $$ > sid.txt\n")
+            sh.chmod(0o755)
+            proc = REAL_SPAWN(sh, root)
+            proc.wait(timeout=10)
+            sid = (root / "sid.txt").read_text().strip() if (root / "sid.txt").is_file() else ""
+            check("started in its own session (start_new_session)", sid == str(proc.pid), f"sid {sid}, pid {proc.pid}")
+    finally:
+        me.IS_LINUX = False
+
+
 def main() -> None:
+    me.IS_LINUX = False                  # the Windows routes first (and the doctor); linux_checks() after
     rec = Recorder()
     me._run_probe, me._spawn = rec.run_probe, rec.spawn
     with tempfile.TemporaryDirectory() as tmp:
@@ -242,6 +383,8 @@ def main() -> None:
             check("no launcher is an error", False)
         except me.PlayError as e:
             check("no launcher is an error", "Viper Racing.exe" in str(e), str(e))
+
+        linux_checks(root, rec)
 
     if FAILS:
         for f in FAILS:

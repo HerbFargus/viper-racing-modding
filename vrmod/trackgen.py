@@ -31,7 +31,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import mod, obt as obt_mod
+from . import casefold, mod, obt as obt_mod
 
 # Surface codes, as measured in the shipped .bpp files and confirmed from the
 # generator's own output. Anything outside this set has to be hand-applied or
@@ -1459,11 +1459,11 @@ def read_meshes(path: str | Path) -> dict[str, "mod.Mesh"]:
         return {p.name: mod.read_obj(p)}
     if p.is_dir():
         out: dict[str, "mod.Mesh"] = {}
-        for f in sorted(p.glob("*.dof")):
+        for f in casefold.glob(p, "*.dof"):
             if "_lod" in f.stem.lower():
                 continue          # a level-of-detail variant, not another object
             out.update(from_dof(f))
-        for f in sorted(p.glob("*.mod")):
+        for f in casefold.glob(p, "*.mod"):
             out[f.name] = mod.parse(f.read_bytes())
         if out:
             return out
@@ -1552,14 +1552,13 @@ def write_textures(source: str | Path, out_dir) -> list:
     missing = []
     for original, fitted in sorted(mapping.items()):
         stem = Path(original).stem
-        image = next((base / (stem + e) for e in (".tga", ".TGA")
-                      if (base / (stem + e)).exists()), None)
+        image = casefold.find(base, stem + ".tga")
         if image is None:
             # Skipping quietly is the wrong failure: the mesh still references
             # the texture, so the archive ships a .grf naming a member that does
             # not exist, and the surface renders as flat colour in game with no
             # error. Better to stop here, where the cause is obvious.
-            missing.append((stem, [q.name for q in base.glob(stem + ".*")]))
+            missing.append((stem, [q.name for q in casefold.glob(base, stem + ".*")]))
             continue
         out = d / fitted
         pixels, w, h = tex.read_tga(image)
@@ -1818,8 +1817,8 @@ COLLIDER = "collider"
 def read_object_flags(path: str | Path) -> dict[str, int]:
     """Read `geometry.ini`'s per-object flags. Empty when there is none."""
     p = Path(path)
-    ini = p if p.name.lower() == "geometry.ini" else (
-        (p if p.is_dir() else p.parent) / "geometry.ini")
+    ini = p if p.name.lower() == "geometry.ini" else casefold.path(
+        p if p.is_dir() else p.parent, "geometry.ini")
     if not ini.exists():
         return {}
     text = ini.read_text("latin-1", errors="replace")

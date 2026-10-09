@@ -70,7 +70,7 @@ import re
 import shutil
 from pathlib import Path
 
-from . import backups, safewrite
+from . import backups, casefold, safewrite
 
 RACE_BIN = "race.bin"
 
@@ -103,8 +103,8 @@ class ModAssertError(RuntimeError):
 def _engine(data_dir: str | Path) -> Path:
     d = Path(data_dir)
     for n in ENGINE_NAMES:
-        if (d / n).is_file():
-            return d / n
+        if (f := casefold.find_file(d, n)) is not None:
+            return f
     raise ModAssertError(f"no {' or '.join(ENGINE_NAMES)} in {d}")
 
 

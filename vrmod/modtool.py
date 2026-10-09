@@ -53,7 +53,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from . import archive, envelope, mod, stp, tex
+from . import archive, casefold, envelope, mod, stp, tex
 from .safewrite import write_atomic
 
 NAME = "modtool.res"
@@ -596,7 +596,7 @@ def generated_background() -> Canvas:
 
 
 def _find_member(data_dir: Path, res: str, member: str) -> bytes | None:
-    p = data_dir / res
+    p = casefold.path(data_dir, res)
     if not p.is_file():
         return None
     try:
@@ -829,7 +829,7 @@ def status(data_dir: str | Path) -> dict:
     its background from (or None), "backup": a set-aside modtool.res is here}. installed / outdated
     = written by vrmod (its record matches the file), by this generator or an older one."""
     d = Path(data_dir)
-    p = d / NAME
+    p = casefold.path(d, NAME)
     out = {"state": ABSENT, "background": None, "backup": (d / BACKUP).is_file()}
     if not p.is_file():
         return out
@@ -856,7 +856,7 @@ def install(data_dir: str | Path, force: bool = False) -> str:
     if not is_v10(d):
         raise ModtoolError("the model editor is in v1.0's race.exe only -- there's no v1.0 race.exe here")
     st = status(d)["state"]
-    p = d / NAME
+    p = casefold.path(d, NAME)
     note = ""
     if st == FOREIGN and not force:
         return (f"Left the {NAME} here alone: it isn't the community stand-in or vrmod's, so it's someone's "
@@ -886,7 +886,7 @@ def remove(data_dir: str | Path) -> str:
     """Take vrmod's modtool.res out and put back the one it replaced, if any. Leaves anyone else's alone."""
     d = Path(data_dir)
     st = status(d)
-    p = d / NAME
+    p = casefold.path(d, NAME)
     msg = []
     if st["state"] in (INSTALLED, OUTDATED):
         p.unlink()

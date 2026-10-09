@@ -69,7 +69,8 @@ def _read_raw(p: Path) -> str:
     the file. The game's files are CRLF; `newline=""` keeps them that way so a
     write touches one value and nothing else.
     """
-    return p.read_text("latin-1", errors="replace", newline="")
+    with open(p, encoding="latin-1", errors="replace", newline="") as f:   # (read_text's newline= is 3.13+)
+        return f.read()
 
 
 def effective(value: float) -> float:

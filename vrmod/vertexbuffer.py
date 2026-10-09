@@ -32,7 +32,7 @@ from __future__ import annotations
 import struct
 from pathlib import Path
 
-from . import safewrite
+from . import casefold, safewrite
 
 RACE_BIN = "race.bin"
 
@@ -45,8 +45,8 @@ def _engine(data_dir):
     from pathlib import Path as _P
     d = _P(data_dir)
     for n in ENGINE_NAMES:
-        if (d / n).is_file():
-            return d / n
+        if (f := casefold.find_file(d, n)) is not None:
+            return f
     return d / RACE_BIN            # nonexistent: callers report "missing"
 
 

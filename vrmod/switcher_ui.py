@@ -42,11 +42,12 @@ import hashlib
 import http.server
 import json
 import os
+import sys
 import threading
 import webbrowser
 from pathlib import Path
 
-from . import aifield, ainames, archive, enginefix, backups, carshot, cf, dekey, doctor, envelope, grf, hornball, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch, headon, drawdistance, writepaths, modassert, carlist, modern_engine, modtool
+from . import aifield, ainames, archive, casefold, enginefix, backups, carshot, cf, dekey, doctor, envelope, grf, hornball, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch, headon, drawdistance, writepaths, modassert, carlist, modern_engine, modtool
 
 _PAGE = r"""<!doctype html>
 <meta charset="utf-8"><title>Viper Racing -- Mod Manager</title>
@@ -1206,11 +1207,16 @@ async function renderGame(){
          4&times; anti-aliasing, for stronger graphics cards. Enhanced and High also switch on the game's
          own texture filtering and mipmaps (from the game's first run on).
          Anti-aliasing changes take effect the next time the game starts.</p>
-       <p class="lede" style="margin:14px 0 0">A DLL beside the game (dinput.dll, with SDL2.dll and
+       ${me.platform === 'linux' ? `<p class="lede" style="margin:14px 0 0">On Linux it installs
+         <b>viperport</b>, its launcher viperport.sh and SDL2 (lib/) beside race.exe, with viperport.ini
+         &mdash; the game on the port's code alone, natively: your race.exe is read as data and isn't
+         changed, and Remove takes it all out again. It runs v1.0's race.exe only (the race.bin builds
+         are Windows-only), and Play starts it.${me.state === 'foreign' ? ' The viperport already here isn’t the modern engine’s: move it aside to install.' : ''}</p>`
+       : `<p class="lede" style="margin:14px 0 0">A DLL beside the game (dinput.dll, with SDL2.dll and
          viperport.ini) &mdash; race.exe / race.bin aren't changed, and Remove puts the game back to stock.
          It works on v1.0, v1.1 and the community 1.2.4&ndash;1.2.6 builds. Takes effect on the next
-         launch.${me.state === 'foreign' ? ' The dinput.dll already here belongs to another mod; it is set aside, and put back on Remove.' : ''}</p>
-       ${me.standalone !== null && me.standalone !== undefined ? `<p class="lede" style="margin:10px 0 0">On v1.0 it
+         launch.${me.state === 'foreign' ? ' The dinput.dll already here belongs to another mod; it is set aside, and put back on Remove.' : ''}</p>`}
+       ${me.platform !== 'linux' && me.standalone !== null && me.standalone !== undefined ? `<p class="lede" style="margin:10px 0 0">On v1.0 it
          also puts <b>viperport.exe</b> beside race.exe: the standalone, which runs the game on the port's
          code alone &mdash; your race.exe is read as data, none of its original code runs. Play uses it
          whenever it will run this race.exe (a vrmod-patched one is fine), and race.exe with the DLL
@@ -2266,14 +2272,15 @@ def _status_payload(d: Path) -> dict:
         # add-on's own screenshot, so surface that instead of the stock icon.
         preview = shot = None
         if s.occupied_by:
-            preview = next((c.name for c in (d / f"{s.occupied_by}.jpg", d / f"{s.occupied_by}.JPG")
-                            if c.exists()), None)
-            if preview is None and (d / f"{s.occupied_by}.stp").exists():
-                shot = f"{s.occupied_by}.stp"
+            jpg = casefold.find_file(d, f"{s.occupied_by}.jpg")
+            preview = jpg.name if jpg else None
+            stp_file = casefold.find_file(d, f"{s.occupied_by}.stp")
+            if preview is None and stp_file is not None:
+                shot = stp_file.name
         # Length of whatever is actually in the slot, so a modded track
         # reports its own figure rather than the stock one.
         try:
-            miles = track_mod.length_miles(d / f"{s.slot}.trk")
+            miles = track_mod.length_miles(casefold.path(d, f"{s.slot}.trk"))
         except Exception:
             miles = None
         slots.append({
@@ -2283,15 +2290,17 @@ def _status_payload(d: Path) -> dict:
         })
     tracks = []
     for t in switcher.available_tracks(d):
-        jpg = next((c.name for c in (d / f"{t.stem}.jpg", d / f"{t.stem}.JPG") if c.exists()), None)
+        jpg_file = casefold.find_file(d, f"{t.stem}.jpg")
+        jpg = jpg_file.name if jpg_file else None
+        stp_file = casefold.find_file(d, f"{t.stem}.stp")
         try:
             miles = track_mod.length_miles(t)
         except Exception:
             miles = None
         tracks.append({
             "name": t.name, "stem": t.stem, "size": t.stat().st_size,
-            "preview": jpg, "has_stp": (d / f"{t.stem}.stp").exists(),
-            "stp": f"{t.stem}.stp" if (d / f"{t.stem}.stp").exists() else None,
+            "preview": jpg, "has_stp": stp_file is not None,
+            "stp": stp_file.name if stp_file else None,
             "miles": miles,
         })
     # Active cars sit in Data itself; deactivated ones are moved into
@@ -2305,8 +2314,8 @@ def _status_payload(d: Path) -> dict:
     by_slot = {s["slot"]: s for s in slots}
     library_tracks = []
     for slot, info in by_slot.items():
-        f = d / f"{slot}.trk"
-        if not f.is_file():
+        f = casefold.find_file(d, f"{slot}.trk")
+        if f is None:
             continue
         library_tracks.append({
             "name": f.name, "stem": slot, "slot": slot, "in_slot": True,
@@ -2382,7 +2391,8 @@ def is_data_folder(path: Path | str) -> bool:
         p = Path(path)
     except (TypeError, ValueError):
         return False
-    return p.is_dir() and ((p / "race.bin").is_file() or any(p.glob("*.car")))
+    return p.is_dir() and (casefold.find_file(p, "race.bin") is not None
+                           or bool(casefold.glob(p, "*.car")))
 
 
 def set_data_dir(path: Path | str | None) -> Path | None:
@@ -2517,7 +2527,6 @@ FIX_ACTIONS = {
     "vram": _fix_vram,
     "dekey": _fix_dekey,
     "backups": _fix_backups,
-    "dpi": _fix_dpi,
     "patch": _fix_patch,
     "wp_logs": lambda d: _fix_writepaths(d, writepaths.LOGS_KIND),
     "wp_userdir": lambda d: _fix_writepaths(d, writepaths.USER_DIR_KIND),
@@ -2526,3 +2535,8 @@ FIX_ACTIONS = {
     "carlist": _fix_carlist,
     "modtool": lambda d: modtool.install(d),
 }
+# The DPI-aware flag is a Windows compatibility-registry setting (patchset.set_dpi_aware); off
+# Windows there is nothing to set, and the doctor never offers it there.
+if sys.platform == "win32":
+    FIX_ACTIONS["dpi"] = _fix_dpi
+WINDOWS_ONLY_FIXES = frozenset({"dpi"})

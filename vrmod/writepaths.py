@@ -63,7 +63,7 @@ import re
 import shutil
 from pathlib import Path
 
-from . import backups, safewrite
+from . import backups, casefold, safewrite
 
 # Engine binaries, live one first -- same ordering rule as vrampatch: a v1.0
 # install ships both, and only race.exe is ever loaded.
@@ -157,7 +157,7 @@ def _pairs(kind: str) -> list[tuple[bytes, bytes]]:
 
 def _present(data_dir: str | Path) -> list[Path]:
     d = Path(data_dir)
-    return [d / n for n in TARGETS if (d / n).is_file()]
+    return [f for n in TARGETS if (f := casefold.find_file(d, n)) is not None]
 
 
 def _state_of(blob: bytes, kind: str) -> str:
@@ -262,7 +262,7 @@ def apply(data_dir: str | Path, kind: str = LOGS_KIND, *,
         if done:
             changed[f.name] = done
 
-    folder = d / (LOG_DIR if kind == LOGS_KIND else USER_DIR_NEW.decode().rstrip("\\"))
+    folder = casefold.path(d, LOG_DIR if kind == LOGS_KIND else USER_DIR_NEW.decode().rstrip("\\"))
     folder.mkdir(exist_ok=True)
     if kind == USER_DIR_KIND:
         # Subfolders the engine looks for underneath the user directory. It
@@ -272,7 +272,7 @@ def apply(data_dir: str | Path, kind: str = LOGS_KIND, *,
         # "Can't create setup file". fopen creates no directories, so making
         # them here costs nothing and removes the question.
         for sub in USER_SUBDIRS:
-            (folder / sub).mkdir(exist_ok=True)
+            casefold.path(folder, sub).mkdir(exist_ok=True)
 
     migrated = []
     if kind == USER_DIR_KIND and migrate:
@@ -348,8 +348,8 @@ OPTIONS_DEF = "options.def"
 def config_dirs(data_dir: str | Path) -> list[Path]:
     """Candidate Config folders, most-likely first. See the note above."""
     d = Path(data_dir)
-    return [d / USER_DIR_NEW.decode().rstrip("\\"),
-            d.parent / USER_DIR_NEW.decode().rstrip("\\")]
+    name = USER_DIR_NEW.decode().rstrip("\\")
+    return [casefold.path(d, name), casefold.path(d.parent, name)]
 
 
 def config_dir(data_dir: str | Path, *, containing: str | None = None) -> Path | None:
@@ -361,7 +361,7 @@ def config_dir(data_dir: str | Path, *, containing: str | None = None) -> Path |
     should not win over a populated one.
     """
     for c in config_dirs(data_dir):
-        if c.is_dir() and (containing is None or (c / containing).is_file()):
+        if c.is_dir() and (containing is None or casefold.find_file(c, containing) is not None):
             return c
     return None
 
@@ -375,7 +375,7 @@ def options_file(data_dir: str | Path) -> Path | None:
     """
     d = Path(data_dir)
     for name in (OPTIONS_CFG, OPTIONS_DEF):
-        for c in [r / name for r in config_dirs(d)] + [d / name]:
-            if c.is_file():
+        for r in [*config_dirs(d), d]:
+            if (c := casefold.find_file(r, name)) is not None:
                 return c
     return None
