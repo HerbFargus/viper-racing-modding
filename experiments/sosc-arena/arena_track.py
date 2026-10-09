@@ -138,8 +138,8 @@ OBSTACLE_MESH = os.environ.get("ARENA_OBSTACLE_MESH", "cow.mod")
 # jeeps 3,200, the horn ball 3,000; the boulder run settled on 100,000). It was
 # written as 1.4 (believed a radius), and then 15: either way a toy beside a
 # 3,000 lb car, so every cow bounced off like a beach ball. 1,200 is a real cow;
-# the user tried 500 for a ball cow, then settled lower at 250.
-OBSTACLE_MASS = float(os.environ.get("ARENA_OBSTACLE_MASS", "250"))
+# the user tried 500 for a ball cow, then 250, then settled at 100.
+OBSTACLE_MASS = float(os.environ.get("ARENA_OBSTACLE_MASS", "100"))
 # A BALL obstacle's sphere is centred on the mesh's origin, so for `ball` the
 # cow is centred in it (cow_mesh_member); a prism stands on its feet.
 # ARENA_COW_TUBES=0 drops the cows' .sol tubes. With them in place the car hits

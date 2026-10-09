@@ -137,7 +137,7 @@ The default build no longer scatters 200 cows over the map. It places:
   from its middle, and **50 in the middle ring**, everything between the plaza
   and the berm (`|dx| + |dy| >= 16` tiles from the centre), at least 12 m from a
   tower. All but 10 (`ARENA_SOLID_COWS`), picked at random, are `obj obstacle
-  ball` cows (250 lb, centred in their sphere) that roll when hit; the 10 are
+  ball` cows (100 lb, centred in their sphere) that roll when hit; the 10 are
   solid tubes. The record is `X,Z:ROT MASS` -- read off parse_obstacle; it was
   long written as if the last two were height and radius, which made every
   knockable cow mass 1.4. A knockable cow's static copy is taken out of the
