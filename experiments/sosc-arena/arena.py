@@ -89,7 +89,7 @@ COW_COUNT = int(os.environ.get("ARENA_COWS", "50"))
 # rather than over the whole map: a disc around the centre tile, kept clear of
 # the statue that stands on it.
 COW_CENTRE = (62.0, 66.0)    # tile coordinates: the middle of the four blocks
-COW_RADIUS = (35.0, 120.0)   # metres from the centre: clear of the statue's feet, outer edge
+COW_RADIUS = (35.0, 120.0)   # metres from the centre: inner clearance, outer edge (and off the statue's legs)
 # A second herd in the middle ring: everything between the centre square (the
 # diamond plaza the four sloped blocks' slopes enclose) and the outer road --
 # the grass islands, the cross-roads between them and the road round them.
@@ -99,10 +99,11 @@ RING_INNER = 16.0                          # tiles |dx| + |dy| from COW_CENTRE: 
 RING_BOX = ((41.5, 81.5), (45.5, 85.5))    # tile x, y range of the flat floor inside the berm
 TOWER_CLEAR = 12.0                         # metres from a tower's centre (its base is 14.58 m square)
 # One giant cow statue on the centre: the same SoSC cow mesh, scaled up so far
-# that a car drives under it: 30 m tall (the towers are 43.75). The cow's belly
-# is at 0.75 m of its 1.93 m, so that puts the belly 11.7 m up and makes the cow
-# about 43 m long. Only its legs are solid -- see cow_legs.
-STATUE_HEIGHT = float(os.environ.get("ARENA_STATUE_HEIGHT", "30"))
+# that a car drives under it: 60 m tall (the towers are 43.75). The cow's belly
+# is at 0.75 m of its 1.93 m, so that puts the belly 23 m up and makes the cow
+# about 87 m long. Only its legs are solid -- see cow_legs.
+STATUE_HEIGHT = float(os.environ.get("ARENA_STATUE_HEIGHT", "60"))
+LEG_CLEAR = 3.0              # metres a cow keeps from the edge of a statue leg
 # Ground: SKY.BMP #4 (identical to TILED1.BMP, which the game loads) is an 8x8
 # sheet of 32 px terrain cells, in sets:
 #     0-9    water              10-15  rubble
@@ -749,12 +750,30 @@ def build(sosc: Path, city_path: Path, out: Path) -> dict:
         hi = h[(-1, 1)] * (1 - fx) + h[(1, 1)] * fx
         return lo * (1 - fy) + hi * fy
 
+    # The statue: the same cow, scaled to STATUE_HEIGHT, on the centre, under its
+    # own copies of the cow's materials ("s" prefix) so the track build never
+    # mistakes its faces for one of the herd's.
+    statue_at, statue_legs = None, []
+    if STATUE_HEIGHT > 0:
+        scale = STATUE_HEIGHT / (max(v[1] for v in cow_verts) / UNITS_PER_M)
+        statue_at = (COW_CENTRE[0] * TILE, ground_at(*COW_CENTRE), COW_CENTRE[1] * TILE)
+        place_model(obj, mtl, out, cow_verts, [dict(f) for f in cow_faces], pal, atl, statue_at,
+                    seen=prop_materials, scale=scale, mat_prefix="s")
+        statue_legs = cow_legs(cow_verts, statue_at, scale)
+        statue_at = tuple(round(a, 1) for a in statue_at)
+
     cow_at = []
     r0, r1 = COW_RADIUS
-    for _ in range(COW_COUNT):
+    def on_a_leg(px, py):
+        return any(math.dist((px * TILE, py * TILE), (x, z)) < r + LEG_CLEAR
+                   for x, _y, z, r, _h in statue_legs)
+
+    while len(cow_at) < COW_COUNT:
         ang = rnd.uniform(0, 2 * math.pi)
         rad = math.sqrt(rnd.uniform(r0 * r0, r1 * r1)) / TILE      # even over the ring's area
         px, py = COW_CENTRE[0] + rad * math.cos(ang), COW_CENTRE[1] + rad * math.sin(ang)
+        if on_a_leg(px, py):
+            continue
         at = (px * TILE, ground_at(px, py), py * TILE)
         cow_at.append(tuple(round(a, 1) for a in at))
         place_model(obj, mtl, out, cow_verts, [dict(f) for f in cow_faces], pal, atl, at,
@@ -776,17 +795,6 @@ def build(sosc: Path, city_path: Path, out: Path) -> dict:
         place_model(obj, mtl, out, cow_verts, [dict(f) for f in cow_faces], pal, atl, at,
                     yaw=rnd.uniform(0, 2 * math.pi), seen=prop_materials)
 
-    # The statue: the same cow, scaled to STATUE_HEIGHT, on the centre, under its
-    # own copies of the cow's materials ("s" prefix) so the track build never
-    # mistakes its faces for one of the herd's.
-    statue_at, statue_legs = None, []
-    if STATUE_HEIGHT > 0:
-        scale = STATUE_HEIGHT / (max(v[1] for v in cow_verts) / UNITS_PER_M)
-        statue_at = (COW_CENTRE[0] * TILE, ground_at(*COW_CENTRE), COW_CENTRE[1] * TILE)
-        place_model(obj, mtl, out, cow_verts, [dict(f) for f in cow_faces], pal, atl, statue_at,
-                    seen=prop_materials, scale=scale, mat_prefix="s")
-        statue_legs = cow_legs(cow_verts, statue_at, scale)
-        statue_at = tuple(round(a, 1) for a in statue_at)
 
     obj.write(out, mtl)
     return {"city": city.name, "level_m": level, "tiles": (x1 - x0 + 1, y1 - y0 + 1),

@@ -141,11 +141,15 @@ The default build no longer scatters 200 cows over the map. It places:
 - **50 more in the middle ring**, everything between the plaza and the berm
   (`|dx| + |dy| >= 16` tiles from the centre), all solid, at least 12 m from a
   tower.
-- **One cow statue, 30 m tall** (`ARENA_STATUE_HEIGHT`), on the centre. The
+- **One cow statue, 60 m tall** (`ARENA_STATUE_HEIGHT`), on the centre. The
   cow's belly is at 0.75 of its 1.93 m, so a car drives under it; only its legs
   are solid, a tube per leg up to the belly (`arena.cow_legs`). It has its own
   copies of the cow's materials (`s` prefix) so the per-instance split never
   deals its faces out among the herd.
+
+The towers' boxes are solid on all four faces (`open_ends=0`). Built from a
+road barrier they inherited its open ends, and cars drove through two sides of
+every tower: see `sol.box_from_segment`.
 
 Wobble cows stay off (`ARENA_WOBBLE=0`): 50 of them crash race start on the
 original race.exe and the port alike.

@@ -504,8 +504,10 @@ def our_sol(donor: Path, cows, boxes, id_count: int = 0, legs=()) -> tuple[bytes
     prims += [sol.tube_at(tube_template, (x, y, z), radius=r, half_length=max(h - r, 0.1))
               for x, y, z, r, h in legs]
     wall = sol.wall_template(donor_sol)
+    # open_ends=0: a tower is a pillar, solid on all four faces. The barrier
+    # template is open at both ends, and the towers drove through on two sides.
     prims += [sol.box_from_segment(wall, (cx - sx / 2, cy, cz), (cx + sx / 2, cy, cz),
-                                   height=h, thickness=sz)
+                                   height=h, thickness=sz, open_ends=0)
               for cx, cy, cz, sx, sz, h in boxes]
     index, tail = sol.build_spatial_index(prims)
     built = sol.Sol(primitives=prims, index=index, tail=tail, version=trackbuild.SOL_VERSION)

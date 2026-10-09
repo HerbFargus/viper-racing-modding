@@ -334,6 +334,7 @@ def find(sol: "Sol", x: float, z: float) -> list[int]:
 #
 # which is why a wall's half length "appears twice": along is its longest side.
 BOX_EXTENTS = 0x58
+BOX_MODE = 0x68      # BoxVolume::mode -- which end caps a car is let past (box_from_segment)
 
 
 def _pack_box_extents(raw: bytearray, hx: float, hy: float, hz: float) -> None:
@@ -343,7 +344,7 @@ def _pack_box_extents(raw: bytearray, hx: float, hy: float, hz: float) -> None:
 
 
 def box_from_segment(template: "Primitive", a, b, *, height: float,
-                     thickness: float = 0.1) -> "Primitive":
+                     thickness: float = 0.1, open_ends: int | None = None) -> "Primitive":
     """A wall BOX spanning `a` to `b`, built by patching a shipped record.
 
     Everything this format needs that nobody has decoded -- the serialised C++
@@ -371,6 +372,15 @@ def box_from_segment(template: "Primitive", a, b, *, height: float,
         row 0 is the normal, perpendicular in XZ
         half-extents, local x y z, are (half thickness, half height, half length)
 
+    `open_ends` is the BoxVolume mode at +0x68 (BOX_MODE): bit 1 ignores a car
+    past the +z end (the far end, `b`), bit 2 past the -z end (`a`) --
+    collide_sphere_box returns before testing. Barriers chained end to end are
+    3, so a car sliding along one never snags on the joint; a chain's last box
+    is 1 or 2; and EVERY free-standing block on a shipped track is 0 (bemidji 35
+    of 35, heaven 13 of 13, kenyon 3 of 3). None keeps the template's -- right
+    for a wall, wrong for a pillar: a tower box built from a barrier took its 3,
+    and cars drove straight through its two end faces.
+
     `thickness` defaults to 0.1 m, which is what stock walls are. Until the
     BoxVolume constructor was read, +0x58 was not known to be the thickness, so
     this parameter was accepted and never written, and every generated wall
@@ -396,6 +406,8 @@ def box_from_segment(template: "Primitive", a, b, *, height: float,
                      (ax + bx) / 2.0, (ay + by) / 2.0 + height / 2.0,
                      (az + bz) / 2.0)
     _pack_box_extents(raw, thickness / 2.0, height / 2.0, length / 2.0)
+    if open_ends is not None:
+        struct.pack_into("<i", raw, BOX_MODE, open_ends)
     struct.pack_into("<4s", raw, TYPE_OFFSET, BOX[::-1])
     return Primitive(raw=bytes(raw))
 
