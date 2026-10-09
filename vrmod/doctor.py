@@ -986,7 +986,15 @@ def check(data_dir: str | Path) -> Report:
                 slow.append((path.stem, car.load_seconds(counts), counts[0]))
     except Exception:
         slow = []
-    if slow:
+    if slow and modern_engine.fast_car_load(data_dir):
+        names = ", ".join(name for name, _, _ in slow)
+        add(Finding(OK, "Detailed cars load at normal speed on this engine",
+                    f"{names} would be slow to load in a crowd on the original engine, but the modern "
+                    f"engine installed here builds every car's damage maps the fast way, with the same "
+                    f"result. Players on the original race.exe or a community race.bin still get the "
+                    f"wait, so a car meant for everyone should still stay light.",
+                    link=car.LOAD_DOC))
+    elif slow:
         lines = "; ".join(f"{name}: about {sec:.2f} s each, {sec * car.GRID:.1f} s for a grid of "
                           f"{car.GRID} ({v0:,}-vertex body)" for name, sec, v0 in slow)
         add(Finding(WARN, (f"{slow[0][0]} is slow to load when the AI drive it" if len(slow) == 1

@@ -1374,6 +1374,12 @@ wait you'll accept: four seconds doubles every figure.
   there, so a body with many texture seams can still come out over; the fix then is a lighter LOD 0.
 - **The doctor** names any installed car that's slow to load in a crowd, in seconds.
 
+**The modern engine removes the wait.** viper-racing-port (from commit `7356e48`) does the same nearest-vertex
+search on a grid: the same maps, entry for entry, in a fraction of the time. Nine 4,261-vertex jeeps build in
+0.08 s instead of about 1.5 s, and the 11,040-vertex body in 0.022 s per car instead of 0.79 s. It logs
+`race load: cars built in X s` to `viperport.log`, and the doctor checks for it. The limits above still apply
+to anyone playing on the original `race.exe` or a community `race.bin`.
+
 Two related things to keep small for the same engine: the car's **shadow** is drawn every frame from one of
 its last LODs (`<prefix>7.mod` or `<prefix>6.mod` with eight levels, by the shadow setting), and the mapping stores vertex numbers in 16 bits, so a LOD 0
 over 65,535 vertices would map dents to the wrong places.
