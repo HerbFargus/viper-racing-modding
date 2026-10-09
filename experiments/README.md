@@ -13,6 +13,7 @@ just an assertion.
 |---|---|---|
 | [`sosc-to-viper/`](sosc-to-viper/) | Can a car from another 1998 game be converted into a loadable Viper Racing car? | Yes — seven of them, though four undeclared cross-game conventions had to be found from screenshots first |
 | [`sosc-arena/`](sosc-arena/) | Can a Streets of SimCity scenario city be rebuilt, at true scale and in its own art, as a drivable Viper Racing track? | Yes — the Continuous Fire arena loads, laps and drives, cows included, though four conventions that no preview can show (render-chunk size, a mirrored axis, backface winding, the transparency marker) each had to fail in game first |
+| [`baked-lighting/`](baked-lighting/) | Can a flat palette-coloured car get believable shading without adding geometry? | Yes — ambient occlusion and a key light baked into a texture atlas (body, cockpit, wheels), as long as the body is lightened before the bake and the LODs are built after it |
 
 ## Running them
 
