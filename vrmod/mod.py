@@ -451,9 +451,14 @@ def build(mesh: Mesh, version: int = 1) -> bytes:
 # vertex records are "the same point" -- the same rounding the seam checks use.
 _WELD_DECIMALS = 4
 
-# A collapse may turn a surviving triangle by at most this much (cosine of ~60 deg);
-# more than that and it is folding over, which tears the silhouette or flips winding.
-_MAX_TURN_COS = 0.5
+# A collapse may turn a surviving triangle by at most 45 degrees, and may not leave one
+# thinner than _MIN_QUALITY (see _quality) unless it was already that thin. Looser limits
+# (60 degrees, no sliver check) let LODs grow long shards out of the body: points locked
+# on seams and open edges stay put while their neighbours collapse onto them from far
+# away. These stop a mesh from shrinking past the point where it would start to look
+# wrong; the car's own parts are what LODs should shed next (drop_parts).
+_MAX_TURN_COS = 0.7071
+_MIN_QUALITY = 0.15
 
 # Weight of the planes that pin seam lines and open edges in the error metric, relative
 # to the surface's own planes: high enough that a seam is straightened only where it
@@ -475,6 +480,51 @@ def _face_normal(p, q, r) -> tuple[float, float, float]:
     return (uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx)
 
 
+def _quality(pts, cross_len: float) -> float:
+    """Triangle shape, 1 for equilateral down to 0 for a sliver: 4*sqrt(3)*area / sum of
+    squared edge lengths (cross_len is |cross product| = 2 * area)."""
+    e2 = sum((pts[a][k] - pts[b][k]) ** 2 for a, b in ((0, 1), (1, 2), (2, 0)) for k in range(3))
+    return 2 * 3 ** 0.5 * cross_len / e2 if e2 > 0 else 0.0
+
+
+def _point_triangle_distance(p, tri) -> float:
+    """Distance from point p to the triangle tri (three points), edges and corners included."""
+    a, b, c = tri
+    ab = [b[k] - a[k] for k in range(3)]
+    ac = [c[k] - a[k] for k in range(3)]
+    ap = [p[k] - a[k] for k in range(3)]
+
+    def dot(u, v):
+        return u[0] * v[0] + u[1] * v[1] + u[2] * v[2]
+
+    d1, d2 = dot(ab, ap), dot(ac, ap)
+    if d1 <= 0 and d2 <= 0:
+        return dot(ap, ap) ** 0.5
+    bp = [p[k] - b[k] for k in range(3)]
+    d3, d4 = dot(ab, bp), dot(ac, bp)
+    if d3 >= 0 and d4 <= d3:
+        return dot(bp, bp) ** 0.5
+    vc = d1 * d4 - d3 * d2
+    if vc <= 0 and d1 >= 0 and d3 <= 0:
+        t = d1 / (d1 - d3)
+        return sum((ap[k] - t * ab[k]) ** 2 for k in range(3)) ** 0.5
+    cp = [p[k] - c[k] for k in range(3)]
+    d5, d6 = dot(ab, cp), dot(ac, cp)
+    if d6 >= 0 and d5 <= d6:
+        return dot(cp, cp) ** 0.5
+    vb = d5 * d2 - d1 * d6
+    if vb <= 0 and d2 >= 0 and d6 <= 0:
+        t = d2 / (d2 - d6)
+        return sum((ap[k] - t * ac[k]) ** 2 for k in range(3)) ** 0.5
+    va = d3 * d6 - d5 * d4
+    if va <= 0 and d4 - d3 >= 0 and d5 - d6 >= 0:
+        t = (d4 - d3) / ((d4 - d3) + (d5 - d6))
+        return sum((bp[k] - t * (c[k] - b[k])) ** 2 for k in range(3)) ** 0.5
+    denom = va + vb + vc
+    v, w = vb / denom, vc / denom
+    return sum((ap[k] - ab[k] * v - ac[k] * w) ** 2 for k in range(3)) ** 0.5
+
+
 def _plane_quadric(n, p, weight: float) -> list[float]:
     """Error quadric (upper triangle of the 4x4) of the plane through p with unit normal n."""
     a, b, c = n
@@ -489,7 +539,7 @@ def _quadric_error(qd: list[float], p) -> float:
             + qd[7] * z * z + 2 * qd[8] * z + qd[9])
 
 
-def decimate(mesh: Mesh, target_vertices: int) -> Mesh:
+def decimate(mesh: Mesh, target_vertices: int, max_move: float | None = None) -> Mesh:
     """Reduce a mesh towards `target_vertices` vertex records without tearing it.
 
     Works on the mesh as one welded surface: vertex records at the same (rounded)
@@ -514,6 +564,14 @@ def decimate(mesh: Mesh, target_vertices: int) -> Mesh:
     condition), duplicate a triangle, fold a triangle over (_MAX_TURN_COS) or delete a
     material's last triangle. Together these mean decimation adds no open edge and no
     winding error that the input didn't already have.
+
+    `max_move` caps how far the surface may move (in the mesh's units): a removed point's
+    distance to the nearest of the triangles that now cover its neighbourhood, added up
+    over the collapses that carried it. Sliding a point along a flat panel moves nothing.
+    Each collapse is checked on its own, so without a cap many small steps can add up to
+    a spike; with one, a mesh stops shrinking once going further would visibly change
+    its shape. LOD building passes a cap that grows with the distance the level is seen
+    from.
 
     The points that never move put a floor under how far a mesh can shrink, so the
     result may stay above `target_vertices`; callers with a hard ceiling must check.
@@ -602,6 +660,7 @@ def decimate(mesh: Mesh, target_vertices: int) -> Mesh:
         return out
 
     version = [0] * nn
+    reach = [0.0] * nn     # how far the surface has moved, at most, at the points merged into each node
 
     def cost(p: int, q: int) -> float:
         merged = [s + t for s, t in zip(quad[p], quad[q])]
@@ -665,6 +724,7 @@ def decimate(mesh: Mesh, target_vertices: int) -> Mesh:
             if mat_faces[fmat[fi]] <= sum(1 for f2 in shared if fmat[f2] == fmat[fi]):
                 return False
         q_tris = {frozenset(node_of[i] for i in faces[fi]) for fi in node_faces[q]}
+        moved = float("inf")
         for fi in fp:
             if fi in shared:
                 continue
@@ -677,8 +737,17 @@ def decimate(mesh: Mesh, target_vertices: int) -> Mesh:
                 return False
             if n0[0] * n1[0] + n0[1] * n1[1] + n0[2] * n1[2] < _MAX_TURN_COS * l0 * l1:
                 return False
+            new_quality = _quality([pos[q] if node_of[i] == p else pos[node_of[i]] for i in f], l1)
+            if new_quality < _MIN_QUALITY and new_quality < _quality([pos[node_of[i]] for i in f], l0):
+                return False
             if frozenset(q if node_of[i] == p else node_of[i] for i in f) in q_tris:
                 return False
+            # How far the surface moved at p: its distance to the nearest new triangle.
+            moved = min(moved, _point_triangle_distance(
+                pos[p], [pos[q] if node_of[i] == p else pos[node_of[i]] for i in f]))
+        new_reach = max(reach[q], reach[p] + (moved if moved != float("inf") else 0.0))
+        if max_move is not None and new_reach > max_move:
+            return False
         for fi in shared:
             alive[fi] = False
             mat_faces[fmat[fi]] -= 1
@@ -695,6 +764,7 @@ def decimate(mesh: Mesh, target_vertices: int) -> Mesh:
             node_faces[q].add(fi)
         fp.clear()
         quad[q] = [s + t for s, t in zip(quad[q], quad[p])]
+        reach[q] = new_reach
         return True
 
     while live > target_vertices and heap:
@@ -729,6 +799,73 @@ def decimate(mesh: Mesh, target_vertices: int) -> Mesh:
     result = Mesh(vertices=out_vertices, materials=out_materials, faces=out_faces, version=mesh.version)
     _compute_vertex_normals(result)
     return result
+
+
+def parts(mesh: Mesh) -> list[tuple[float, list[int]]]:
+    """The mesh's separate pieces, as (size, face indices): triangles joined through shared
+    positions (welded, so a piece split over materials or UV seams is still one piece).
+    Size is sqrt(longest x middle extent of its bounding box) -- roughly how big it looks
+    side-on, so a 1.3 m bumper 9 cm thick counts as 0.35 m and an antenna 3 cm thick as
+    0.23 m, where its thickness alone would call both tiny."""
+    ids: dict[tuple[float, float, float], int] = {}
+    node_of = [ids.setdefault(_weld_key(v), len(ids)) for v in mesh.vertices]
+    parent = list(range(len(ids)))
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for a, b, c in mesh.faces:
+        parent[find(node_of[a])] = find(node_of[b])
+        parent[find(node_of[b])] = find(node_of[c])
+    groups: dict[int, list[int]] = {}
+    for fi, (a, b, c) in enumerate(mesh.faces):
+        groups.setdefault(find(node_of[a]), []).append(fi)
+    out = []
+    for fl in groups.values():
+        vs = [mesh.vertices[i] for i in {i for fi in fl for i in mesh.faces[fi]}]
+        ext = sorted(max(getattr(v, k) for v in vs) - min(getattr(v, k) for v in vs) for k in "xyz")
+        out.append(((ext[2] * ext[1]) ** 0.5, fl))
+    return out
+
+
+def drop_parts(mesh: Mesh, min_size: float) -> Mesh:
+    """The mesh without the pieces smaller than `min_size` (parts()' size). The biggest
+    piece always stays, so there is always something to draw. Whole pieces go, so nothing
+    is torn: a far LOD sheds the mirrors and door handles rather than crushing them. A
+    material whose pieces all went is left out, which is what the stock viper's own LODs
+    do (its wheel and effects materials are gone from LOD 2 on)."""
+    ps = parts(mesh)
+    if not ps:
+        return mesh
+    biggest = max(ps, key=lambda t: t[0])
+    keep = {fi for size, fl in ps if size >= min_size or fl is biggest[1] for fi in fl}
+    if len(keep) == len(mesh.faces):
+        return mesh
+    vmat = [0] * len(mesh.vertices)
+    for mi, m in enumerate(mesh.materials):
+        for i in range(m.vertex_start, m.vertex_end):
+            vmat[i] = mi
+    used = sorted({i for fi in keep for i in mesh.faces[fi]})
+    remap = {old: new for new, old in enumerate(used)}
+    out_faces: list[tuple[int, int, int]] = []
+    out_materials: list[Material] = []
+    vcursor = 0
+    for mi, m in enumerate(mesh.materials):
+        fstart = len(out_faces)
+        for fi in range(m.face_start, m.face_end):
+            if fi in keep:
+                a, b, c = mesh.faces[fi]
+                out_faces.append((remap[a], remap[b], remap[c]))
+        vstart = vcursor
+        while vcursor < len(used) and vmat[used[vcursor]] == mi:
+            vcursor += 1
+        if len(out_faces) > fstart:     # a material left with nothing goes, as the stock LODs do
+            out_materials.append(Material(m.name, vstart, vcursor, fstart, len(out_faces)))
+    return Mesh(vertices=[Vertex(**vars(mesh.vertices[i])) for i in used],
+                materials=out_materials, faces=out_faces, version=mesh.version)
 
 
 def write_obj(mesh: Mesh, obj_path: str | Path, mtl_path: str | Path | None = None) -> None:

@@ -606,11 +606,46 @@ def fork_car(entries: list[archive.ArchiveEntry], new_prefix: str
     return out
 
 
-# Default per-level vertex fractions of LOD0, for LOD1..LOD7 -- a gentle
-# geometric falloff (lots of detail near, little far). Override with explicit
-# targets. The stock cars pair levels (LOD0==LOD1 etc.); this is monotonic,
-# which is simpler and fine for a generated chain.
-_LOD_FRACS = (0.65, 0.45, 0.30, 0.20, 0.12, 0.07, 0.04)
+# Default per-level vertex fractions of LOD0, for LOD1..LOD7: the stock viper's own
+# falloff (325 -> 299 / 221 / 186 / 122 / 79 / 48 / 26). LODs 1-3 are all on screen in
+# ordinary racing (the chase camera draws LOD 1, a car 20-60 m ahead is LOD 3), so they
+# stay close to LOD 0; a steeper falloff made the switches between them obvious.
+_LOD_FRACS = (0.92, 0.68, 0.57, 0.38, 0.24, 0.15, 0.08)
+
+# The distances at which each LOD gives way to the next, from <prefix>L.tab: the
+# viper's, which every car seen so far copies. Read per car by lod_distances().
+_VIPER_LOD_DISTANCES = (10.0, 15.0, 20.0, 60.0, 80.0, 100.0, 200.0, 1000.0)
+
+# A level drops the car's parts that would look smaller than this (radians) at the
+# distance where the level comes in: about 5 pixels of the game's 640x480, 54-degree
+# view. The jeep's antenna and steering wheel go at LOD 2 (15 m), its bumpers at 60 m.
+PART_VISIBLE = 0.01
+
+# And decimating what's left may move the surface by at most this much (radians, at the
+# same distance): about 2.5 pixels, 5 cm at LOD 1's 10 m, 30 cm at LOD 4's 60 m. A level
+# that can't shrink further within it stops there instead of growing shards.
+SHAPE_TOLERANCE = 0.005
+
+
+def lod_distances(entries: list[archive.ArchiveEntry]) -> tuple[float, ...]:
+    """The car's LOD switch distances in metres (record i: LOD i is drawn out to here),
+    from <prefix>L.tab -- 8 records of 3 fixed-width fields (17, 17, 33 bytes), at the
+    end of the payload. The viper's distances if the table is missing or unreadable."""
+    prefix = (body_prefix(entries) or "").lower()
+    e = next((x for x in entries if x.name.lower() == f"{prefix}l.tab"), None)
+    if e is None or len(e.payload) < 4:
+        return _VIPER_LOD_DISTANCES
+    p = e.payload
+    count = int.from_bytes(p[:4], "little", signed=True)
+    start = len(p) - count * 67
+    if not 0 < count <= 16 or start < 0:
+        return _VIPER_LOD_DISTANCES
+    try:
+        out = tuple(float(p[start + 67 * i: start + 67 * i + 17].split(b"\x00")[0])
+                    for i in range(count))
+    except ValueError:
+        return _VIPER_LOD_DISTANCES
+    return out if all(a < b for a, b in zip(out, out[1:])) else _VIPER_LOD_DISTANCES
 
 # What a car's LODs cost at race load on the original engine. Car::Car (v1.0 0x4364c0;
 # viper-racing-port hook/phys_car.cpp) maps every vertex of LODs 1-4 to its nearest LOD-0
@@ -679,8 +714,8 @@ def build_lod_chain(entries: list[archive.ArchiveEntry], *,
 
     Returns (entries, made) where `made` is [(member, vertex_count), ...].
 
-    targets       explicit per-level vertex counts (LOD1 first); default is a
-                  geometric falloff of the body's vertex count (_LOD_FRACS), with
+    targets       explicit per-level vertex counts (LOD1 first); default is the
+                  stock viper's falloff of the body's vertex count (_LOD_FRACS), with
                   LODs 1-4 scaled down to fit LOAD_BUDGET and every later level
                   kept no bigger than the one before. Decimation never tears a seam,
                   so a mesh with many seam corners can still come out over budget:
@@ -711,17 +746,21 @@ def build_lod_chain(entries: list[archive.ArchiveEntry], *,
     have = {e.name.lower() for e in entries}
     out = entries
     made: list[tuple[str, int]] = []
-    # Decimate each level from LOD0 (best quality), but never let a level exceed
-    # the previous one: on a low-poly/small-block mesh the decimator safely "backs
-    # off" to the original rather than wiping a material's faces, which would break
-    # monotonicity -- so reuse the previous (smaller) level whenever that happens.
+    # Each level starts again from LOD0 (best quality): first the parts too small to
+    # see where the level comes in are dropped whole, then what's left is decimated
+    # if it's still over the level's target. Never let a level exceed the previous
+    # one -- the decimator stops short rather than spoil the shape, so reuse the
+    # previous (smaller) level whenever that happens.
+    distances = lod_distances(entries)
     prev_mesh, prev_v = body_mesh, V
     for i in range(1, levels + 1):
         name = f"{prefix}{i}.mod"
         if keep_existing and name.lower() in have:
             continue
         tgt = targets[i - 1] if i - 1 < len(targets) else targets[-1]
-        dec = mod.decimate(body_mesh, tgt)
+        near_edge = distances[i - 1] if i - 1 < len(distances) else distances[-1]
+        dec = mod.decimate(mod.drop_parts(body_mesh, PART_VISIBLE * near_edge), tgt,
+                           max_move=SHAPE_TOLERANCE * near_edge)
         if len(dec.vertices) >= prev_v:          # backed off / not smaller than previous level
             dec = prev_mesh
         out = archive.upsert_entry(out, name, mod.build(dec, version=body.version))

@@ -46,7 +46,9 @@ def _pos(v: mod.Vertex) -> tuple:
 
 def _rec(m: mod.Mesh, mi: int, i: int) -> tuple:
     v = m.vertices[i]
-    return (m.materials[mi].name, mi, _pos(v), round(v.u, 4), round(v.v, 4))
+    # By texture name, not index: a LOD that drops a material's last piece leaves the
+    # material out, which shifts the indices of the ones after it.
+    return (m.materials[mi].name.lower(), _pos(v), round(v.u, 4), round(v.v, 4))
 
 
 def _face_recs(m: mod.Mesh) -> list[tuple]:
@@ -122,7 +124,7 @@ def check_chain(label: str, m0: mod.Mesh, levels: list[mod.Mesh]) -> None:
         check(recs <= originals, f"{label} LOD {n}: every record is an original (material, position, UV)")
         check(cross == 0, f"{label} LOD {n}: no triangle spans two texture charts")
         check(all(mt.face_end > mt.face_start for mt in m.materials),
-              f"{label} LOD {n}: every material keeps triangles")
+              f"{label} LOD {n}: no empty material records")
 
 
 def cube(n: int = 8) -> mod.Mesh:
@@ -226,8 +228,9 @@ def main() -> int:
             continue
         m0, levels = car_chain(path)
         check_chain(name, m0, levels)
-        check(len(levels[0].vertices) < len(m0.vertices) * 0.8, f"{name} LOD 1 is under 80% of LOD 0")
-        check(len(levels[-1].vertices) < len(m0.vertices) * 0.6, f"{name} LOD 7 is under 60% of LOD 0")
+        counts = [len(m0.vertices)] + [len(m.vertices) for m in levels]
+        check(all(a >= b for a, b in zip(counts, counts[1:])), f"{name}: no level is bigger than the one before")
+        check(counts[-1] < counts[0] * 0.6, f"{name} LOD 7 is under 60% of LOD 0")
 
     print(f"\n{len(FAILS)} failure(s)" if FAILS else "\nall checks passed")
     return 1 if FAILS else 0

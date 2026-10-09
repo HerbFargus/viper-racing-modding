@@ -1367,7 +1367,10 @@ wait you'll accept: four seconds doubles every figure.
 
 **What vrmod does about it:**
 - `vrmod modlod` / **Generate LODs** sizes LODs 1-4 so a full grid of the car stays within about a second
-  (40 million checks per copy), and says how much load time each copy adds. It never tears the mesh to get
+  (40 million checks per copy), and says how much load time each copy adds. Each level first drops the
+  car's separate pieces that would be under about 5 pixels at the distance it comes in (read from the car's
+  `L.tab`), as the stock viper's own LODs drop its wheel and effects pieces, then simplifies what's left
+  only as far as it can without moving the surface more than about 2.5 pixels. It never tears the mesh to get
   there, so a body with many texture seams can still come out over; the fix then is a lighter LOD 0.
 - **The doctor** names any installed car that's slow to load in a crowd, in seconds.
 
