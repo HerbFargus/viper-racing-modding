@@ -265,8 +265,10 @@ def _apply_commit(body: dict) -> tuple[Path, Path]:
         out_entries, made = car.build_lod_chain(entries)
         backup = _store_edit_backup(car_path)
         archive.write(out_entries, car_path)
+        warning = car.load_budget_warning(out_entries)
         return car_path, backup, [], [f"Generated {len(made)} LOD level(s): "
-                                      + ", ".join(f"{n} ({v}v)" for n, v in made)], None
+                                      + ", ".join(f"{n} ({v}v)" for n, v in made)]
+                                     + ([warning] if warning else []), None
     if "track_path" in body:
         return _apply_track_commit(body)
     car_path = Path(body["car_path"])
@@ -2509,6 +2511,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {name}: {vc} verts")
         if not made:
             print("  (nothing generated -- all levels already present and --keep-existing set)")
+        counts = car.lod_vertex_counts(out_entries)
+        print(f"  race-load cost: {car.load_cost(counts) / 1e6:.1f}M per car "
+              f"(LOD 0 x LODs 1-4; budget {car.LOAD_BUDGET / 1e6:.0f}M)")
+        warning = car.load_budget_warning(out_entries)
+        if warning:
+            print(f"warning: {warning}")
     elif args.command == "dekey":
         if args.revert:
             restored = dekey.revert(args.path)

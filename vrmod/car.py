@@ -612,6 +612,43 @@ def fork_car(entries: list[archive.ArchiveEntry], new_prefix: str
 # which is simpler and fine for a generated chain.
 _LOD_FRACS = (0.65, 0.45, 0.30, 0.20, 0.12, 0.07, 0.04)
 
+# What a car's LODs cost at race load on the original engine. Car::Car (v1.0 0x4364c0;
+# viper-racing-port hook/phys_car.cpp) maps every vertex of LODs 1-4 to its nearest LOD-0
+# vertex by brute force, once per car on the grid, so the work is LOD0 x (LOD1+2+3+4)
+# per car; LODs 5-7 don't enter it. Stock viper: 325 x 828 = 0.27M. The Willys with a
+# 7,174 LOD 1 and 5,762 LODs 2-4 (270M per car, 8 cars) hung race load noticeably.
+LOAD_BUDGET = 40_000_000  # steps per car: ~1 s over stock for a grid of 8 (3.2 s per billion, timed 2026-10-09)
+
+
+def load_cost(vertex_counts: list[int]) -> int:
+    """Race-load cost per car of LODs with these vertex counts (LOD 0 first)."""
+    return vertex_counts[0] * sum(vertex_counts[1:5]) if vertex_counts else 0
+
+
+def load_budget_warning(entries: list[archive.ArchiveEntry]) -> str | None:
+    """A line saying the car's LODs are over the original engine's load budget, or None."""
+    counts = lod_vertex_counts(entries)
+    cost = load_cost(counts)
+    if not LOAD_BUDGET or cost <= LOAD_BUDGET:
+        return None
+    return (f"race-load cost {cost / 1e6:.0f}M per car is over the original engine's budget of "
+            f"{LOAD_BUDGET / 1e6:.0f}M (LOD 0 x LODs 1-4 = {counts[0]:,} x {sum(counts[1:5]):,}): "
+            f"a grid of these will be slow to load. LOD 0 has too many seam corners for the LODs "
+            f"to shrink further without tearing -- a lighter LOD 0 is the fix")
+
+
+def lod_vertex_counts(entries: list[archive.ArchiveEntry]) -> list[int]:
+    """Vertex counts of <prefix>0.mod, <prefix>1.mod, ... as far as they go unbroken."""
+    prefix = body_prefix(entries)
+    by_name = {e.name.lower(): e for e in entries}
+    counts = []
+    for i in range(8):
+        e = by_name.get(f"{(prefix or '').lower()}{i}.mod")
+        if e is None:
+            break
+        counts.append(len(mod.parse(envelope.build(e.tag, e.version, e.payload)).vertices))
+    return counts
+
 
 def build_lod_chain(entries: list[archive.ArchiveEntry], *,
                     targets: list[int] | None = None, levels: int = 7,
@@ -630,7 +667,11 @@ def build_lod_chain(entries: list[archive.ArchiveEntry], *,
     Returns (entries, made) where `made` is [(member, vertex_count), ...].
 
     targets       explicit per-level vertex counts (LOD1 first); default is a
-                  geometric falloff of the body's vertex count (_LOD_FRACS).
+                  geometric falloff of the body's vertex count (_LOD_FRACS), with
+                  LODs 1-4 scaled down to fit LOAD_BUDGET and every later level
+                  kept no bigger than the one before. Decimation never tears a seam,
+                  so a mesh with many seam corners can still come out over budget:
+                  check load_cost(lod_vertex_counts(...)) afterwards.
     levels        how many LODs to generate (1..levels); default 7 (full chain).
     keep_existing don't overwrite a level that already exists -- so a hand-authored
                   LOD is preserved and only the missing ones are generated. The
@@ -648,6 +689,12 @@ def build_lod_chain(entries: list[archive.ArchiveEntry], *,
     V = len(body_mesh.vertices)
     if targets is None:
         targets = [max(12, int(round(V * f))) for f in _LOD_FRACS[:levels]]
+        near = V * sum(targets[:4])
+        if LOAD_BUDGET and near > LOAD_BUDGET:
+            scale = LOAD_BUDGET / near
+            targets = [max(12, int(t * scale)) if i < 4 else t for i, t in enumerate(targets)]
+        for i in range(1, len(targets)):
+            targets[i] = min(targets[i], targets[i - 1])
     have = {e.name.lower() for e in entries}
     out = entries
     made: list[tuple[str, int]] = []

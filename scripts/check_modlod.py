@@ -203,6 +203,17 @@ def main() -> int:
         check(crossing == 0 and halves == {True, False},
               f"cube LOD {n}: the +y UV seam is intact on its own line")
 
+    # The load budget: LOD 0 x LODs 1-4 (Car::Car's nearest-vertex maps), LODs 5-7 free.
+    check(car.load_cost([325, 299, 221, 186, 122, 79, 48, 26]) == 325 * 828, "load cost is LOD 0 x LODs 1-4")
+    big = cube(40)
+    entries = [archive.ArchiveEntry(name="big0.mod", tag=mod.TAG, version=1,
+                                    payload=envelope.parse(mod.build(big)).payload)]
+    out, _ = car.build_lod_chain(entries)
+    counts = car.lod_vertex_counts(out)
+    print(f"cube(40) chain {counts}: {car.load_cost(counts) / 1e6:.1f}M per car")
+    check(car.load_cost(counts) <= car.LOAD_BUDGET, "a generated chain fits the load budget when the mesh allows")
+    check(all(a >= b for a, b in zip(counts, counts[1:])), "a generated chain never grows")
+
     for name in ("azzaroni.car.bak", "willys.car", "viper.car"):
         path = INSTALL / name
         if not path.exists():
