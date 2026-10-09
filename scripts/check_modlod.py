@@ -232,6 +232,27 @@ def main() -> int:
         check(all(a >= b for a, b in zip(counts, counts[1:])), f"{name}: no level is bigger than the one before")
         check(counts[-1] < counts[0] * 0.6, f"{name} LOD 7 is under 60% of LOD 0")
 
+    # The far wheel models: smaller, with the near model's bounding box exactly (the engine
+    # scales each to the tyre by it); a car on the shared stock wheels is left alone.
+    for name in ("willys.car", "viper.car"):
+        path = INSTALL / name
+        if not path.exists():
+            continue
+        entries = archive.read(path)
+        by = {e.name.lower(): e for e in entries}
+        out, made = car.build_wheel_far(entries)
+        if "wheel_1.mod" not in by:
+            check(made == [] and out == entries, f"{name}: no wheels of its own, nothing made")
+            continue
+        got = {e.name.lower(): e for e in out}
+        for pat in car.WHEEL_MODELS:
+            near = mod.parse(envelope.build(by[pat % 1].tag, by[pat % 1].version, by[pat % 1].payload))
+            far = mod.parse(envelope.build(got[pat % 2].tag, got[pat % 2].version, got[pat % 2].payload))
+            print(f"{name} {pat % 2}: {len(near.vertices)} -> {len(far.vertices)}")
+            check(len(far.vertices) < len(near.vertices), f"{name} {pat % 2} is smaller than {pat % 1}")
+            check(car._extents(far) == car._extents(near), f"{name} {pat % 2} keeps {pat % 1}'s bounding box")
+            check(topology(far)["open"] <= topology(near)["open"], f"{name} {pat % 2}: no new open edges")
+
     print(f"\n{len(FAILS)} failure(s)" if FAILS else "\nall checks passed")
     return 1 if FAILS else 0
 

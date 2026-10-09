@@ -539,7 +539,8 @@ def _quadric_error(qd: list[float], p) -> float:
             + qd[7] * z * z + 2 * qd[8] * z + qd[9])
 
 
-def decimate(mesh: Mesh, target_vertices: int, max_move: float | None = None) -> Mesh:
+def decimate(mesh: Mesh, target_vertices: int, max_move: float | None = None,
+             pin_extents: bool = False) -> Mesh:
     """Reduce a mesh towards `target_vertices` vertex records without tearing it.
 
     Works on the mesh as one welded surface: vertex records at the same (rounded)
@@ -572,6 +573,9 @@ def decimate(mesh: Mesh, target_vertices: int, max_move: float | None = None) ->
     a spike; with one, a mesh stops shrinking once going further would visibly change
     its shape. LOD building passes a cap that grows with the distance the level is seen
     from.
+
+    `pin_extents` keeps every point that sets the bounding box, for a model the engine
+    scales by its extents (the wheels): losing one would grow the whole model.
 
     The points that never move put a floor under how far a mesh can shrink, so the
     result may stay above `target_vertices`; callers with a hard ceiling must check.
@@ -653,6 +657,13 @@ def decimate(mesh: Mesh, target_vertices: int, max_move: float | None = None) ->
                                     _SEAM_WEIGHT * (ex * ex + ey * ey + ez * ez))
                 for x in (a, b):
                     quad[x] = [s + t for s, t in zip(quad[x], eq)]
+
+    if pin_extents and nn:
+        for k in range(3):
+            lo, hi = min(pt[k] for pt in pos), max(pt[k] for pt in pos)
+            for n in range(nn):
+                if pos[n][k] in (lo, hi):
+                    locked[n] = True
 
     def neighbours(n: int) -> set[int]:
         out = {node_of[i] for fi in node_faces[n] for i in faces[fi]}
