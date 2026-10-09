@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import json
 import math
+import random
 import os
 import struct
 import sys
@@ -114,12 +115,12 @@ FACING_MESH = "cowface.mod"
 # .mod member in the archive and a line of text in a file we already write.
 # Where the wobble route needs a record type nobody has decoded, this one needs
 # only a name to resolve.
-OBSTACLE_COWS = int(os.environ.get("ARENA_OBSTACLE", "50"))
-# ball | cube | prism -- the collision shape the Ball phob is given. PRISM by
-# default: driven in game, a prism cow topples when hit and SETTLES, where a
-# ball cow drops and keeps rolling away like the horn ball it is built from.
-# Same record, same mesh, one word; nothing in the file says which is better.
-OBSTACLE_KIND = os.environ.get("ARENA_OBSTACLE_KIND", "prism")
+OBSTACLE_COWS = int(os.environ.get("ARENA_OBSTACLE", "20"))
+# ball | cube | prism -- the collision shape the Ball phob is given. Driven in
+# game, a prism cow topples when hit and SETTLES, where a ball cow drops and
+# keeps rolling away like the horn ball it is built from. BALL by default (the
+# user's pick, 2026-10-09): beach-ball cows that roll off across the arena.
+OBSTACLE_KIND = os.environ.get("ARENA_OBSTACLE_KIND", "ball")
 # ARENA_OBSTACLE_MESH=ball.mod isolates the mechanism from the mesh: ball.mod is
 # hardcoded in the engine and lives in race.res, so it certainly resolves. If
 # balls appear at the cows, `obj obstacle` works and only our mesh lookup is
@@ -245,7 +246,8 @@ def arena_stats(sosc: Path, city_path: Path, work: Path) -> dict:
     if (work / "arena.obj").exists() and cache.exists():
         return json.loads(cache.read_text())
     stats = arena.build(sosc, city_path, work)
-    keep = {k: stats[k] for k in ("cow_at", "prop_at", "prop_materials")}
+    keep = {k: stats.get(k) for k in ("cow_at", "prop_at", "prop_materials", "statue_at", "statue_legs",
+                                      "middle_cows")}
     cache.write_text(json.dumps(keep))
     return stats
 
@@ -470,7 +472,7 @@ def build_scene(work: Path, line, gates, grid, prop_materials, cows=(),
 # which one a tube gets depends on whether it is a wobble.
 
 
-def our_sol(donor: Path, cows, boxes, id_count: int = 0) -> tuple[bytes, int]:
+def our_sol(donor: Path, cows, boxes, id_count: int = 0, legs=()) -> tuple[bytes, int]:
     """track.sol: a TUBE per cow first, then a BOX per tower.
 
     ONLY THE FIRST `id_count` TUBES CARRY AN ID; every other primitive gets -1,
@@ -497,6 +499,10 @@ def our_sol(donor: Path, cows, boxes, id_count: int = 0) -> tuple[bytes, int]:
                          half_length=COW_TUBE_HEIGHT - COW_TUBE_RADIUS,
                          ident=i if i < id_count else -1)
              for i, at in enumerate(cows)]
+    # The statue's legs: a tube per leg, centred on the ground like the cows', so
+    # half_length + radius is the height that stands above it -- the belly.
+    prims += [sol.tube_at(tube_template, (x, y, z), radius=r, half_length=max(h - r, 0.1))
+              for x, y, z, r, h in legs]
     wall = sol.wall_template(donor_sol)
     prims += [sol.box_from_segment(wall, (cx - sx / 2, cy, cz), (cx + sx / 2, cy, cz),
                                    height=h, thickness=sz)
@@ -798,18 +804,29 @@ def main(argv):
     # billboard, and its solid prop has to come out of the drawn mesh: left in,
     # it stands in front of its own wobble and there is nothing to knock over.
     placed_cows, rest_cows = cows_near_route(cows, r["stations"], PLACED_COWS)
-    placed_set = set(placed_cows)
-    drop_cows = {i for i, c in enumerate(cows) if c in placed_set}
+    # The knockable cows are chosen here too, for the same reason: an obstacle
+    # draws its own cow.mod, so the static cow at its spot has to go, or a
+    # ghost cow stays standing where the real one was knocked away.
+    # Picked at random, not nearest the line: with the herd gathered in the
+    # middle, "nearest the ring" put every beach-ball cow on the herd's edge.
+    # Only from the centre herd: the middle-ring herd after it is all solid.
+    pool = range(min(len(rest_cows), stats.get("middle_cows") or len(rest_cows)))
+    pick = set(random.Random(7).sample(pool, min(OBSTACLE_COWS, len(pool))))
+    knockable = [c for i, c in enumerate(rest_cows) if i in pick]
+    solid = [c for i, c in enumerate(rest_cows) if i not in pick]
+    gone = set(placed_cows) | set(knockable)
+    drop_cows = {i for i, c in enumerate(cows) if c in gone}
+    centres = cows       # the statue has its own materials, so it is not split with the herd
     scene, tex_names = build_scene(
         work, line, gates, [route_mod.to_source(p) for p in r["grid"]],
-        set(stats.get("prop_materials", ())), cows, drop_cows)
+        set(stats.get("prop_materials", ())), centres, drop_cows)
 
     # THE WOBBLES, declared on the scene so trackbuild emits all three pieces --
     # the facing node, the `.sol` tube and the `obj wobble` record -- from one
     # list, with the ids agreeing by construction rather than by three separate
     # loops happening to count the same way.
     if placed_cows:
-        facing = cow_facing_mesh(work, cows)
+        facing = cow_facing_mesh(work, centres)
         if facing is None:
             raise SystemExit("no cow mesh to use as a facing model")
         wrong = [c for c in placed_cows
@@ -856,13 +873,14 @@ def main(argv):
     # they are met early. They get a tube carrying their own id and a wobble
     # record; they must NOT also be obstacles, or two mechanisms fight over one
     # animal, and the tube must be the one whose id the wobble names.
-    knockable, solid = cows_near_route(rest_cows, r["stations"], OBSTACLE_COWS)
     wobbles = len(placed_cows) if PLACED_COWS else min(WOBBLE_COWS, len(cows))
     payloads = {k.lower(): v for k, v in our_textures(work, tex_names).items()}
     # Tube ids are positional, so the placed cows must come FIRST: wobble N
     # names tube id N, and that tube has to be the one under placed model N.
     tube_cows = list(placed_cows) + (list(solid) if COW_TUBES else [])
-    sol_payload, tube_count = our_sol(donor, tube_cows, boxes, wobbles)
+    legs = [tuple(l) for l in stats.get("statue_legs") or []]
+    sol_payload, tube_count = our_sol(donor, tube_cows, boxes, wobbles, legs)
+    print(f"  statue: {len(legs)} leg tubes " + ", ".join(f"r {l[3]:.1f} m to {l[4]:.1f} m" for l in legs))
     payloads["track.sol"] = sol_payload
     obstacles = [(x, y, z) for x, y, z in knockable]
     extra = test_row_records(r["stations"]) if TEST_ROW else []
@@ -877,7 +895,7 @@ def main(argv):
     # at, and leaves colorkey and alpha textures alone, where 0x0000 means what
     # it says. Run over the finished archive so every mip level is covered:
     # averaging two dark texels lands back on the marker.
-    cow_member = (cow_mesh_member(work, cows, set(stats.get("prop_materials", ())))
+    cow_member = (cow_mesh_member(work, centres, set(stats.get("prop_materials", ())))
                   if OBSTACLE_MESH == "cow.mod" else None)
     if cow_member and obstacles:
         add_member(out_path, OBSTACLE_MESH, cow_member, mod.TAG, 1)

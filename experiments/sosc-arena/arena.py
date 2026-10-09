@@ -26,6 +26,7 @@ SCALE: a SimCity 2000 tile is 16 m and SoSC stores 262,144 units per metre
 from __future__ import annotations
 
 import math
+import os
 import random
 import re
 import shutil
@@ -83,7 +84,25 @@ PROPS = {225: ("SIM3D1.MAX", "AP225"), 124: ("SIM3D3.MAX", "CO124"),
 TREE_IDS = range(6, 13)
 TREE_TEX = (30, 31, 32, 33)
 COW = ("SIM3D1.MAX", 162)
-COW_COUNT = 200              # over the whole map; SoSC scatters them freely
+COW_COUNT = int(os.environ.get("ARENA_COWS", "50"))
+# The cows gather in the middle of the arena, among the four sloped blocks,
+# rather than over the whole map: a disc around the centre tile, kept clear of
+# the statue that stands on it.
+COW_CENTRE = (62.0, 66.0)    # tile coordinates: the middle of the four blocks
+COW_RADIUS = (35.0, 120.0)   # metres from the centre: clear of the statue's feet, outer edge
+# A second herd in the middle ring: everything between the centre square (the
+# diamond plaza the four sloped blocks' slopes enclose) and the outer road --
+# the grass islands, the cross-roads between them and the road round them.
+# All solid; kept off the towers' collision boxes.
+RING_COWS = int(os.environ.get("ARENA_RING_COWS", "50"))
+RING_INNER = 16.0                          # tiles |dx| + |dy| from COW_CENTRE: just outside the diamond
+RING_BOX = ((41.5, 81.5), (45.5, 85.5))    # tile x, y range of the flat floor inside the berm
+TOWER_CLEAR = 12.0                         # metres from a tower's centre (its base is 14.58 m square)
+# One giant cow statue on the centre: the same SoSC cow mesh, scaled up so far
+# that a car drives under it: 30 m tall (the towers are 43.75). The cow's belly
+# is at 0.75 m of its 1.93 m, so that puts the belly 11.7 m up and makes the cow
+# about 43 m long. Only its legs are solid -- see cow_legs.
+STATUE_HEIGHT = float(os.environ.get("ARENA_STATUE_HEIGHT", "30"))
 # Ground: SKY.BMP #4 (identical to TILED1.BMP, which the game loads) is an 8x8
 # sheet of 32 px terrain cells, in sets:
 #     0-9    water              10-15  rubble
@@ -315,8 +334,41 @@ def load_named(geo: Path, file: str, name: str):
     return max2obj.read_model(blob, addr, nf, nv)
 
 
+def cow_legs(verts, at, scale):
+    """(x, ground y, z, radius, height) of a collider round each leg of a placed cow.
+
+    The legs are what stands below the belly: every vertex under BELLY of the
+    cow's height. Each leg is grouped around a foot (vertices on the ground,
+    joined when they lie within 0.3 m), and its collider is an upright tube
+    through the leg's middle, wide enough to cover the leg's slant, up to the
+    belly. Above that the statue is open: a car drives underneath. Unturned
+    placement only (the statue's yaw is 0).
+    """
+    P = [tuple(a / UNITS_PER_M for a in v) for v in verts]
+    top = max(p[1] for p in P)
+    belly = min(p[1] for p in P if p[1] > 0.3 * top)       # the lowest point above the hooves
+    feet = []
+    for p in (p for p in P if p[1] < 0.05):
+        for foot in feet:
+            if math.dist((p[0], p[2]), foot[0]) < 0.3:
+                foot[1].append(p); break
+        else:
+            feet.append([(p[0], p[2]), [p]])
+    legs = [[] for _ in feet]
+    for p in (p for p in P if p[1] <= belly + 0.02):    # the leg tops sit at 0.75-0.76
+        k = min(range(len(feet)), key=lambda i: math.dist((p[0], p[2]), feet[i][0]))
+        legs[k].append(p)
+    out = []
+    for pts in legs:
+        cx = sum(p[0] for p in pts) / len(pts); cz = sum(p[2] for p in pts) / len(pts)
+        r = max(math.dist((p[0], p[2]), (cx, cz)) for p in pts)
+        out.append((round(at[0] + cx * scale, 2), round(at[1], 2), round(at[2] + cz * scale, 2),
+                    round(r * scale, 2), round(belly * scale, 2)))
+    return out
+
+
 def place_model(obj: Obj, mtl, out, verts, faces, pal, atl, at, yaw=0.0, tag="m",
-                seen=None):
+                seen=None, scale=1.0, mat_prefix=""):
     """Drop a SoSC model into the scene at `at` (metres), textured like the game.
 
     `seen` collects the materials used. A model stands ON the ground rather than
@@ -331,7 +383,7 @@ def place_model(obj: Obj, mtl, out, verts, faces, pal, atl, at, yaw=0.0, tag="m"
             continue
         t = f["type"]
         if t == 13:
-            name = save(atlas_image(atl, pal, f["tex"]), out, f"p{f['tex']:03d}", mtl)
+            name = save(atlas_image(atl, pal, f["tex"]), out, f"{mat_prefix}p{f['tex']:03d}", mtl)
             # NOT flipped here, unlike the car and prop pipelines. Their extra
             # 1 - v is right for VIPER's .mod, which counts V from the other end;
             # this is an OBJ for a GL viewer. Copied across, it drew the cow's
@@ -345,11 +397,11 @@ def place_model(obj: Obj, mtl, out, verts, faces, pal, atl, at, yaw=0.0, tag="m"
             uvs = list(f["uv"])
         else:
             rgb = build_car.shade_of(pal, f["tex"], t)
-            name = save(Image.new("RGB", (4, 4), rgb), out, "k%02x%02x%02x" % rgb, mtl)
+            name = save(Image.new("RGB", (4, 4), rgb), out, mat_prefix + "k%02x%02x%02x" % rgb, mtl)
             uvs = [(0.5, 0.5)] * f["n"]
         pts = []
         for i in f["idx"]:
-            x, y, z = (a / UNITS_PER_M for a in verts[i])
+            x, y, z = (a / UNITS_PER_M * scale for a in verts[i])
             pts.append((at[0] + c * x - s * z, at[1] + y, at[2] + s * x + c * z))
         if seen is not None:
             seen.add(name)
@@ -683,29 +735,65 @@ def build(sosc: Path, city_path: Path, out: Path) -> dict:
                                  [(0, 0), (1, 0), (1, 1), (0, 1)])
                 placed["trees"] = placed.get("trees", 0) + 1
 
-    # Cows: anywhere at all. SoSC spawns them at runtime in all sorts of places --
-    # on the roads as readily as on the grass -- so they are scattered over the
-    # whole map at random, facing any way, standing on the surface under them.
+    # Cows: in the middle of the arena, at random in a disc around the centre,
+    # facing any way, standing on the surface under them.
     cow_verts, cow_faces = load_objx(geo, *COW)
     rnd = random.Random(1997)
-    cow_at = []
-    for _ in range(COW_COUNT):
-        px, py = rnd.uniform(x0, x1 + 1), rnd.uniform(y0, y1 + 1)
+
+    def ground_at(px, py):
+        """Ground height (m) at tile coordinates (px, py), across the tile's slope."""
         tx, ty = min(int(px), x1), min(int(py), y1)
         fx, fy = px - tx, py - ty
         h = corner_heights(city, tx, ty, level)
         lo = h[(-1, -1)] * (1 - fx) + h[(1, -1)] * fx
         hi = h[(-1, 1)] * (1 - fx) + h[(1, 1)] * fx
-        at = (px * TILE, lo * (1 - fy) + hi * fy, py * TILE)
+        return lo * (1 - fy) + hi * fy
+
+    cow_at = []
+    r0, r1 = COW_RADIUS
+    for _ in range(COW_COUNT):
+        ang = rnd.uniform(0, 2 * math.pi)
+        rad = math.sqrt(rnd.uniform(r0 * r0, r1 * r1)) / TILE      # even over the ring's area
+        px, py = COW_CENTRE[0] + rad * math.cos(ang), COW_CENTRE[1] + rad * math.sin(ang)
+        at = (px * TILE, ground_at(px, py), py * TILE)
         cow_at.append(tuple(round(a, 1) for a in at))
         place_model(obj, mtl, out, cow_verts, [dict(f) for f in cow_faces], pal, atl, at,
                     yaw=rnd.uniform(0, 2 * math.pi), seen=prop_materials)
+
+    # The middle-ring herd, appended after the centre herd: the track build
+    # takes its beach-ball cows from the centre herd only (middle_cows).
+    middle_cows = len(cow_at)
+    towers = [(c[0], c[2]) for tid, c in prop_at if tid == 225]
+    (rx0, rx1), (ry0, ry1) = RING_BOX
+    while len(cow_at) < middle_cows + RING_COWS:
+        px, py = rnd.uniform(rx0, rx1), rnd.uniform(ry0, ry1)
+        if abs(px - COW_CENTRE[0]) + abs(py - COW_CENTRE[1]) < RING_INNER:
+            continue
+        if any(math.dist((px * TILE, py * TILE), t) < TOWER_CLEAR for t in towers):
+            continue
+        at = (px * TILE, ground_at(px, py), py * TILE)
+        cow_at.append(tuple(round(a, 1) for a in at))
+        place_model(obj, mtl, out, cow_verts, [dict(f) for f in cow_faces], pal, atl, at,
+                    yaw=rnd.uniform(0, 2 * math.pi), seen=prop_materials)
+
+    # The statue: the same cow, scaled to STATUE_HEIGHT, on the centre, under its
+    # own copies of the cow's materials ("s" prefix) so the track build never
+    # mistakes its faces for one of the herd's.
+    statue_at, statue_legs = None, []
+    if STATUE_HEIGHT > 0:
+        scale = STATUE_HEIGHT / (max(v[1] for v in cow_verts) / UNITS_PER_M)
+        statue_at = (COW_CENTRE[0] * TILE, ground_at(*COW_CENTRE), COW_CENTRE[1] * TILE)
+        place_model(obj, mtl, out, cow_verts, [dict(f) for f in cow_faces], pal, atl, statue_at,
+                    seen=prop_materials, scale=scale, mat_prefix="s")
+        statue_legs = cow_legs(cow_verts, statue_at, scale)
+        statue_at = tuple(round(a, 1) for a in statue_at)
 
     obj.write(out, mtl)
     return {"city": city.name, "level_m": level, "tiles": (x1 - x0 + 1, y1 - y0 + 1),
             "size_m": ((x1 - x0 + 1) * TILE, (y1 - y0 + 1) * TILE), "skirts": skirts,
             "props": placed, "cows": len(cow_at),
             "cow_at": cow_at, "prop_at": prop_at,
+            "statue_at": statue_at, "statue_legs": statue_legs, "middle_cows": middle_cows,
             # the tree sprites are this script's own billboards, and the only
             # materials it names "tree"
             "prop_materials": sorted(prop_materials | {n for n in mtl if n.startswith("tree")}),
