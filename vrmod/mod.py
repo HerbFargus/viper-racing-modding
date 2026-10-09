@@ -447,109 +447,284 @@ def build(mesh: Mesh, version: int = 1) -> bytes:
     return envelope.build(TAG, version, payload)
 
 
-def _decimate_block(
-    vertices: list[Vertex], faces: list[tuple[int, int, int]], target: int
-) -> tuple[list[Vertex], list[tuple[int, int, int]]]:
-    """Greedy shortest-edge-collapse on one material block's local vertices/faces.
+# Positions are welded at this many decimals (0.1 mm in game units) when deciding which
+# vertex records are "the same point" -- the same rounding the seam checks use.
+_WELD_DECIMALS = 4
 
-    Each collapse merges the pair of still-distinct vertices with the smallest
-    original edge length: the higher-index vertex is redirected (union-find) onto
-    the lower one, which keeps its own position/normal/uv rather than averaging --
-    that keeps every previously-computed edge length in the heap valid for the
-    rest of the run, so no distances need recomputing after a merge. Faces that
-    become degenerate (two or more corners landing on the same surviving vertex)
-    are dropped. This is a simpler heuristic than full quadric-error decimation
-    (edge length stands in for visual importance), but is a real, working
-    simplification, not a stub.
-    """
-    n = len(vertices)
-    if n <= target or n <= 3:
-        return vertices, faces
+# A collapse may turn a surviving triangle by at most this much (cosine of ~60 deg);
+# more than that and it is folding over, which tears the silhouette or flips winding.
+_MAX_TURN_COS = 0.5
 
-    parent = list(range(n))
+# Weight of the planes that pin seam lines and open edges in the error metric, relative
+# to the surface's own planes: high enough that a seam is straightened only where it
+# was nearly straight already.
+_SEAM_WEIGHT = 10.0
 
-    def find(x: int) -> int:
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
 
-    def dist2(i: int, j: int) -> float:
-        a, b = vertices[i], vertices[j]
-        return (a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2
+def _weld_key(v: Vertex) -> tuple[float, float, float]:
+    return (round(v.x, _WELD_DECIMALS), round(v.y, _WELD_DECIMALS), round(v.z, _WELD_DECIMALS))
 
-    edges = set()
-    for a, b, c in faces:
-        edges.add((min(a, b), max(a, b)))
-        edges.add((min(b, c), max(b, c)))
-        edges.add((min(a, c), max(a, c)))
 
-    heap = [(dist2(i, j), i, j) for i, j in edges]
-    heapq.heapify(heap)
+def _uv_key(v: Vertex) -> tuple[float, float]:
+    return (round(v.u, _WELD_DECIMALS), round(v.v, _WELD_DECIMALS))
 
-    live = n
-    while live > target and heap:
-        _, i, j = heapq.heappop(heap)
-        ri, rj = find(i), find(j)
-        if ri == rj:
-            continue  # stale entry from an earlier merge -- skip
-        lo, hi = (ri, rj) if ri < rj else (rj, ri)
-        parent[hi] = lo
-        live -= 1
 
-    new_faces = []
-    for a, b, c in faces:
-        ra, rb, rc = find(a), find(b), find(c)
-        if ra == rb or rb == rc or ra == rc:
-            continue
-        new_faces.append((ra, rb, rc))
+def _face_normal(p, q, r) -> tuple[float, float, float]:
+    ux, uy, uz = q[0] - p[0], q[1] - p[1], q[2] - p[2]
+    wx, wy, wz = r[0] - p[0], r[1] - p[1], r[2] - p[2]
+    return (uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx)
 
-    if not new_faces and faces:
-        # Every remaining triangle degenerated -- e.g. a small block made of several
-        # disconnected sub-clusters (two separate quads, say) where collapsing enough
-        # of one cluster to hit the target wipes out all of its faces before the other
-        # cluster is touched. Losing an entire material's visible geometry to hit a
-        # vertex quota is worse than leaving it over-budget, so back off completely.
-        return vertices, faces
 
-    used = sorted({idx for f in new_faces for idx in f})
-    remap = {old: new for new, old in enumerate(used)}
-    compact_faces = [(remap[a], remap[b], remap[c]) for a, b, c in new_faces]
-    compact_vertices = [vertices[i] for i in used]
-    return compact_vertices, compact_faces
+def _plane_quadric(n, p, weight: float) -> list[float]:
+    """Error quadric (upper triangle of the 4x4) of the plane through p with unit normal n."""
+    a, b, c = n
+    d = -(a * p[0] + b * p[1] + c * p[2])
+    return [weight * x for x in (a * a, a * b, a * c, a * d, b * b, b * c, b * d, c * c, c * d, d * d)]
+
+
+def _quadric_error(qd: list[float], p) -> float:
+    x, y, z = p
+    return (qd[0] * x * x + 2 * qd[1] * x * y + 2 * qd[2] * x * z + 2 * qd[3] * x
+            + qd[4] * y * y + 2 * qd[5] * y * z + 2 * qd[6] * y
+            + qd[7] * z * z + 2 * qd[8] * z + qd[9])
 
 
 def decimate(mesh: Mesh, target_vertices: int) -> Mesh:
-    """Reduce a mesh to at most `target_vertices` total, decimating each material's
-    block independently (their vertex ranges are exclusive by construction, so a
-    collapse can never span two materials) and allocating each block a share of
-    the budget proportional to its current vertex count. Recomputes normals on the
-    result, since edge collapses change local topology enough that the original
-    per-vertex normals no longer describe the simplified surface well."""
+    """Reduce a mesh towards `target_vertices` vertex records without tearing it.
+
+    Works on the mesh as one welded surface: vertex records at the same (rounded)
+    position are one point, whatever material or UV they carry. Each step is a
+    half-edge collapse -- a point is removed by moving its triangles onto a
+    neighbouring point, which stays exactly where it is -- cheapest first by
+    quadric error (how far the surface moves), with seam lines and open edges
+    weighted in so they hold their shape. Positions are never averaged, so every
+    surviving vertex is an original record, untouched.
+
+    Material boundaries and UV seams are where the old per-material decimator tore
+    the mesh: it collapsed each block on its own, so the two sides of a boundary
+    moved apart. Here a point carrying records of more than one material or UV (a
+    seam point) can only be removed along its own seam line: it must sit on exactly
+    two seam edges, it collapses onto the neighbour at the end of one of them, and
+    each of its records goes to that neighbour's record on the same side. Both sides
+    move together, so no crack opens, and no triangle ever picks up a UV from another
+    atlas chart. Points where three or more charts meet, and points on open,
+    non-manifold or inconsistently wound edges in the input, never move.
+
+    A collapse is also refused when it would make the surface non-manifold (the link
+    condition), duplicate a triangle, fold a triangle over (_MAX_TURN_COS) or delete a
+    material's last triangle. Together these mean decimation adds no open edge and no
+    winding error that the input didn't already have.
+
+    The points that never move put a floor under how far a mesh can shrink, so the
+    result may stay above `target_vertices`; callers with a hard ceiling must check.
+    Normals are recomputed, as the triangle fans around surviving points have changed.
+    """
     if len(mesh.vertices) <= target_vertices:
         return mesh
 
-    total_v = len(mesh.vertices)
-    out_vertices: list[Vertex] = []
-    out_materials: list[Material] = []
+    verts = mesh.vertices
+    nv = len(verts)
+    vmat = [0] * nv
+    for mi, m in enumerate(mesh.materials):
+        for i in range(m.vertex_start, m.vertex_end):
+            vmat[i] = mi
+    vcls = [(vmat[i], _uv_key(v)) for i, v in enumerate(verts)]   # a record's "side"
+
+    # Weld: a node per distinct rounded position.
+    node_of: list[int] = []
+    ids: dict[tuple[float, float, float], int] = {}
+    for v in verts:
+        node_of.append(ids.setdefault(_weld_key(v), len(ids)))
+    nn = len(ids)
+    pos = [(0.0, 0.0, 0.0)] * nn
+    for v, n in zip(verts, node_of):
+        pos[n] = (v.x, v.y, v.z)
+
+    faces = [list(f) for f in mesh.faces]
+    fmat = [0] * len(faces)
+    for mi, m in enumerate(mesh.materials):
+        for fi in range(m.face_start, m.face_end):
+            fmat[fi] = mi
+    alive = [True] * len(faces)
+    node_faces: list[set[int]] = [set() for _ in range(nn)]
+    refs = [0] * nv
+    for fi, f in enumerate(faces):
+        for i in f:
+            node_faces[node_of[i]].add(fi)
+            refs[i] += 1
+    mat_faces = [m.face_end - m.face_start for m in mesh.materials]
+
+    def rec_in(fi: int, n: int) -> int:
+        return next(i for i in faces[fi] if node_of[i] == n)
+
+    # Topology of the input, and the error quadrics.
+    locked = [False] * nn
+    quad = [[0.0] * 10 for _ in range(nn)]
+    directed: dict[tuple[int, int], int] = {}
+    edge_faces: dict[tuple[int, int], list[int]] = {}
+    for fi, f in enumerate(faces):
+        a, b, c = (node_of[i] for i in f)
+        if a == b or b == c or a == c:
+            locked[a] = locked[b] = locked[c] = True   # already degenerate: leave it be
+            continue
+        n = _face_normal(pos[a], pos[b], pos[c])
+        ln = (n[0] ** 2 + n[1] ** 2 + n[2] ** 2) ** 0.5
+        if ln > 1e-12:
+            fq = _plane_quadric((n[0] / ln, n[1] / ln, n[2] / ln), pos[a], ln / 2)
+            for x in (a, b, c):
+                quad[x] = [s + t for s, t in zip(quad[x], fq)]
+        for e in ((a, b), (b, c), (c, a)):
+            directed[e] = directed.get(e, 0) + 1
+            edge_faces.setdefault((min(e), max(e)), []).append(fi)
+    for (a, b), k in directed.items():
+        if k != 1 or directed.get((b, a), 0) != 1:
+            locked[a] = locked[b] = True               # open, non-manifold or mis-wound
+    for (a, b), fl in edge_faces.items():
+        pinned = len(fl) != 2 or any(
+            vcls[rec_in(fl[0], x)] != vcls[rec_in(fl[1], x)] for x in (a, b))
+        if not pinned:
+            continue
+        # A seam or open edge: add planes through it, perpendicular to its triangles.
+        ex, ey, ez = (pos[b][k] - pos[a][k] for k in range(3))
+        for fi in fl:
+            n = _face_normal(*(pos[node_of[i]] for i in faces[fi]))
+            px, py, pz = ey * n[2] - ez * n[1], ez * n[0] - ex * n[2], ex * n[1] - ey * n[0]
+            lp = (px * px + py * py + pz * pz) ** 0.5
+            if lp > 1e-12:
+                eq = _plane_quadric((px / lp, py / lp, pz / lp), pos[a],
+                                    _SEAM_WEIGHT * (ex * ex + ey * ey + ez * ez))
+                for x in (a, b):
+                    quad[x] = [s + t for s, t in zip(quad[x], eq)]
+
+    def neighbours(n: int) -> set[int]:
+        out = {node_of[i] for fi in node_faces[n] for i in faces[fi]}
+        out.discard(n)
+        return out
+
+    version = [0] * nn
+
+    def cost(p: int, q: int) -> float:
+        merged = [s + t for s, t in zip(quad[p], quad[q])]
+        d2 = sum((pos[p][k] - pos[q][k]) ** 2 for k in range(3))
+        return _quadric_error(merged, pos[q]) + 1e-6 * d2   # length breaks ties on flat areas
+
+    heap: list[tuple[float, int, int, int, int]] = []
+
+    def push(p: int, q: int) -> None:
+        if not locked[p]:
+            heapq.heappush(heap, (cost(p, q), p, q, version[p], version[q]))
+
+    for n in range(nn):
+        for m in neighbours(n):
+            push(n, m)
+
+    live = sum(1 for r in refs if r)
+
+    def ref(i: int, delta: int) -> None:
+        nonlocal live
+        before = refs[i]
+        refs[i] += delta
+        live += (refs[i] > 0) - (before > 0)
+
+    def try_collapse(p: int, q: int) -> bool:
+        fp = node_faces[p]
+        if not fp or not node_faces[q]:
+            return False
+        shared = [fi for fi in fp if any(node_of[i] == q for i in faces[fi])]
+        if len(shared) != 2:
+            return False
+        # Link condition: p and q may share only the two points opposite their edge.
+        opposite = {node_of[i] for fi in shared for i in faces[fi]} - {p, q}
+        if neighbours(p) & neighbours(q) != opposite:
+            return False
+        # Which record of q each record of p becomes: q's record on the same side.
+        prec = {fi: rec_in(fi, p) for fi in fp}
+        sides = {vcls[i] for i in prec.values()}
+        (s0, s1), (q0, q1) = shared, (rec_in(shared[0], q), rec_in(shared[1], q))
+        if len(sides) == 1:                            # p is inside one chart
+            if vcls[q0] != vcls[q1]:
+                return False
+            mapping = {vcls[prec[s0]]: q0}
+        elif len(sides) == 2:                          # p is on a seam: only along it
+            if vcls[prec[s0]] == vcls[prec[s1]] or vcls[q0] == vcls[q1]:
+                return False
+            changes = 0
+            for x in neighbours(p):
+                fx = [fi for fi in fp if any(node_of[i] == x for i in faces[fi])]
+                if len(fx) != 2:
+                    return False
+                changes += vcls[prec[fx[0]]] != vcls[prec[fx[1]]]
+            if changes != 2:                           # a seam corner, not a seam line
+                return False
+            mapping = {vcls[prec[s0]]: q0, vcls[prec[s1]]: q1}
+        else:
+            return False
+        if any(vmat[r] != side[0] for side, r in mapping.items()):
+            return False
+        for fi in shared:
+            if mat_faces[fmat[fi]] <= sum(1 for f2 in shared if fmat[f2] == fmat[fi]):
+                return False
+        q_tris = {frozenset(node_of[i] for i in faces[fi]) for fi in node_faces[q]}
+        for fi in fp:
+            if fi in shared:
+                continue
+            f = faces[fi]
+            n0 = _face_normal(*(pos[node_of[i]] for i in f))
+            n1 = _face_normal(*(pos[q] if node_of[i] == p else pos[node_of[i]] for i in f))
+            l0 = (n0[0] ** 2 + n0[1] ** 2 + n0[2] ** 2) ** 0.5
+            l1 = (n1[0] ** 2 + n1[1] ** 2 + n1[2] ** 2) ** 0.5
+            if l0 <= 1e-12 or l1 <= 1e-12:
+                return False
+            if n0[0] * n1[0] + n0[1] * n1[1] + n0[2] * n1[2] < _MAX_TURN_COS * l0 * l1:
+                return False
+            if frozenset(q if node_of[i] == p else node_of[i] for i in f) in q_tris:
+                return False
+        for fi in shared:
+            alive[fi] = False
+            mat_faces[fmat[fi]] -= 1
+            for i in faces[fi]:
+                node_faces[node_of[i]].discard(fi)
+                ref(i, -1)
+        for fi in fp:
+            f = faces[fi]
+            for k, i in enumerate(f):
+                if node_of[i] == p:
+                    f[k] = mapping[vcls[i]]
+                    ref(i, -1)
+                    ref(f[k], +1)
+            node_faces[q].add(fi)
+        fp.clear()
+        quad[q] = [s + t for s, t in zip(quad[q], quad[p])]
+        return True
+
+    while live > target_vertices and heap:
+        _, p, q, vp, vq = heapq.heappop(heap)
+        if vp != version[p] or vq != version[q]:
+            continue                                   # superseded by a fresher entry
+        if try_collapse(p, q):
+            version[p] += 1
+            version[q] += 1
+            for m in neighbours(q):
+                push(q, m)
+                push(m, q)
+
+    # Rebuild. Records keep their original order, so each material's stay contiguous.
+    used = sorted({i for fi, f in enumerate(faces) if alive[fi] for i in f})
+    remap = {old: new for new, old in enumerate(used)}
+    out_vertices = [Vertex(**vars(verts[i])) for i in used]
     out_faces: list[tuple[int, int, int]] = []
-
-    for m in mesh.materials:
-        block_vertices = mesh.vertices[m.vertex_start: m.vertex_end]
-        block_faces = [
-            (a - m.vertex_start, b - m.vertex_start, c - m.vertex_start)
-            for a, b, c in mesh.faces[m.face_start: m.face_end]
-        ]
-        share = len(block_vertices) / total_v
-        block_target = max(3, round(target_vertices * share))
-        new_vertices, new_faces = _decimate_block(block_vertices, block_faces, block_target)
-
-        offset = len(out_vertices)
-        vstart = offset
+    out_materials: list[Material] = []
+    vcursor = 0
+    for mi, m in enumerate(mesh.materials):
         fstart = len(out_faces)
-        out_vertices.extend(new_vertices)
-        out_faces.extend((a + offset, b + offset, c + offset) for a, b, c in new_faces)
-        out_materials.append(Material(m.name, vstart, len(out_vertices), fstart, len(out_faces)))
+        for fi in range(m.face_start, m.face_end):
+            if alive[fi]:
+                a, b, c = faces[fi]
+                out_faces.append((remap[a], remap[b], remap[c]))
+        vstart = vcursor
+        while vcursor < len(used) and vmat[used[vcursor]] == mi:
+            vcursor += 1
+        out_materials.append(Material(m.name, vstart, vcursor, fstart, len(out_faces)))
 
     result = Mesh(vertices=out_vertices, materials=out_materials, faces=out_faces, version=mesh.version)
     _compute_vertex_normals(result)

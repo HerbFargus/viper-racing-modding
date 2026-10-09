@@ -2369,6 +2369,9 @@ def main(argv: list[str] | None = None) -> int:
         if budget is not None and before > budget:
             mesh = mod.decimate(mesh, budget)
             print(f"decimated {before} -> {len(mesh.vertices)} vertices (budget {budget})")
+            if len(mesh.vertices) > budget:
+                print("warning: still over budget -- the rest are seam corners and open edges, "
+                      "which decimation keeps so the mesh doesn't tear")
         elif budget is None:
             biggest = mod.VERTEX_BUDGETS["hd"]
             if before > biggest:
@@ -2395,6 +2398,9 @@ def main(argv: list[str] | None = None) -> int:
         mesh = mod.decimate(mesh, budget)
         args.out_file.write_bytes(mod.build(mesh))
         print(f"wrote {args.out_file}: {before} -> {len(mesh.vertices)} vertices (budget {budget})")
+        if len(mesh.vertices) > budget:
+            print("warning: still over budget -- the rest are seam corners and open edges, "
+                  "which decimation keeps so the mesh doesn't tear")
     elif args.command == "carview":
         viewer.write_viewer_html(
             args.car_file, args.html_file, z_offset=args.z_offset, wheel_radius=args.wheel_radius,
