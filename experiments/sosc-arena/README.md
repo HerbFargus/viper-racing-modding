@@ -134,8 +134,8 @@ road. What differs between the two games is the camera, not the world.
 The default build no longer scatters 200 cows over the map. It places:
 
 - **50 in the centre plaza**, the diamond the four sloped blocks enclose, 35-120 m
-  from its middle. 20 of them, picked at random, are `obj obstacle prism`
-  cows (mass 1,200 lb, a real cow's) that topple when hit, and 30 are solid tubes. The record is
+  from its middle. 20 of them, picked at random, are `obj obstacle ball`
+  cows (500 lb, centred in their sphere) that roll when hit, and 30 are solid tubes. The record is
   `X,Z:ROT MASS` -- read off parse_obstacle; it was long written as if the
   last two were height and radius, which made every knockable cow mass 1.4. A knockable
   cow's static copy is taken out of the drawn mesh, or a ghost stays standing

@@ -118,9 +118,9 @@ FACING_MESH = "cowface.mod"
 OBSTACLE_COWS = int(os.environ.get("ARENA_OBSTACLE", "20"))
 # ball | cube | prism -- the collision shape the Ball phob is given. Driven in
 # game, a prism cow topples when hit and SETTLES, where a ball cow drops and
-# keeps rolling away like the horn ball it is built from. PRISM by default:
-# tried as beach balls on 2026-10-09 and switched back the same day.
-OBSTACLE_KIND = os.environ.get("ARENA_OBSTACLE_KIND", "prism")
+# keeps rolling away like the horn ball it is built from. BALL by default (the
+# user's pick, 2026-10-09, after trying both): the cow is centred in its sphere.
+OBSTACLE_KIND = os.environ.get("ARENA_OBSTACLE_KIND", "ball")
 # ARENA_OBSTACLE_MESH=ball.mod isolates the mechanism from the mesh: ball.mod is
 # hardcoded in the engine and lives in race.res, so it certainly resolves. If
 # balls appear at the cows, `obj obstacle` works and only our mesh lookup is
@@ -134,8 +134,9 @@ OBSTACLE_MESH = os.environ.get("ARENA_OBSTACLE_MESH", "cow.mod")
 # 4 m above the ground. MASS IS IN POUNDS, the units of a car's .cf mass (the
 # jeeps 3,200, the horn ball 3,000; the boulder run settled on 100,000). It was
 # written as 1.4 (believed a radius), and then 15: either way a toy beside a
-# 3,000 lb car, so every cow bounced off like a beach ball. 1,200 is a cow.
-OBSTACLE_MASS = float(os.environ.get("ARENA_OBSTACLE_MASS", "1200"))
+# 3,000 lb car, so every cow bounced off like a beach ball. 1,200 is a real cow;
+# 500 is the user's pick for a ball cow that rolls.
+OBSTACLE_MASS = float(os.environ.get("ARENA_OBSTACLE_MASS", "500"))
 # A BALL obstacle's sphere is centred on the mesh's origin, so for `ball` the
 # cow is centred in it (cow_mesh_member); a prism stands on its feet.
 # ARENA_COW_TUBES=0 drops the cows' .sol tubes. With them in place the car hits
@@ -683,9 +684,7 @@ def cow_facing_mesh(work: Path, cows) -> "mod.Mesh | None":
         return None
     one = split_per_instance(cow_piece, cows)[0]
     cx = sum(v.x for v in one.vertices) / len(one.vertices)
-    lo, hi = min(v.y for v in one.vertices), max(v.y for v in one.vertices)
-    # stand it on its own feet -- or, for a ball, centre it in its sphere
-    cy = (lo + hi) / 2 if OBSTACLE_KIND == "ball" else lo
+    cy = min(v.y for v in one.vertices)          # stand it on its own feet
     cz = sum(v.z for v in one.vertices) / len(one.vertices)
     for v in one.vertices:
         x, y, z = v.x - cx, v.y - cy, v.z - cz
