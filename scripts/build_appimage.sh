@@ -9,7 +9,9 @@
 #     wsl -d Ubuntu-22.04 -- bash scripts/build_appimage.sh
 #
 # One-time packages on the build machine (Ubuntu 22.04):
-#     sudo apt install python3-venv python3-dev binutils file wget \
+#     sudo add-apt-repository ppa:deadsnakes/ppa   # Python 3.14, as the Windows build uses:
+#                                                   # vrmod relies on 3.13+ features in places
+#     sudo apt install python3.14 python3.14-venv python3.14-dev binutils file wget \
 #         libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 \
 #         libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 \
 #         libxcb-xinerama0 libxcb-xkb1 libegl1 libgl1 libnss3 libxcomposite1 \
@@ -33,9 +35,9 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BUILD_DIR="${BUILD_DIR:-$HOME/.cache/vrmod-appimage}"
+BUILD_DIR="${BUILD_DIR:-$HOME/.cache/vrmod-appimage-py314}"
 OUT_DIR="${OUT_DIR:-$REPO/dist}"
-PYTHON="${PYTHON:-python3}"
+PYTHON="${PYTHON:-python3.14}"                       # (the Windows build is 3.14 too)
 APP=ViperModManager
 
 # Pinned tools. The sha256s are the digests GitHub publishes for these release
