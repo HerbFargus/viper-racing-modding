@@ -4,8 +4,8 @@
 textured, unlit-looking triangles, without adding geometry?
 
 **Answer:** yes. Bake ambient occlusion and a key light into a texture atlas: every face keeps its
-vertices, and only its UVs and texture change. The Willys jeep (2026-10-09) is the worked case: body,
-3D cockpit and wheels, confirmed in game.
+vertices, and only its UVs and texture change. The Willys jeep (2026-10-09) is the worked case: the
+baked body is confirmed in game; the cockpit and wheels are installed and not yet checked there.
 
 ## The scripts
 
