@@ -3,9 +3,10 @@
 `build_car.py` writes one car's LOD 0. This runs the whole fleet, then does the
 two things a single conversion leaves undone:
 
-  * `vrmod modlod` -- without it LODs 1..7 are still the DONOR's meshes, which
-    means the car morphs into a Viper GTS-R as it gets further away, and its
-    distance meshes reference textures the fork does not own.
+  * LODs 1..7 -- without them they are still the DONOR's meshes, which means
+    the car morphs into a Viper GTS-R as it gets further away, and its distance
+    meshes reference textures the fork does not own. Each becomes a copy of
+    LOD 0 (see main() for why not `vrmod modlod`).
   * a count assertion -- seven cars in, seven cars out, every one of them
     grading `portable`. Every silent failure in this project so far (a partial
     pack, a wrong render recipe, an empty manifest) was caught by counting the
@@ -17,7 +18,6 @@ two things a single conversion leaves undone:
 extracted from a Streets of SimCity install; `viper_install_dir` is a Viper
 Racing install to take donor cars from. Neither game's files are in this repo.
 """
-import subprocess
 import sys
 from pathlib import Path
 
@@ -27,7 +27,7 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(ROOT))
 
 from build_car import build                        # noqa: E402
-from vrmod import archive, car                     # noqa: E402
+from vrmod import archive, car, envelope           # noqa: E402
 
 # model in SIM3D2.MAX, output prefix, short texture code, donor car, and the
 # real car it resembles
@@ -93,12 +93,21 @@ def main() -> int:
 
     # --- LODs, which a single conversion does not touch --------------------
     print()
+    # Every LOD is the full body. `vrmod modlod` decimates each material block
+    # on its own, which tears the seams between blocks: LOD 1 of these cars had
+    # 136-249 open edges, and the chase camera draws LOD 1 -- in game a gap at
+    # the Azzaroni's tail you could see the road through. The bodies are
+    # 240-541 faces, so drawing LOD 0 at every distance costs nothing.
     for path in built:
-        r = subprocess.run([sys.executable, "-m", "vrmod.cli", "modlod", str(path)],
-                           cwd=str(ROOT), capture_output=True, text=True)
-        if r.returncode:
-            raise SystemExit(f"modlod {path.name}: {r.stderr[-300:]}")
-        print(f"  modlod {path.name:16s} {r.stdout.strip().splitlines()[-1]}")
+        entries = archive.read(path)
+        lod0 = next(e for e in entries if e.name.lower().endswith("0.mod"))
+        stem = lod0.name[:-5]
+        for level in range(1, 8):
+            entries = archive.upsert_entry(
+                entries, f"{stem}{level}.mod",
+                envelope.build(lod0.tag, lod0.version, lod0.payload))
+        archive.write(entries, path)
+        print(f"  lods  {path.name:16s} 1-7 = {lod0.name}")
 
     # --- the count assertion ----------------------------------------------
     print()

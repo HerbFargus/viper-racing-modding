@@ -71,15 +71,18 @@ def fit(verts, target_len: float, ground: float = 0.0):
     cx = (max(xs) + min(xs)) / 2
     cz = (max(zs) + min(zs)) / 2
     ymin = min(ys)
-    # Rotate 180 degrees about Y -- negate X and Z. The two games point their
-    # cars in opposite directions along Z: rendered at the angle where every
-    # stock Viper car shows headlights and a grille, an unrotated SoSC car shows
-    # its rear window and number plate. In game that is a car driving backwards.
+    # Negate Z only. The OBJ written from this is RIGHT-handed, and vrmod's
+    # obj2mod negates Z again on the way into Viper's LEFT-handed mesh space
+    # (see vrmod/mod.py) -- so the SoSC vertices land in Viper unchanged, which
+    # is right: both games are left-handed and point their cars the same way.
     #
-    # Negating BOTH axes is a rotation, not a mirror: the determinant stays +1,
-    # so it does not invert winding. Negating Z alone would, and would undo the
-    # backface fix below.
-    return [(-(x - cx) * scale, (y - ymin) * scale + ground, -(z - cz) * scale)
+    # This used to negate X and Z, a 180-degree turn, on the reasoning that
+    # an unrotated car drove backwards. Combined with obj2mod's Z that made a
+    # MIRROR: every car came out left-for-right, which only the lettering shows
+    # -- the Azzaroni's "29" and MAXIS plate read backwards in game. The
+    # winding needs no care here: wind_outward orients each shell by signed
+    # volume after this, whatever the input winding.
+    return [((x - cx) * scale, (y - ymin) * scale + ground, -(z - cz) * scale)
             for x, y, z in verts], scale
 
 

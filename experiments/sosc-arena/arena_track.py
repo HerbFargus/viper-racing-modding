@@ -90,7 +90,12 @@ DROP_MATERIALS = tuple(m for m in os.environ.get("ARENA_DROP", "").split(",") if
 # what makes it a test rather than a hope. The count stays under dundas's 170,
 # the most any shipped track carries, because the pool is fixed ("Too many
 # wobjects allocated--increase MAX_OBJECTS").
-WOBBLE_COWS = int(os.environ.get("ARENA_WOBBLE", "50"))
+#
+# Default 0: 50 cow wobbles crash at race start (WobbleObject::Draw ->
+# direct_model_draw reading 0xf), on MGI's own race.exe as well as the port,
+# so the default build was not playable. Knockable `obj obstacle` cows and
+# solid tube cows remain; ARENA_WOBBLE=N brings wobbles back to experiment.
+WOBBLE_COWS = int(os.environ.get("ARENA_WOBBLE", "0"))
 # ARENA_PLACED=8 emits that many cow billboards as PLACED MODELS in our own
 # .grf, each paired with a .sol tube of the same id and an `obj wobble pole N`
 # record. ANSWERED: a facing registers from a flat chain, hung off the root's
