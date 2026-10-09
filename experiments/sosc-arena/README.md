@@ -143,7 +143,7 @@ The default build no longer scatters 200 cows over the map. It places:
   tower.
 - **One cow statue, 60 m tall** (`ARENA_STATUE_HEIGHT`), on the centre. The
   cow's belly is at 0.75 of its 1.93 m, so a car drives under it; only its legs
-  are solid, a tube per leg up to the belly (`arena.cow_legs`). It has its own
+  are solid, a tube on each hoof up to the belly (`arena.cow_legs`). It has its own
   copies of the cow's materials (`s` prefix) so the per-instance split never
   deals its faces out among the herd.
 

@@ -129,6 +129,12 @@ OBSTACLE_KIND = os.environ.get("ARENA_OBSTACLE_KIND", "ball")
 # record" -- the engine accepted the line and did nothing with it.
 OBSTACLE_MESH = os.environ.get("ARENA_OBSTACLE_MESH", "cow.mod")
 OBSTACLE_RADIUS = 1.4
+# A BALL obstacle's sphere is centred on the mesh's origin, and the physics
+# keeps that centre one radius above the ground. cow.mod stands on its feet
+# (origin at the hooves), so a 1.4 m ball held every beach-ball cow 1.4 m up in
+# the air. For `ball` the cow is centred in its sphere instead, and the sphere
+# is the cow's own size: half its height.
+BALL_COW_RADIUS = 0.97
 # ARENA_COW_TUBES=0 drops the cows' .sol tubes. With them in place the car hits
 # the tube and stops, so an obstacle at the same spot never gets touched --
 # which is exactly what the first drive showed. Without them, the obstacle is
@@ -575,9 +581,12 @@ def our_obt(scene, wobbles: int, obstacles=(), extra=()) -> bytes:
     # engine still builds the object (the count rose by exactly the number of
     # records) but puts it off the map sideways and hundreds of metres up:
     # invisible, intangible, and silent in the log.
+    ball = OBSTACLE_KIND == "ball"
+    radius = BALL_COW_RADIUS if ball else OBSTACLE_RADIUS
     for x, y, z in obstacles:
+        h = y + radius if ball else y       # a ball starts resting on the ground, not half sunk
         records.append(f"obj obstacle {OBSTACLE_KIND} {OBSTACLE_MESH} "
-                       f"{x:.6f},{z:.6f}:{y:.6f} {OBSTACLE_RADIUS:.6f}")
+                       f"{x:.6f},{z:.6f}:{h:.6f} {radius:.6f}")
     records += list(extra)
     return obt.build(obt.create(records))
 
@@ -636,7 +645,9 @@ def cow_mesh_member(work: Path, cows, prop_materials) -> bytes | None:
         return None
     one = split_per_instance(cow_piece, cows)[0]
     cx = sum(v.x for v in one.vertices) / len(one.vertices)
-    cy = min(v.y for v in one.vertices)          # stand it on its own feet
+    lo, hi = min(v.y for v in one.vertices), max(v.y for v in one.vertices)
+    # stand it on its own feet -- or, for a ball, centre it in its sphere
+    cy = (lo + hi) / 2 if OBSTACLE_KIND == "ball" else lo
     cz = sum(v.z for v in one.vertices) / len(one.vertices)
     for v in one.vertices:
         v.x, v.y, v.z = v.x - cx, v.y - cy, v.z - cz
@@ -671,7 +682,9 @@ def cow_facing_mesh(work: Path, cows) -> "mod.Mesh | None":
         return None
     one = split_per_instance(cow_piece, cows)[0]
     cx = sum(v.x for v in one.vertices) / len(one.vertices)
-    cy = min(v.y for v in one.vertices)          # stand it on its own feet
+    lo, hi = min(v.y for v in one.vertices), max(v.y for v in one.vertices)
+    # stand it on its own feet -- or, for a ball, centre it in its sphere
+    cy = (lo + hi) / 2 if OBSTACLE_KIND == "ball" else lo
     cz = sum(v.z for v in one.vertices) / len(one.vertices)
     for v in one.vertices:
         x, y, z = v.x - cx, v.y - cy, v.z - cz

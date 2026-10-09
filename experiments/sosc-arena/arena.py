@@ -335,15 +335,19 @@ def load_named(geo: Path, file: str, name: str):
     return max2obj.read_model(blob, addr, nf, nv)
 
 
+HOOF_TOP = 0.1      # share of the cow's height that counts as hoof (the mesh has rings at 0 and 0.17 m)
+
+
 def cow_legs(verts, at, scale):
     """(x, ground y, z, radius, height) of a collider round each leg of a placed cow.
 
-    The legs are what stands below the belly: every vertex under BELLY of the
-    cow's height. Each leg is grouped around a foot (vertices on the ground,
-    joined when they lie within 0.3 m), and its collider is an upright tube
-    through the leg's middle, wide enough to cover the leg's slant, up to the
-    belly. Above that the statue is open: a car drives underneath. Unturned
-    placement only (the statue's yaw is 0).
+    Each leg is grouped around a foot (vertices on the ground, joined when they
+    lie within 0.3 m) and its collider is an upright tube on the HOOF -- the
+    leg's vertices up to HOOF_TOP of the cow's height -- as wide as the hoof,
+    up to the belly. Sizing it to the whole slanted leg made tubes 5-10 m
+    across at 60 m, far wider than the leg a car actually meets near the
+    ground. Above the belly the statue is open: a car drives underneath.
+    Unturned placement only (the statue's yaw is 0).
     """
     P = [tuple(a / UNITS_PER_M for a in v) for v in verts]
     top = max(p[1] for p in P)
@@ -356,7 +360,7 @@ def cow_legs(verts, at, scale):
         else:
             feet.append([(p[0], p[2]), [p]])
     legs = [[] for _ in feet]
-    for p in (p for p in P if p[1] <= belly + 0.02):    # the leg tops sit at 0.75-0.76
+    for p in (p for p in P if p[1] <= HOOF_TOP * top):
         k = min(range(len(feet)), key=lambda i: math.dist((p[0], p[2]), feet[i][0]))
         legs[k].append(p)
     out = []
