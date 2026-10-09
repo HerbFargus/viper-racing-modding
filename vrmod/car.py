@@ -751,9 +751,11 @@ def load_budget_warning(entries: list[archive.ArchiveEntry]) -> str | None:
         return None
     s = load_seconds(counts)
     return (f"this car is slow to load in a crowd: on the original engine each copy adds "
-            f"about {s:.1f} s to race loading ({s * GRID:.0f} s with {GRID} of them on the grid). "
-            f"Keep LOD 0 to about 4,500 vertices for a car the AI will drive too, or about "
-            f"12,800 if only you drive it; this LOD 0 has {counts[0]:,}. See {LOAD_DOC}")
+            f"about {s:.2f} s to race loading ({s * GRID:.1f} s with {GRID} of them on the grid). "
+            f"The cost is LOD 0 x (LODs 1-4) = {counts[0]:,} x {sum(counts[1:5]):,}; about 1 s for "
+            f"a full grid allows {LOAD_BUDGET / 1e6:.0f} million. With LODs 1-4 falling off like the "
+            f"stock viper's, that's a LOD 0 of about 4,500 vertices for a car the AI will drive too, "
+            f"or about 12,800 if only you drive it. See {LOAD_DOC}")
 
 
 def build_lod_chain(entries: list[archive.ArchiveEntry], *,

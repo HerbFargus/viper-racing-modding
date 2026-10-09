@@ -987,7 +987,7 @@ def check(data_dir: str | Path) -> Report:
     except Exception:
         slow = []
     if slow:
-        lines = "; ".join(f"{name}: about {sec:.1f} s each, {sec * car.GRID:.0f} s for a grid of "
+        lines = "; ".join(f"{name}: about {sec:.2f} s each, {sec * car.GRID:.1f} s for a grid of "
                           f"{car.GRID} ({v0:,}-vertex body)" for name, sec, v0 in slow)
         add(Finding(WARN, (f"{slow[0][0]} is slow to load when the AI drive it" if len(slow) == 1
                            else f"{len(slow)} cars are slow to load when the AI drive them"),
