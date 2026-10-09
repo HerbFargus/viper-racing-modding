@@ -118,9 +118,9 @@ FACING_MESH = "cowface.mod"
 OBSTACLE_COWS = int(os.environ.get("ARENA_OBSTACLE", "20"))
 # ball | cube | prism -- the collision shape the Ball phob is given. Driven in
 # game, a prism cow topples when hit and SETTLES, where a ball cow drops and
-# keeps rolling away like the horn ball it is built from. BALL by default (the
-# user's pick, 2026-10-09): beach-ball cows that roll off across the arena.
-OBSTACLE_KIND = os.environ.get("ARENA_OBSTACLE_KIND", "ball")
+# keeps rolling away like the horn ball it is built from. PRISM by default:
+# tried as beach balls on 2026-10-09 and switched back the same day.
+OBSTACLE_KIND = os.environ.get("ARENA_OBSTACLE_KIND", "prism")
 # ARENA_OBSTACLE_MESH=ball.mod isolates the mechanism from the mesh: ball.mod is
 # hardcoded in the engine and lives in race.res, so it certainly resolves. If
 # balls appear at the cows, `obj obstacle` works and only our mesh lookup is
@@ -128,13 +128,14 @@ OBSTACLE_KIND = os.environ.get("ARENA_OBSTACLE_KIND", "ball")
 # The first drive produced neither a ResourceGet failure nor a "Bad obstacle
 # record" -- the engine accepted the line and did nothing with it.
 OBSTACLE_MESH = os.environ.get("ARENA_OBSTACLE_MESH", "cow.mod")
-OBSTACLE_RADIUS = 1.4
-# A BALL obstacle's sphere is centred on the mesh's origin, and the physics
-# keeps that centre one radius above the ground. cow.mod stands on its feet
-# (origin at the hooves), so a 1.4 m ball held every beach-ball cow 1.4 m up in
-# the air. For `ball` the cow is centred in its sphere instead, and the sphere
-# is the cow's own size: half its height.
-BALL_COW_RADIUS = 0.97
+# The record's last number is the obstacle's MASS, not a radius: parse_obstacle
+# reads "X,Z:ROT MASS", takes the size from the model's extents, builds the
+# inertias as size^2 x 10.75 x mass, and drops the model with its lowest point
+# 4 m above the ground. It was written as 1.4 (believed a radius) -- a cow
+# lighter than the 4 that makes a beach ball. 15 is the user's "a little heavier".
+OBSTACLE_MASS = float(os.environ.get("ARENA_OBSTACLE_MASS", "15"))
+# A BALL obstacle's sphere is centred on the mesh's origin, so for `ball` the
+# cow is centred in it (cow_mesh_member); a prism stands on its feet.
 # ARENA_COW_TUBES=0 drops the cows' .sol tubes. With them in place the car hits
 # the tube and stops, so an obstacle at the same spot never gets touched --
 # which is exactly what the first drive showed. Without them, the obstacle is
@@ -575,18 +576,16 @@ def our_obt(scene, wobbles: int, obstacles=(), extra=()) -> bytes:
     # Obstacles carry their own coordinates, in the game's frame (x, height, z)
     # rather than the flipped one the gates and grid use -- they name a mesh and
     # a place, not a line on the ground.
-    # `%f,%f:%f` is GROUND x, GROUND z : HEIGHT -- not x, height, z. The comma
-    # pair is a ground position, exactly as it is in `obj checkpoint %s %f,%f
-    # %f,%f`, and the colon introduces the elevation. Written the other way the
-    # engine still builds the object (the count rose by exactly the number of
-    # records) but puts it off the map sideways and hundreds of metres up:
-    # invisible, intangible, and silent in the log.
-    ball = OBSTACLE_KIND == "ball"
-    radius = BALL_COW_RADIUS if ball else OBSTACLE_RADIUS
+    # `%f,%f:%f %f` is GROUND x, GROUND z : ROTATION, then MASS (parse_obstacle,
+    # read off the port's rewrite). The comma pair is a ground position, exactly
+    # as in `obj checkpoint %s %f,%f %f,%f`; the height is not in the record at
+    # all -- the engine drops the model from 4 m above the terrain. Written as
+    # x, height, z the engine still builds the object but puts it off the map
+    # sideways: invisible, intangible, and silent in the log.
+    turn = random.Random(11)
     for x, y, z in obstacles:
-        h = y + radius if ball else y       # a ball starts resting on the ground, not half sunk
         records.append(f"obj obstacle {OBSTACLE_KIND} {OBSTACLE_MESH} "
-                       f"{x:.6f},{z:.6f}:{h:.6f} {radius:.6f}")
+                       f"{x:.6f},{z:.6f}:{turn.uniform(0, 2 * math.pi):.6f} {OBSTACLE_MASS:.6f}")
     records += list(extra)
     return obt.build(obt.create(records))
 
