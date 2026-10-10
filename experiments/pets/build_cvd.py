@@ -1,7 +1,9 @@
 """Cats vs Dogs cars, and the PetTest track: 36 pets dropped on stock Bemidji.
 
-  cars    kit.car's Willys recipe (forked from the HMX van): our body, paw-print wheels and
-          its OWN palette (acpal.tex / dhpal.tex -- the game caches textures by name)
+  cars    kit.car's Willys recipe (forked from the HMX van for its data files only): our body,
+          paw-print wheels and its OWN palette (acpal.tex / dhpal.tex -- the game caches textures
+          by name), a cockpit cut from its own body (kit.cockpit), synthesised engine sounds,
+          brake lights, and every van texture pruned -- nothing of the van's art is left
             alleycat  all of Val's .cf, front 155/70 R15, rear 265/55 R17; yarn ball + meow
             doghouse  the Indy Jeep tune (210 hp, 3.50 final); tennis ball + bark
   PetTest six 4x pets, 50 lb each, 18 dogs on the first half of Bemidji's AI line and 18
@@ -23,9 +25,9 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parents[1]))
 sys.path.insert(0, str(HERE))
 import kit  # noqa: E402
-from kit import car as kcar, tracks  # noqa: E402
+from kit import car as kcar, cockpit, tracks  # noqa: E402
 from kit.shapes import Palette, tennis_ball, yarn_ball  # noqa: E402
-from kit.sound import to_pcm, wav_bytes  # noqa: E402
+from kit.sound import engine_set, to_pcm, wav_bytes  # noqa: E402
 import cvd_models as M  # noqa: E402
 import cvd_sounds as S  # noqa: E402
 from vrmod import archive, envelope, ili, obt  # noqa: E402
@@ -38,8 +40,12 @@ HORN_R = 18 * INCH                     # the horn ball's collision radius is an 
 
 CARS = {
     "alleycat": dict(display="Alley Cat", make=M.alley_cat, palette="acpal.tex", ball=yarn_ball, horn=S.meow,
+                     cockpit=M.alley_cat_cockpit, brake=M.alley_cat_brake, engine=dict(pulses_per_rev=4, cylinders=8,
+                                                                                   idle_rpm=750),
                      ftyre=(155, 70, 15), rtyre=(265, 55, 17), height=1.45, tune="val"),
     "doghouse": dict(display="Doghouse", make=M.doghouse, palette="dhpal.tex", ball=tennis_ball, horn=S.bark,
+                     cockpit=M.doghouse_cockpit, brake=M.doghouse_brake, engine=dict(pulses_per_rev=1, cylinders=2,
+                                                                                   idle_rpm=1100),
                      ftyre=(245, 75, 16), rtyre=(245, 75, 16), height=2.37, tune="indy"),
 }
 
@@ -49,10 +55,13 @@ def build_car(prefix, c):
     pal = Palette(c["palette"])
     meshes = {k: m[k].mesh(pal) for k in ("body", "front", "rear")}
     ball = c["ball"](HORN_R).mesh(pal)                       # every mesh before the palette is encoded
+    brake = c["brake"]().mesh(pal)
+    ck = cockpit.build(palette=pal, **c["cockpit"](m["body"]))
     spec = kcar.CarSpec(prefix=prefix, display=c["display"], body=meshes["body"], front_wheel=meshes["front"],
                         rear_wheel=meshes["rear"], palette=pal.entry(wrap=1), wheelbase=m["wheelbase"],
                         ftrack=m["ftrack"], rtrack=m["rtrack"], height=c["height"], ftyre=c["ftyre"],
-                        rtyre=c["rtyre"], tune=c["tune"], horn_ball=ball, horn_wav=wav_bytes(to_pcm(c["horn"]())))
+                        rtyre=c["rtyre"], tune=c["tune"], horn_ball=ball, horn_wav=wav_bytes(to_pcm(c["horn"]())),
+                        engine=engine_set(**c["engine"]), cockpit=ck, brake=brake)
     out = kcar.build(spec, OUT / f"{prefix}.car")
     print(kcar.report(out))
     return out

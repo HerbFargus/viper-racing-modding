@@ -213,5 +213,94 @@ def doghouse():
     for k in (1, -1):
         for z in (1.15, -1.15):
             B.box([k * .88, .92, z], [.38, .05, .8], "#3b4652")
+    for k in (1, -1):                                       # tail lamps on the back of the deck
+        B.box([k * .58, .45, -1.66], [.18, .1, .04], "#8a1a14")
     w = wheel(.38, .3, "#1b1b1b", "#f2efe8", "#c0392b", n=10)
     return {"body": B, "front": w, "rear": w, "wheelbase": 2.3, "ftrack": 1.76, "rtrack": 1.76}
+
+
+# ---------------------------------------------------------------- cockpits and brake lights
+# Each car's cockpit is a purpose-built interior frame plus the part of its own body the driver
+# can see, for kit.cockpit.build. Eyes sit behind the car's centre (z <= 0.07), as the game needs.
+
+def _keep(body, keep):
+    out = Builder()
+    for a, b, c, col in body.tris:
+        cen = tuple((a[k] + b[k] + c[k]) / 3 for k in range(3))
+        if keep(cen, col):
+            out.tri(a, b, c, col)
+    return out
+
+
+def alley_cat_cockpit(body):
+    """A chopped-roof slot: dash and door cappings in oxblood, a low header, and through the
+    slot the blower and the grille's cat ears. Left-hand drive, so the blower sits to the right."""
+    F = Builder()
+    BK2, OX, HL = "#2c2834", "#6e2424", "#3a3438"
+    F.box([0, .95, .38], [1.24, .3, .04], BK2)                         # dash panel
+    for k in (1, -1):
+        F.box([k * .62, .84, -.33], [.03, .5, 1.36], OX)               # door panels
+        F.box([k * .63, 1.1, -.33], [.07, .04, 1.36], BK2)             # door cappings
+        F.box([k * .6, 1.26, .36], [.06, .32, .06], BK2)               # A-pillars
+    F.box([0, 1.43, .36], [1.26, .1, .07], BK2)                        # the chopped header
+    F.box([0, 1.48, -.33], [1.26, .02, 1.42], HL)                      # headliner
+    ahead = _keep(body, lambda c, col: c[2] > .42)                      # hood, blower, grille, ears
+    shell = Builder().extend(F).extend(ahead)
+    return dict(shell=shell, eye=(-0.3, 1.24, -0.5), wheel=(-0.3, 0.86, 0.05), wheel_R=0.16,
+                gauges={"rpm": (-0.42, 1.03, .355), "mph": (-0.19, 1.03, .355)}, gauge_r=0.05,
+                plate_at=(0.25, 1.0, .355), plate_w=0.22, atlas_name="acdash.tex",
+                rpm_max=9000, rpm_red=8000, mph_max=200,
+                art=dict(face=(24, 22, 30), ink=(141, 255, 90), red=(214, 52, 38),
+                         plate_bg=(122, 79, 192), plate_ink=(240, 236, 250), plate_text="ALLEY CAT",
+                         swatches={"needle": (141, 255, 90), "rim": (30, 28, 34), "spoke": (201, 207, 214),
+                                   "bezel": (201, 207, 214), "hub": (122, 79, 192), "pod": (44, 40, 52)}))
+
+
+def doghouse_cockpit(body):
+    """Inside the doghouse, looking out of a doorway opened up wide: plank walls round you, the
+    roof overhead, and out front the kart deck, the tennis-ball lamps and the bone bumper."""
+    RD, RD2, WOOD = "#c0392b", "#a33024", "#8a5a2e"
+
+    def keep(c, col):
+        if col in ("#5d4037", "#4a332c"):
+            return False                                                # the roof: its underside shares the
+                                                                        # ceiling's plane and z-fights with it
+        if col in ("#d7261e", "#b81f18", "#c9cfd6", "#8b5a2b", "#e2c07c"):
+            return False                                                # bowl, hydrant, tail: behind you
+        if col == "#a33024" and abs(c[0]) > 0.74:
+            return False                                                # plank lines flush on the walls: same
+        if 0.9 < c[2] < 1.02 and c[1] > 0.52 and abs(c[0]) < 0.8:
+            return False                                                # the front wall, door, sign
+        if c[2] > 0.75 and c[1] > 0.9 and col in ("#d9893a", "#f2efe8", "#1d1a18"):
+            return False                                                # the corgi: you're driving
+        return True
+    F = Builder()
+    for k in (1, -1):
+        F.box([k * .677, 1.05, .93], [.13, 1.04, .075], RD2)            # door posts, clear of the walls
+    F.box([0, 1.535, .93], [1.48, .065, .06], RD2)                      # header, clear of the ceiling
+    F.box([0, .665, .93], [1.48, .26, .06], RD)                         # sill, clear of the floor
+    F.box([0, .96, .91], [.8, .34, .04], WOOD)                          # the gauge board
+    walls = lambda c, col: keep(c, col) and col == RD                   # noqa: E731  the house you sit in
+    shell = Builder().extend(F).extend(_keep(body, lambda c, col: keep(c, col) and col != RD))
+    return dict(shell=shell, inside=_keep(body, walls), eye=(0.0, 1.38, 0.05), wheel=(0.0, 0.98, 0.5), wheel_R=0.17,
+                gauges={"rpm": (-0.22, 1.03, .885), "mph": (0.22, 1.03, .885)}, gauge_r=0.055,
+                plate_at=(0.0, 1.03, .885), plate_w=0.2, atlas_name="dhdash.tex",
+                rpm_max=5000, rpm_red=4500, mph_max=140,
+                art=dict(face=(242, 239, 232), ink=(74, 51, 44), red=(192, 57, 43),
+                         plate_bg=(226, 192, 124), plate_ink=(74, 51, 44), plate_text="DOGHOUSE",
+                         swatches={"needle": (192, 57, 43), "rim": (93, 64, 55), "spoke": (226, 192, 124),
+                                   "bezel": (138, 90, 46), "hub": (217, 137, 58), "pod": (93, 64, 55)}))
+
+
+def alley_cat_brake():
+    B = Builder()
+    for k in (1, -1):
+        B.box([k * .4, .86, -1.965], [.22, .09, .02], "#ff3a24", r=(0, 0, -k * .25))
+    return B
+
+
+def doghouse_brake():
+    B = Builder()
+    for k in (1, -1):
+        B.box([k * .58, .45, -1.69], [.2, .12, .02], "#ff3a24")
+    return B

@@ -47,6 +47,10 @@ class CarSpec:
     power: float = 210.0              # "indy" only
     horn_ball: mod.Mesh | None = None
     horn_wav: bytes | None = None     # 16-bit mono PCM WAV
+    engine: dict | None = None        # {"i"|"0"|"1"|"2": 16-bit samples}, kit.sound.engine_set
+    cockpit: dict | None = None       # kit.cockpit.build(...) output
+    brake: mod.Mesh | None = None     # the brake-light glow, drawn when braking (<prefix>b.mod)
+    prune: bool = True                # drop every texture no .mod in the car uses (the donor's art)
     extra: list = field(default_factory=list)   # more ArchiveEntry members
 
 
@@ -89,11 +93,14 @@ def build(spec: CarSpec, out: Path, donor: Path = kit.DONOR_CAR, val: Path = kit
     xs = [v.x for v in spec.body.vertices]
     zs = [v.z for v in spec.body.vertices]
     bre = by[f"{p}b.mod"]
-    bm = mod.parse(_bytes(bre))
-    for v in bm.vertices:
-        v.z = min(zs) - 0.02
-        v.x *= (max(xs) - min(xs)) / 1.84 * 0.6
-    bre.payload = envelope.parse(mod.build(bm, bre.version)).payload
+    if spec.brake is not None:
+        bre.payload = envelope.parse(mod.build(spec.brake, bre.version)).payload
+    else:                                                   # the donor's strip, moved to the tail
+        bm = mod.parse(_bytes(bre))
+        for v in bm.vertices:
+            v.z = min(zs) - 0.02
+            v.x *= (max(xs) - min(xs)) / 1.84 * 0.6
+        bre.payload = envelope.parse(mod.build(bm, bre.version)).payload
 
     ce = by[f"{p}.cf"]
     van = cf.parse(_bytes(ce))
@@ -139,6 +146,25 @@ def build(spec: CarSpec, out: Path, donor: Path = kit.DONOR_CAR, val: Path = kit
     if spec.horn_wav is not None:
         h = envelope.parse(sfx.build(sfx.from_wav_bytes(spec.horn_wav)))
         _upsert(entries, archive.ArchiveEntry(name="horn.sfx", tag=h.tag, version=h.version, payload=h.payload))
+    if spec.engine is not None:
+        from kit.sound import wav_bytes
+        for suffix, pcm in spec.engine.items():
+            h = envelope.parse(sfx.build(sfx.from_wav_bytes(wav_bytes(pcm))))
+            _upsert(entries, archive.ArchiveEntry(name=f"{p}{suffix}.sfx", tag=h.tag, version=h.version,
+                                                  payload=h.payload))
+    if spec.cockpit is not None:
+        for name, blob in spec.cockpit.items():
+            if name.startswith("_"):
+                continue
+            member = f"{p}{name}" if name in ("c.mod", "w.mod") else name
+            env = envelope.parse(blob)
+            _upsert(entries, archive.ArchiveEntry(name=member, tag=env.tag, version=env.version, payload=env.payload))
+    if spec.prune:
+        used = set()
+        for e in entries:
+            if e.name.lower().endswith(".mod"):
+                used |= {m.name.lower() for m in mod.parse(_bytes(e)).materials}
+        entries = [e for e in entries if not e.name.lower().endswith(".tex") or e.name.lower() in used]
     out.write_bytes(archive.to_bytes(entries, partitioned=layout.partitioned))
     return out
 

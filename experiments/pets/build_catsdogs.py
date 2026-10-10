@@ -19,8 +19,8 @@ texture ships with the track, drawn). Its own NAME matters: the game caches text
 and the cars' palettes order their colours differently.
 
 THE BONE POND is real water: a flat surface 0.4 m down in the lawn, surface code 14 -- the
-engine floats a car on it, as on Ridge Valley's lake, with that lake's own wat2.tex -- inside
-a sandy bank. Solid ones get .sol spheres (hydrants, trees, the
+engine floats a car on it, as on Ridge Valley's lake -- inside a sandy bank. Its texture,
+pondwat.tex, is generated like everything else here (no game art ships with the track). Solid ones get .sol spheres (hydrants, trees, the
 yarn ball, the scratching post, tennis balls) or boxes (fence, doghouses, buildings, stalls,
 box tunnel walls) -- boxes patched to closed ends (+0x68 = 0).
 
@@ -44,7 +44,7 @@ sys.path.insert(0, str(HERE.parents[1]))
 sys.path.insert(0, str(HERE))
 import kit  # noqa: E402  (puts vrmod on sys.path)
 from kit import terrain, tracks  # noqa: E402
-from kit.art import colourise, tile_noise, to_img  # noqa: E402
+from kit.art import colourise, tile_noise, to_img, water  # noqa: E402
 from kit.shapes import Builder, Palette, tennis_ball, yarn_ball  # noqa: E402
 from kit.terrain import Batch, CatmullRom, Line, delaunay, game, smootherstep  # noqa: E402
 from kit.terrain import mockup_to_source as src  # noqa: E402
@@ -276,10 +276,7 @@ def sand_tex(size=128, seed=61):
     return to_img(colourise(tile_noise(size, 8, 4, 0.5, seed), (206, 190, 150), (226, 212, 176)))
 
 
-STOCK_HASTINGS = kit.INSTALL / "hastings_AS_Cats vs Dogs.btr"      # Ridge Valley, kept by the switcher
-
-
-TEXTURES = {"sand.tex": sand_tex, "roaddog.tex": lambda: road_tex((210, 52, 40)), "roadcat.tex": lambda: road_tex((122, 79, 192)),
+TEXTURES = {"pondwat.tex": water, "sand.tex": sand_tex, "roaddog.tex": lambda: road_tex((210, 52, 40)), "roadcat.tex": lambda: road_tex((122, 79, 192)),
             "grass.tex": grass_tex, "paving.tex": paving_tex, "side.tex": side_tex, "chequer.tex": check_tex}
 
 
@@ -332,7 +329,7 @@ def build_floor(scene, rng):
     batches = {k: Batch(scene, k[:5], t, True) for k, t in (
         ("roaddog", "roaddog.tex"), ("roadcat", "roadcat.tex"), ("grass", "grass.tex"),
         ("paving", "paving.tex"), ("sidew", "side.tex"), ("sand", "sand.tex"))}
-    batches["water"] = Batch(scene, "water", "wat2.tex", True, code=trackgen.WATER)
+    batches["water"] = Batch(scene, "water", "pondwat.tex", True, code=trackgen.WATER)
     counts = {k: 0 for k in batches}
     for t in tris:
         P = [(pts[i][0], pts[i][1], float(Z[i])) for i in t]
@@ -691,10 +688,7 @@ def main():
     ent = archive.read(OUT)
     by = tracks.by_name(ent)
     for name in sorted(wanted):
-        if name == "wat2.tex":                                   # Ridge Valley's own water
-            st = tracks.stock_member(STOCK_HASTINGS, "wat2.tex")
-            by[name].tag, by[name].version, by[name].payload = st.tag, st.version, st.payload
-        elif name == PAL.name:
+        if name == PAL.name:
             tracks.set_member(by[name], PAL.tex_bytes(wrap=0))
         else:
             tracks.set_member(by[name], tracks.image_tex(TEXTURES[name]()))

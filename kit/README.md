@@ -17,8 +17,9 @@ Paths come from `kit/__init__.py` and can be overridden with `VRMOD_REPO`,
 |---|---|---|
 | `shapes` | `Builder` (tapered `box`, `pyr`, `cyl`, the same calls as the three.js mockups), `Palette` (flat colours in one 128 px `.tex`, **named per build**), `wheel`, `sphere`, `yarn_ball`, `tennis_ball`, `centred()` for obstacles | Cats vs Dogs |
 | `terrain` | the three frames (`game`, `mockup_to_source`), `Batch` (chunked, pre-lit, solid or drawn-only, surface code), `delaunay`, `Line`, `CatmullRom` (the mockups' curve, with stations) | Ballroom, Coliseum, circuit |
-| `car` | `CarSpec` + `build()`, the Willys recipe: fork the van, body/wheels/palette, brake strip, Val's `.cf` with a `"val"` or `"indy"` tune, modlod, horn ball + `horn.sfx`; `report()` | Willys, Indy Jeep |
-| `sound` | `voice()`, a source-filter synth for horn calls; `to_pcm`, `wav_bytes` | Cats vs Dogs horns |
+| `car` | `CarSpec` + `build()`, the Willys recipe: fork the van, body/wheels/palette, Val's `.cf` with a `"val"` or `"indy"` tune, modlod, horn ball + `horn.sfx`, engine loops, cockpit, brake lights, and pruning every texture nothing uses (so none of the van's art ships); `report()` | Willys, Indy Jeep, Cats vs Dogs |
+| `sound` | `voice()`, a source-filter synth for horn calls; `engine_set()`, synthesised engine loops; `to_pcm`, `wav_bytes` | Cats vs Dogs horns, the jeeps' engines |
+| `cockpit` | 3D cockpits: `build()` (shell seen from outside + inside rewound toward the eye, generated dials, plate, wheel, needle, cockpit.tab), `snapshot()` (a look from the seat) | the jeeps, Cats vs Dogs |
 | `tracks` | after `trackbuild.assemble`: `set_member`, `image_tex`, `stock_member`, `set_sky`, `cameras`, `closed_box`/`add_boxes`, `add_obstacles`, `finish` (.trk → map → .tra + .stp), `install`, `render` | Coliseum, Cats vs Dogs |
 | `art` | `tile_noise`, `colourise`, `to_img`, `speckle`, and ready-made ground/road/sky textures | circuit |
 
