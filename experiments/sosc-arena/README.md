@@ -155,6 +155,23 @@ every tower: see `sol.box_from_segment`.
 Wobble cows stay off (`ARENA_WOBBLE=0`): 50 of them crash race start on the
 original race.exe and the port alike.
 
+### The smooth arena (`ARENA_SMOOTH=1`, 2026-10-09)
+
+An alternate build for a game where every kerb and cliff costs damage. One
+height per grid corner (`arena.lattice_height`), so no vertical steps or
+skirts remain -- a raised road keeps its height and the ground climbs to meet
+it instead of the concrete cliff. The ground is resampled on 4 m quads by a
+MONOTONE bicubic (`SmoothField`): Catmull-Rom overshot the crest road into two
+1.3 m humps. The berm takes a deeper halfpipe (`ARENA_PIPE`, levels above the
+floor: 0.15 / 0.8 / 3.0 against the stock 0.5 / 1.5 / 3): flat off the floor,
+57 degrees at its steepest, rolling over onto the crest road, so a fast car is
+thrown up and lands back inside. (The berm is a ridge 2-3 tiles from the map's
+edge, so a ramp aimed outward would throw cars off the world.) Route, cows and
+towers all take their height from the same field.
+
+Cost: 73,922 collision triangles against 14,396, 945 ground chunks against
+about 190, 13.4 MB. Race start with 9 cars checked clean on the port.
+
 ### Knockable cows
 
 40 of the cows -- the ones nearest the racing line -- are `obj obstacle` records

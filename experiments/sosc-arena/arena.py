@@ -132,6 +132,19 @@ DARK_DENSITY = 0.12          # share of solid-grass tiles that take it
 # Broad and low: a slope still reads as a slope and stays drivable, with a few
 # low-poly facets rather than a rough surface. The first pass -- 4 m facets at
 # +-1.6 m -- looked like rubble.
+# THE SMOOTH ARENA (ARENA_SMOOTH=1): an alternate build with no hard edges, for
+# a game where every kerb and cliff costs damage. One height per grid corner
+# (no vertical steps, no skirts), resampled on a SMOOTH_DIV grid by a monotone cubic
+# so crests and creases are curves, and a deeper halfpipe on the berm.
+SMOOTH = os.environ.get("ARENA_SMOOTH", "0") == "1"
+SMOOTH_DIV = 4               # 4 m quads on any tile that is not flat
+# The berm's levels above the floor in the smooth arena, in levels (7.92 m):
+# much more concave than the stock 0.5 / 1.5 / 3 -- nearly flat off the floor,
+# steep at the crest -- so a car runs up the inner face and is thrown into the
+# air, and the halfpipe brings it back down inside the arena. The berm is a
+# ridge 2-3 tiles from the map's edge, so a ramp aimed outward would throw
+# cars off the world; a halfpipe throws them up.
+PIPE_LEVELS = [float(v) for v in os.environ.get("ARENA_PIPE", "0.15,0.8,3.0").split(",")]
 BUMP_DIV = 2                 # 8 m facets
 BUMP_AMP = 0.8               # metres, peak either way
 
@@ -199,6 +212,8 @@ def alt_height(a: int, level: float, base: int) -> float:
     n = a - base
     if n <= 0:
         return a * level
+    if SMOOTH and n <= len(PIPE_LEVELS):
+        return (base + PIPE_LEVELS[n - 1]) * level
     return (base + n * (n + 1) / 4) * level
 
 
@@ -240,6 +255,101 @@ def corner_heights(city, x, y, level):
                      for tx, ty in owners)
             out[s] = alt_height(lv, level, city.base_level)
     return out
+
+
+def lattice_height(city, gx, gy, level) -> float:
+    """The smooth arena's one height for grid corner (gx, gy).
+
+    Terrain corners take the highest level any of their tiles gives, through
+    the halfpipe profile, exactly as corner_heights does. A corner a ROAD
+    touches takes the highest even level any road tile there gives it -- so a
+    raised road keeps its height (the floor jumps stay jumps) -- where
+    corner_heights let each road tile keep its own and drew the difference as a
+    concrete cliff. Here the neighbouring ground climbs to meet it instead.
+    """
+    B = city.grids["XBLD"]
+    owners = [(tx, ty) for tx in (gx - 1, gx) for ty in (gy - 1, gy)
+              if 0 <= tx < sc2.SIZE and 0 <= ty < sc2.SIZE]
+    corner = lambda tx, ty: _tile_corner_level(city, tx, ty, (2 * (gx - tx) - 1, 2 * (gy - ty) - 1))
+    roads = [(tx, ty) for tx, ty in owners if B[tx][ty] in ROADS]
+    if roads:
+        return max(corner(tx, ty) for tx, ty in roads) * level
+    return alt_height(max(corner(tx, ty) for tx, ty in owners), level, city.base_level)
+
+
+class SmoothField:
+    """The smooth arena's ground: a monotone bicubic through the corner lattice.
+
+    sample(px, py) takes TILE coordinates (a tile spans [x, x+1]) and is C1
+    everywhere, so a crest or a crease is a curve rather than a fold, and it
+    passes through every lattice height, so the roads keep their levels.
+    """
+
+    def __init__(self, city, level, x0, y0, x1, y1):
+        self.gx0, self.gy0 = x0 - 1, y0 - 1
+        self.nx, self.ny = (x1 + 3) - self.gx0, (y1 + 3) - self.gy0
+        self.H = [[lattice_height(city, min(max(self.gx0 + i, 0), sc2.SIZE - 1),
+                                  min(max(self.gy0 + j, 0), sc2.SIZE - 1), level)
+                   for j in range(self.ny)] for i in range(self.nx)]
+
+    def _h(self, i, j):
+        return self.H[min(max(i, 0), self.nx - 1)][min(max(j, 0), self.ny - 1)]
+
+    @staticmethod
+    def _cr(p0, p1, p2, p3, t):
+        """Monotone cubic (Fritsch-Butland tangents) from p1 to p2.
+
+        NOT Catmull-Rom: that overshoots wherever a slope meets a level, and
+        it put two 1.3 m humps across the berm's crest road. Here a tangent is
+        zero at any peak, trough or level, and the curve never leaves the range
+        of its neighbours, so crests and floors stay flat and only the slopes
+        between them curve.
+        """
+        def tangent(a, b):
+            return 0.0 if a * b <= 0 else 2 * a * b / (a + b)
+        d0, d1, d2 = p1 - p0, p2 - p1, p3 - p2
+        m1, m2 = tangent(d0, d1), tangent(d1, d2)
+        t2, t3 = t * t, t * t * t
+        return ((2 * t3 - 3 * t2 + 1) * p1 + (t3 - 2 * t2 + t) * m1
+                + (-2 * t3 + 3 * t2) * p2 + (t3 - t2) * m2)
+
+    def sample(self, px, py):
+        fx, fy = px - self.gx0, py - self.gy0
+        i, j = int(math.floor(fx)), int(math.floor(fy))
+        u, v = fx - i, fy - j
+        rows = [self._cr(*(self._h(i + a, j + b) for a in (-1, 0, 1, 2)), u) for b in (-1, 0, 1, 2)]
+        return self._cr(*rows, v)
+
+    def flat(self, x, y):
+        """True when tile (x, y) and the lattice around it are level: one quad will do."""
+        i, j = x - self.gx0, y - self.gy0
+        vals = {self._h(i + a, j + b) for a in (-1, 0, 1, 2) for b in (-1, 0, 1, 2)}
+        return len(vals) == 1
+
+
+_FIELD = {}
+
+
+def smooth_field(city, level) -> "SmoothField":
+    """One SmoothField per city, shared by the ground, the props and the route."""
+    key = id(city)
+    if key not in _FIELD:
+        x0, y0, x1, y1 = city.bounds()
+        _FIELD[key] = SmoothField(city, level, max(0, x0 - PAD), max(0, y0 - PAD),
+                                  min(sc2.SIZE - 1, x1 + PAD), min(sc2.SIZE - 1, y1 + PAD))
+    return _FIELD[key]
+
+
+def ground_height(city, level, px, py) -> float:
+    """Ground height (m) at tile coordinates (px, py), in either arena."""
+    if SMOOTH:
+        return smooth_field(city, level).sample(px, py)
+    tx, ty = int(px), int(py)
+    fx, fy = px - tx, py - ty
+    h = corner_heights(city, tx, ty, level)
+    lo = h[(-1, -1)] * (1 - fx) + h[(1, -1)] * fx
+    hi = h[(-1, 1)] * (1 - fx) + h[(1, 1)] * fx
+    return lo * (1 - fy) + hi * fy
 
 
 def rotate_uv(u, v, quarter):
@@ -648,8 +758,29 @@ def build(sosc: Path, city_path: Path, out: Path) -> dict:
     P = lambda x, y, sx, sy, h: ((x + (sx + 1) / 2) * TILE, h, (y + (sy + 1) / 2) * TILE)
 
     # ground and roads, one quad per tile
+    field = smooth_field(city, level) if SMOOTH else None
     for x in range(x0, x1 + 1):
         for y in range(y0, y1 + 1):
+            if SMOOTH:
+                # the tile's material and UV rule as below, on an N x N grid
+                # sampled from the field (one quad when it is level)
+                if B[x][y] in AUTOTILE_IDS:
+                    name, img = autotile_image(tee_img, cross_img, is_road, x, y)
+                    mat, uvf = save(img, out, name, mtl), (lambda u, v: (u, v))
+                elif B[x][y] in ROADS:
+                    kind, q = ROADS[B[x][y]]
+                    turn = diag_turn(x, y, q) if kind == "diag" else q
+                    mat, uvf = road_mat[kind], (lambda u, v, t=turn: rotate_uv(u, v, t))
+                else:
+                    mat, uvf = ground_mat(x, y), (lambda u, v: (u, v))
+                N = 1 if field.flat(x, y) else SMOOTH_DIV
+                pt = lambda i, j: ((x + i / N) * TILE, field.sample(x + i / N, y + j / N), (y + j / N) * TILE)
+                for i in range(N):
+                    for j in range(N):
+                        corners = [(i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1)]
+                        obj.face(mat, [pt(a, b) for a, b in corners],
+                                 [uvf(a / N, b / N) for a, b in corners])
+                continue
             h = corner_heights(city, x, y, level)
             order = [(-1, -1), (1, -1), (1, 1), (-1, 1)]
             pts = [P(x, y, sx, sy, h[(sx, sy)]) for sx, sy in order]
@@ -686,7 +817,7 @@ def build(sosc: Path, city_path: Path, out: Path) -> dict:
 
     # skirts where neighbouring tiles disagree about a shared edge
     skirts = 0
-    for x in range(x0, x1 + 1):
+    for x in (range(x0, x1 + 1) if not SMOOTH else ()):
         for y in range(y0, y1 + 1):
             h = corner_heights(city, x, y, level)
             for dx, dy in ((1, 0), (0, 1)):
@@ -717,7 +848,8 @@ def build(sosc: Path, city_path: Path, out: Path) -> dict:
         for y in range(y0, y1 + 1):
             tid = B[x][y]
             # the tile's own surface, which a neighbouring road may have bent
-            ground = sum(corner_heights(city, x, y, level).values()) / 4
+            ground = (ground_height(city, level, x + 0.5, y + 0.5) if SMOOTH
+                      else sum(corner_heights(city, x, y, level).values()) / 4)
             centre = ((x + 0.5) * TILE, ground, (y + 0.5) * TILE)
             if tid in models:
                 verts, faces = models[tid]
@@ -747,12 +879,7 @@ def build(sosc: Path, city_path: Path, out: Path) -> dict:
 
     def ground_at(px, py):
         """Ground height (m) at tile coordinates (px, py), across the tile's slope."""
-        tx, ty = min(int(px), x1), min(int(py), y1)
-        fx, fy = px - tx, py - ty
-        h = corner_heights(city, tx, ty, level)
-        lo = h[(-1, -1)] * (1 - fx) + h[(1, -1)] * fx
-        hi = h[(-1, 1)] * (1 - fx) + h[(1, 1)] * fx
-        return lo * (1 - fy) + hi * fy
+        return ground_height(city, level, min(px, x1 + 0.999), min(py, y1 + 0.999))
 
     # The statue: the same cow, scaled to STATUE_HEIGHT, on the centre, under its
     # own copies of the cow's materials ("s" prefix) so the track build never

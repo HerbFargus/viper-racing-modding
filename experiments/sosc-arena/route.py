@@ -82,7 +82,10 @@ def _unit(dx, dy):
 
 def road_height(city, level, tx: float, ty: float) -> float:
     """Height of the road surface at a point in tile units -- bilinear over the
-    tile's corners, which is exactly how arena.py builds a road tile."""
+    tile's corners, which is exactly how arena.py builds a road tile -- or, in
+    the smooth arena (ARENA_SMOOTH=1), the smoothed ground itself."""
+    if arena.SMOOTH:
+        return arena.ground_height(city, level, tx, ty)
     x, y = min(int(tx), sc2.SIZE - 1), min(int(ty), sc2.SIZE - 1)
     u, v = tx - x, ty - y
     h = arena.corner_heights(city, x, y, level)
