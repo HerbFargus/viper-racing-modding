@@ -1,0 +1,291 @@
+<title>Pet Obstacle Mockups</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a modelling-tool viewport on the left, the pen of animals on the right, obstacle line underneath */
+:root{
+  --bg:#eef1f4; --panel:#ffffff; --ink:#1b2430; --muted:#5d6b7a; --line:#d5dce4;
+  --accent:#d9822b; --accent-ink:#ffffff; --view:#dfe5ec; --grid:#b9c3cf; --code:#f4f6f8;
+  --display:"Chakra Petch",ui-sans-serif,system-ui,sans-serif;
+  --body:"IBM Plex Sans",ui-sans-serif,system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#12171d; --panel:#1a2129; --ink:#e6ebf0; --muted:#94a2b1; --line:#2c3642;
+  --accent:#e8964a; --accent-ink:#1a1209; --view:#0f1419; --grid:#2e3a47; --code:#141a21; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#12171d; --panel:#1a2129; --ink:#e6ebf0; --muted:#94a2b1; --line:#2c3642;
+  --accent:#e8964a; --accent-ink:#1a1209; --view:#0f1419; --grid:#2e3a47; --code:#141a21; color-scheme:dark}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5}
+.wrap{max-width:1180px;margin:0 auto;padding:24px 16px 40px}
+header{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 18px;margin-bottom:16px}
+h1{font-family:var(--display);font-weight:700;font-size:1.7rem;margin:0;letter-spacing:.01em;text-wrap:balance}
+header p{margin:0;color:var(--muted);max-width:68ch}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px}
+@media (max-width:860px){.grid{grid-template-columns:minmax(0,1fr)}}
+.view{position:relative;background:var(--view);border:1px solid var(--line);border-radius:6px;overflow:hidden;aspect-ratio:16/10;max-width:100%}
+.view canvas{display:block;width:100%;height:100%;cursor:grab}
+.hud{position:absolute;left:10px;top:8px;font-family:var(--mono);font-size:12px;color:var(--muted);pointer-events:none}
+.controls{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;margin-top:10px}
+.controls label{display:flex;gap:6px;align-items:center;font-size:14px;cursor:pointer}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:5px;overflow:hidden}
+.seg button{font:500 13px var(--mono);background:var(--panel);color:var(--ink);border:0;padding:5px 10px;cursor:pointer}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+.pen{display:flex;flex-direction:column;gap:6px}
+.pen h2,.detail h2{font:700 .8rem var(--display);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 4px}
+.pick{display:grid;grid-template-columns:1fr auto;gap:2px 10px;text-align:left;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:5px;padding:8px 10px;cursor:pointer;font:inherit}
+.pick b{font-family:var(--display);font-weight:500;font-size:1rem}
+.pick span{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.pick[aria-pressed="true"]{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.detail{margin-top:18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px 16px;min-width:0}
+dl{display:grid;grid-template-columns:auto 1fr;gap:3px 14px;margin:0;font-size:14px}
+dt{color:var(--muted)} dd{margin:0;font-family:var(--mono);font-variant-numeric:tabular-nums}
+pre{background:var(--code);border:1px solid var(--line);border-radius:4px;padding:8px 10px;font:13px var(--mono);overflow-x:auto;margin:6px 0 8px}
+.card p{margin:6px 0;font-size:14px;color:var(--muted)}
+.copy{font:500 13px var(--body);background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:4px 10px;cursor:pointer}
+.note{font-size:13px;color:var(--muted)}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Pet Obstacle Mockups</h1>
+    <p>Six low-poly cats and dogs for <code>obj obstacle ball</code> lines. Each model is centred on its own middle, so the axes marker is where the game puts the ball's centre.</p>
+  </header>
+
+  <div class="grid">
+    <div>
+      <div class="view" id="view"><div class="hud" id="hud"></div></div>
+      <div class="controls">
+        <label><input type="checkbox" id="optBox" checked> Bounding box</label>
+        <label><input type="checkbox" id="optSphere" checked> Collision sphere</label>
+        <label><input type="checkbox" id="optViper"> Viper for scale</label>
+        <label><input type="checkbox" id="optSpin"> Turntable</label>
+        <span class="seg" id="scaleSeg" role="group" aria-label="Model size">
+          <button data-s="1" aria-pressed="false">1×</button><button data-s="2" aria-pressed="false">2×</button><button data-s="4" aria-pressed="true">4×</button>
+        </span>
+      </div>
+    </div>
+    <div class="pen" id="pen"><h2>The pen</h2></div>
+  </div>
+
+  <div class="detail">
+    <div class="card"><h2 id="dName">Model</h2><dl id="dStats"></dl></div>
+    <div class="card"><h2>track.obt line</h2>
+      <pre id="dLine"></pre>
+      <button class="copy" id="copyBtn">Copy line</button>
+      <p>Mass is in pounds. Every pet is 50 lb at any size, the same as the arena cows.</p>
+    </div>
+    <div class="card"><h2>Notes</h2>
+      <p>Flat-shaded boxes and wedges, one colour per face, so they suit a palette or a small atlas.</p>
+      <p class="note">The sphere drawn is an estimate (half the longest side). The game sizes it from the mesh extents, and the exact rule isn't decoded yet.</p>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+// ---------- mesh builder: tapered boxes and pyramids, one colour per face ----------
+function Builder(){this.pos=[];this.col=[];}
+Builder.prototype.tri=function(a,b,c,col){for(const p of[a,b,c]){this.pos.push(p.x,p.y,p.z);this.col.push(col.r,col.g,col.b);}};
+Builder.prototype.quad=function(a,b,c,d,col){this.tri(a,b,c,col);this.tri(a,c,d,col);};
+function xf(o){const m=new THREE.Matrix4();const r=o.r||[0,0,0];
+  m.compose(new THREE.Vector3(...o.at),new THREE.Quaternion().setFromEuler(new THREE.Euler(r[0],r[1],r[2])),new THREE.Vector3(1,1,1));return m;}
+Builder.prototype.box=function(o){
+  const[w,h,d]=o.s,[tx,tz]=o.top||[1,1],[sx,sz]=o.sh||[0,0],m=xf(o),col=new THREE.Color(o.c);
+  const V=(x,y,z)=>new THREE.Vector3(x,y,z).applyMatrix4(m);
+  const b=[V(-w/2,-h/2,-d/2),V(w/2,-h/2,-d/2),V(w/2,-h/2,d/2),V(-w/2,-h/2,d/2)];
+  const t=[V(-w*tx/2+sx,h/2,-d*tz/2+sz),V(w*tx/2+sx,h/2,-d*tz/2+sz),V(w*tx/2+sx,h/2,d*tz/2+sz),V(-w*tx/2+sx,h/2,d*tz/2+sz)];
+  this.quad(t[0],t[3],t[2],t[1],col);this.quad(b[0],b[1],b[2],b[3],col);
+  this.quad(b[3],b[2],t[2],t[3],col);this.quad(b[1],b[0],t[0],t[1],col);
+  this.quad(b[2],b[1],t[1],t[2],col);this.quad(b[0],b[3],t[3],t[0],col);};
+Builder.prototype.pyr=function(o){
+  const[w,h,d]=o.s,[ax,az]=o.apex||[0,0],m=xf(o),col=new THREE.Color(o.c);
+  const V=(x,y,z)=>new THREE.Vector3(x,y,z).applyMatrix4(m);
+  const b=[V(-w/2,0,-d/2),V(w/2,0,-d/2),V(w/2,0,d/2),V(-w/2,0,d/2)],a=V(ax,h,az);
+  this.quad(b[0],b[1],b[2],b[3],col);
+  this.tri(b[3],b[2],a,col);this.tri(b[1],b[0],a,col);this.tri(b[2],b[1],a,col);this.tri(b[0],b[3],a,col);};
+const both=(f)=>{f(1);f(-1);};
+
+// ---------- the animals (metres, +z = nose, built standing on y=0) ----------
+const PINK='#e59a9a',BLK='#1d1a18';
+function catHead(B,y,z,c,c2,muz,eye){
+  B.box({at:[0,y,z],s:[.13,.11,.11],top:[.85,.85],c});
+  B.box({at:[0,y-.025,z+.06],s:[.065,.045,.03],c:muz});
+  B.box({at:[0,y-.008,z+.077],s:[.018,.012,.006],c:PINK});
+  both(k=>{B.box({at:[k*.032,y+.015,z+.057],s:[.022,.018,.008],c:eye});
+          B.pyr({at:[k*.042,y+.05,z-.005],s:[.045,.06,.03],apex:[k*.008,0],c:c2});});
+}
+const ANIMALS=[
+ {id:'tabby',name:'Tabby',kind:'Cat, standing',mass:10,build(B){
+   const T1='#c08a4e',T2='#8a5a2e',CR='#ead7b5';
+   both(k=>[.14,-.14].forEach(z=>{B.box({at:[k*.055,.08,z],s:[.045,.16,.045],c:T1});B.box({at:[k*.055,.012,z+.005],s:[.05,.025,.055],c:CR});}));
+   B.box({at:[0,.215,.13],s:[.14,.13,.12],c:T1});B.box({at:[0,.215,.01],s:[.145,.135,.12],c:T2});
+   B.box({at:[0,.215,-.11],s:[.14,.13,.12],c:T1});B.box({at:[0,.215,-.19],s:[.12,.12,.06],c:T2});
+   B.box({at:[0,.15,0],s:[.11,.02,.3],c:CR});
+   catHead(B,.31,.25,T1,T2,CR,'#7cc35a');
+   B.box({at:[0,.37,.245],s:[.04,.008,.08],c:T2});
+   B.box({at:[0,.27,-.26],s:[.03,.03,.1],r:[.6,0,0],c:T2});
+   B.box({at:[0,.33,-.3],s:[.028,.028,.09],r:[1.2,0,0],c:T1});
+   B.box({at:[0,.40,-.31],s:[.026,.026,.07],r:[1.5,0,0],c:T2});}},
+ {id:'blkcat',name:'Midnight',kind:'Cat, sitting',mass:9,build(B){
+   const K='#2a2930',K2='#3d3b46';
+   both(k=>{B.box({at:[k*.065,.06,-.04],s:[.07,.12,.17],top:[.8,.8],c:K});
+            B.box({at:[k*.035,.09,.075],s:[.035,.18,.035],c:K2});B.box({at:[k*.035,.01,.085],s:[.04,.02,.05],c:K2});});
+   B.box({at:[0,.14,0],s:[.15,.24,.15],top:[.7,.75],r:[.2,0,0],c:K});
+   catHead(B,.31,.06,K,K,K2,'#e8c547');
+   B.box({at:[.09,.015,.03],s:[.03,.03,.14],c:K});B.box({at:[.065,.015,.12],s:[.03,.03,.08],r:[0,-1.0,0],c:K2});}},
+ {id:'loaf',name:'Loaf',kind:'Cat, tucked in',mass:11,build(B){
+   const G='#d9822b',G2='#b5641c',CR='#f0dcc0';
+   B.box({at:[0,.075,0],s:[.2,.15,.3],top:[.8,.85],c:G});
+   [-.08,0,.08].forEach(z=>B.box({at:[0,.153,z],s:[.13,.006,.03],c:G2}));
+   catHead(B,.17,.15,G,G2,CR,'#7cc35a');
+   both(k=>B.box({at:[k*.04,.012,.155],s:[.04,.024,.04],c:CR}));
+   B.box({at:[.09,.03,-.02],s:[.03,.03,.26],c:G2});}},
+ {id:'corgi',name:'Corgi',kind:'Dog, short legs',mass:28,build(B){
+   const O='#d9893a',W='#f3ece0';
+   both(k=>[.14,-.14].forEach(z=>B.box({at:[k*.06,.045,z],s:[.05,.09,.05],c:W})));
+   B.box({at:[0,.15,0],s:[.2,.15,.4],top:[.9,.92],c:O});
+   B.box({at:[0,.085,.02],s:[.16,.03,.32],c:W});B.box({at:[0,.15,.195],s:[.14,.12,.02],c:W});
+   B.box({at:[0,.27,.23],s:[.15,.13,.14],top:[.85,.85],c:O});
+   B.box({at:[0,.235,.33],s:[.08,.065,.08],top:[.85,.85],c:W});
+   B.box({at:[0,.255,.372],s:[.025,.02,.01],c:BLK});
+   both(k=>{B.box({at:[k*.04,.29,.301],s:[.018,.018,.006],c:BLK});
+            B.pyr({at:[k*.05,.33,.22],s:[.06,.12,.035],apex:[k*.012,0],c:O});});
+   B.box({at:[0,.2,-.215],s:[.04,.04,.04],c:O});}},
+ {id:'lab',name:'Lab',kind:'Dog, big',mass:65,build(B){
+   const Y='#e2c07c',Y2='#c9a35f';
+   both(k=>[.24,-.24].forEach(z=>{B.box({at:[k*.085,.16,z],s:[.065,.32,.065],c:Y2});B.box({at:[k*.085,.015,z+.01],s:[.07,.03,.08],c:Y});}));
+   B.box({at:[0,.43,0],s:[.25,.24,.62],top:[.85,.9],c:Y});
+   B.box({at:[0,.40,.29],s:[.22,.24,.08],c:Y});
+   B.box({at:[0,.54,.33],s:[.15,.18,.13],r:[.5,0,0],c:Y});
+   B.box({at:[0,.64,.4],s:[.18,.16,.19],top:[.9,.9],c:Y});
+   B.box({at:[0,.6,.53],s:[.11,.09,.13],top:[.85,.9],c:Y2});
+   B.box({at:[0,.625,.598],s:[.04,.03,.012],c:BLK});
+   both(k=>{B.box({at:[k*.05,.67,.496],s:[.022,.02,.008],c:BLK});
+            B.box({at:[k*.095,.61,.38],s:[.03,.13,.08],r:[0,0,k*.15],c:Y2});});
+   B.box({at:[0,.53,-.46],s:[.045,.045,.32],r:[.3,0,0],c:Y});}},
+ {id:'dachs',name:'Sausage',kind:'Dog, dachshund',mass:20,build(B){
+   const Br='#7a3e1f',Br2='#5c2c14',TAN='#c48a52';
+   both(k=>[.17,-.17].forEach(z=>B.box({at:[k*.045,.04,z],s:[.04,.08,.04],c:Br2})));
+   B.box({at:[0,.135,0],s:[.13,.12,.46],top:[.9,.95],c:Br});
+   B.box({at:[0,.08,.15],s:[.1,.03,.14],c:TAN});
+   B.box({at:[0,.18,.22],s:[.08,.1,.08],r:[.5,0,0],c:Br});
+   B.box({at:[0,.22,.27],s:[.1,.1,.12],top:[.85,.85],c:Br});
+   B.box({at:[0,.2,.37],s:[.055,.05,.11],top:[.8,.85],c:TAN});
+   B.box({at:[0,.21,.428],s:[.02,.018,.008],c:BLK});
+   both(k=>{B.box({at:[k*.033,.24,.331],s:[.018,.018,.008],c:BLK});
+            B.box({at:[k*.058,.2,.27],s:[.025,.1,.06],r:[0,0,k*.12],c:Br2});});
+   B.box({at:[0,.18,-.31],s:[.025,.025,.18],r:[.35,0,0],c:Br});}},
+];
+
+// Build each, centre on the bounding-box middle (the ball rule), record stats.
+const mat=new THREE.MeshLambertMaterial({vertexColors:true,flatShading:true});
+ANIMALS.forEach(a=>{
+  const B=new Builder();a.build(B);
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(B.pos,3));
+  g.setAttribute('color',new THREE.Float32BufferAttribute(B.col,3));
+  g.computeBoundingBox();const c=new THREE.Vector3();g.boundingBox.getCenter(c);g.translate(-c.x,-c.y,-c.z);
+  g.computeVertexNormals();g.computeBoundingBox();
+  a.geo=g;a.size=new THREE.Vector3();g.boundingBox.getSize(a.size);
+  a.tris=B.pos.length/9;
+  const seen=new Set();for(let i=0;i<B.pos.length;i+=3)seen.add(B.pos.slice(i,i+3).map(v=>v.toFixed(4)).join()+'|'+B.col.slice(i,i+3).map(v=>v.toFixed(3)).join());
+  a.verts=seen.size;
+});
+
+// ---------- scene ----------
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const view=document.getElementById('view');
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));view.prepend(renderer.domElement);
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(40,16/10,.01,200);
+const controls=new THREE.OrbitControls(camera,renderer.domElement);controls.enableDamping=true;
+scene.add(new THREE.HemisphereLight(0xffffff,0x5a6470,.75));
+const sun=new THREE.DirectionalLight(0xffffff,.75);sun.position.set(2,4,3);scene.add(sun);
+const world=new THREE.Group();scene.add(world);
+let grid=null;
+
+const state={pick:'all',scale:4,box:true,sphere:true,viper:false,spin:false};
+try{const s=JSON.parse(localStorage.getItem('petmock2')||'{}');Object.assign(state,s);}catch(e){}
+if(matchMedia('(prefers-reduced-motion: reduce)').matches)state.spin=false;
+
+function placed(a,s){
+  const g=new THREE.Group();g.add(new THREE.Mesh(a.geo,mat));
+  const accent=new THREE.Color(css('--accent'));
+  if(state.box){const bh=new THREE.Box3Helper(a.geo.boundingBox,accent);g.add(bh);}
+  if(state.sphere){const r=Math.max(a.size.x,a.size.y,a.size.z)/2;
+    const sg=new THREE.WireframeGeometry(new THREE.IcosahedronGeometry(r,1));
+    g.add(new THREE.LineSegments(sg,new THREE.LineBasicMaterial({color:0x3a8fd9,transparent:true,opacity:.55})));}
+  const ax=new THREE.AxesHelper(Math.max(a.size.x,a.size.z)*.35);ax.material.depthTest=false;ax.renderOrder=2;g.add(ax);
+  g.scale.setScalar(s);return g;
+}
+function viperGhost(){
+  const B=new Builder();B.box({at:[0,.56,0],s:[1.92,1.12,4.45],top:[.72,.45],sh:[0,-.4],c:'#9aa6b4'});
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(B.pos,3));g.computeVertexNormals();
+  const m=new THREE.Mesh(g,new THREE.MeshLambertMaterial({color:0xa83232,transparent:true,opacity:.35}));
+  const e=new THREE.LineSegments(new THREE.EdgesGeometry(g),new THREE.LineBasicMaterial({color:0xa83232}));
+  const grp=new THREE.Group();grp.add(m,e);return grp;
+}
+function rebuild(){
+  world.clear();if(grid)scene.remove(grid);
+  const s=state.scale,list=state.pick==='all'?ANIMALS:ANIMALS.filter(a=>a.id===state.pick);
+  let x=0,gap=.25*s,minX=0,maxX=0,maxH=0,maxD=0;
+  list.forEach((a,i)=>{const w=Math.max(a.size.x,a.size.z*.6)*s;if(i)x+=gap;
+    const g=placed(a,s);g.position.set(x+w/2,a.size.y*s/2,0);if(list.length>1)g.rotation.y=-.5;world.add(g);
+    maxX=x+w;x+=w;maxH=Math.max(maxH,a.size.y*s);maxD=Math.max(maxD,a.size.z*s);});
+  world.position.x=-(maxX)/2;
+  let span=Math.max(maxX,maxD,maxH);
+  if(state.viper){const v=viperGhost();v.position.set(maxX+1.3,0,0);world.add(v);world.position.x=-(maxX+2.3)/2;span=Math.max(maxX+2.3,4.45);maxH=Math.max(maxH,1.12);}
+  const gs=Math.ceil(span*1.6*2)/2;grid=new THREE.GridHelper(gs,Math.round(gs/.1)>80?Math.round(gs/.5):Math.round(gs/.1),css('--grid'),css('--grid'));scene.add(grid);
+  controls.target.set(0,maxH*.45,0);
+  const dist=span*1.25+.3;camera.position.set(dist*.55,maxH*.6+dist*.35,dist*.95);controls.update();
+  scene.background=new THREE.Color(css('--view'));
+  updateDetail();
+  try{localStorage.setItem('petmock2',JSON.stringify({pick:state.pick,scale:state.scale,box:state.box,sphere:state.sphere,viper:state.viper}));}catch(e){}
+}
+
+// ---------- UI ----------
+const pen=document.getElementById('pen');
+const entries=[{id:'all',name:'Lineup',kind:'All six together',tris:ANIMALS.reduce((t,a)=>t+a.tris,0)}].concat(ANIMALS);
+entries.forEach(a=>{const b=document.createElement('button');b.className='pick';b.id='pick-'+a.id;b.dataset.id=a.id;
+  b.innerHTML=`<b>${a.name}</b><span>${a.tris} tris</span><span>${a.kind}</span><span>${a.id==='all'?'':a.id+'.mod'}</span>`;
+  b.onclick=()=>{state.pick=a.id;syncUI();rebuild();};pen.appendChild(b);});
+const fmt=v=>(v).toFixed(2)+' m';
+function updateDetail(){
+  const s=state.scale,dName=document.getElementById('dName'),dl=document.getElementById('dStats'),line=document.getElementById('dLine');
+  if(state.pick==='all'){dName.textContent='Lineup';
+    dl.innerHTML=ANIMALS.map(a=>`<dt>${a.name}</dt><dd>${a.tris} tris · ${fmt(Math.max(a.size.x,a.size.y,a.size.z)*s/2)} r</dd>`).join('');
+    line.textContent=ANIMALS.map((a,i)=>`obj obstacle ball ${a.id}.mod ${(i*3).toFixed(1)},0.0:0 50`).join('\n');
+    document.getElementById('hud').textContent=`${ANIMALS.length} models · ${s}× size`;return;}
+  const a=ANIMALS.find(x=>x.id===state.pick);dName.textContent=`${a.name} · ${a.id}.mod`;
+  const r=Math.max(a.size.x,a.size.y,a.size.z)*s/2;
+  dl.innerHTML=`<dt>Triangles</dt><dd>${a.tris}</dd><dt>Vertices</dt><dd>${a.verts}</dd>
+   <dt>Width</dt><dd>${fmt(a.size.x*s)}</dd><dt>Height</dt><dd>${fmt(a.size.y*s)}</dd><dt>Length</dt><dd>${fmt(a.size.z*s)}</dd>
+   <dt>Sphere r (est.)</dt><dd>${fmt(r)}</dd><dt>Pivot</dt><dd>bbox centre</dd>`;
+  line.textContent=`obj obstacle ball ${a.id}.mod 0.0,0.0:0 50`;
+  document.getElementById('hud').textContent=`${a.name} · ${a.tris} tris · ${s}× size`;
+}
+function syncUI(){
+  document.querySelectorAll('.pick').forEach(b=>b.setAttribute('aria-pressed',b.dataset.id===state.pick));
+  document.querySelectorAll('#scaleSeg button').forEach(b=>b.setAttribute('aria-pressed',+b.dataset.s===state.scale));
+  for(const[k,id]of[['box','optBox'],['sphere','optSphere'],['viper','optViper'],['spin','optSpin']])document.getElementById(id).checked=state[k];
+}
+document.querySelectorAll('#scaleSeg button').forEach(b=>b.onclick=()=>{state.scale=+b.dataset.s;syncUI();rebuild();});
+for(const[k,id]of[['box','optBox'],['sphere','optSphere'],['viper','optViper']])document.getElementById(id).onchange=e=>{state[k]=e.target.checked;rebuild();};
+document.getElementById('optSpin').onchange=e=>{state.spin=e.target.checked;};
+document.getElementById('copyBtn').onclick=async e=>{const t=document.getElementById('dLine').textContent;
+  try{await navigator.clipboard.writeText(t);e.target.textContent='Copied';}catch(_){const r=document.createRange();r.selectNodeContents(document.getElementById('dLine'));getSelection().removeAllRanges();getSelection().addRange(r);e.target.textContent='Selected, press Ctrl+C';}
+  setTimeout(()=>e.target.textContent='Copy line',1500);};
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change',rebuild);
+new MutationObserver(rebuild).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+
+function resize(){const w=view.clientWidth,h=view.clientHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}
+new ResizeObserver(resize).observe(view);
+syncUI();rebuild();resize();
+(function loop(){requestAnimationFrame(loop);if(state.spin)world.rotation.y+=.006;controls.update();renderer.render(scene,camera);})();
+</script>
