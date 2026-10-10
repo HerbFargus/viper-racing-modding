@@ -25,6 +25,14 @@ from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 
 APP_DIR = SPECPATH                        # desktop/  (provided by PyInstaller)
 ROOT = os.path.dirname(APP_DIR)           # repo root, where vrmod/ lives
+
+# PyInstaller drops a module that will not compile and builds anyway: v1.6.0
+# shipped without vrmod.cli (an IndentationError), and with it every Save in
+# the app. So a broken source file stops the build here instead.
+import py_compile
+for _src in sorted(os.listdir(os.path.join(ROOT, "vrmod"))):
+    if _src.endswith(".py"):
+        py_compile.compile(os.path.join(ROOT, "vrmod", _src), doraise=True)
 sys.path.insert(0, ROOT)                  # so collect_data_files("vrmod") resolves
 
 # The Linux engine build (vrmod/assets/modern_engine/linux/) ships only in the

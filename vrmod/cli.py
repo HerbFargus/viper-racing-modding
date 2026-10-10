@@ -266,9 +266,9 @@ def _apply_commit(body: dict) -> tuple[Path, Path]:
         backup = _store_edit_backup(car_path)
         archive.write(out_entries, car_path)
         warning = car.load_budget_warning(out_entries)
-        return car_path, backup, [], [f"Generated {len(made)} LOD level(s): "
-                                      + ", ".join(f"{n} ({v}v)" for n, v in made)]
-                                     + ([warning] if warning else []), None
+        return car_path, backup, [], ([f"Generated {len(made)} LOD level(s): "
+                                       + ", ".join(f"{n} ({v}v)" for n, v in made)]
+                                      + ([warning] if warning else [])), None
     if "track_path" in body:
         return _apply_track_commit(body)
     car_path = Path(body["car_path"])
