@@ -14,7 +14,7 @@ import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import archive, car, casefold, cf, envelope, grf, ili, mod, sfx, tex
+from . import archive, car, casefold, cf, presets, envelope, grf, ili, mod, sfx, tex
 
 _TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
 <title>__TITLE__</title>
@@ -888,6 +888,17 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   #export:hover{background:#2419d0}
   #reset-stats{background:#2a2e38;color:#e8eaf2}
   #reset-stats:hover{background:#343946}
+  #preset-row{display:none;align-items:center;gap:8px;margin:6px 0 2px}
+  body.mod-mode #preset-row{display:flex}
+  #preset-row label{font-size:.8rem;color:#a8adc0;flex:0 0 auto}
+  #preset-select{flex:1 1 auto;min-width:0;background:#1b1e26;color:#e8eaf2;border:1px solid #343946;
+                 border-radius:4px;padding:5px 6px;font-size:.8rem}
+  #preset-apply{flex:0 0 auto;padding:6px 12px;border:none;border-radius:4px;font-size:.8rem;cursor:pointer;
+                background:#1911ab;color:#fff}
+  #preset-apply:hover{background:#2419d0}
+  #preset-apply:disabled{background:#2a2e38;color:#6b7080;cursor:default}
+  #preset-note{display:none}
+  body.mod-mode #preset-note{display:block}
   .car-name-row{display:flex;align-items:center;gap:8px;margin:2px 0 8px}
   .car-name-row label{font-size:.8rem;color:#a8adc0;flex:0 0 auto}
   #car-name-input{flex:1 1 auto;min-width:0;background:#14161c;border:1px solid #3a3f4e;color:#e8eaf2;
@@ -1109,6 +1120,12 @@ _SHELL_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8">
   <div id="car-name-note" style="color:#ff7a7a;font-size:.7rem;margin:-4px 0 4px;"></div>
   <div class="hint">The name shown in the game's car-select screen (stored in the car's spec sheet). Renaming is display-only and safe -- it never touches the car's filename. Only the first 24 characters show in the car-select menu.</div>
   <div class="hint">The .cf stats behind this car. Fields are editable; <strong class="highlight-demo">blue</strong> fields (hover for the tooltip) move the wheels live in the Car tab. Hover any field for its real stock-car range (viper/exotic/plane/sedan/sports) -- shown for reference only, not enforced. "Export edited .txt" downloads a file for <code>txt2cf</code>/<code>cfpatch</code>.</div>
+  <div id="preset-row">
+    <label for="preset-select">Preset</label>
+    <select id="preset-select"></select>
+    <button id="preset-apply" type="button">Apply</button>
+  </div>
+  <div id="preset-note" class="hint"></div>
   <div id="sections"></div>
   <button id="export">Export edited .txt</button>
   <button id="reset-stats">Reset to default</button>
@@ -1221,6 +1238,15 @@ const SECTIONS = __SECTIONS_JSON__;
 // this isn't enforced as a hard input limit. Shown as a hover tooltip only
 // (see buildStatsPanel) -- purely informational orientation, not a rule.
 const STOCK_RANGES = __STOCK_RANGES_JSON__;
+// Physics presets (vrmod/presets.py, vrmod/assets/presets/*.json): [{key, name, description, credit, values}].
+// Applying one stages its values into the stat fields as edits -- Save writes them (with the usual first-save
+// backup) and Restore original undoes them, as for any edit. Geometry is never in a preset; the inertias are
+// scaled by the change in mass, as vrmod.presets.values_for does.
+const PRESETS = __PRESETS_JSON__;
+const PRESET_INERTIA = ["mx", "my", "mz"];
+// A preset's fields the drawer has no input for (the panel shows a subset of the .cf: the drivetrain split, the
+// inertias, gear ratios...): staged here, sent with the next Save, cleared by Reset or a successful Save.
+let pendingPresetHidden = {};
 const INCH_TO_M = 0.0254;  // matches car.py's INCH_TO_M -- .cf dimensions are in inches
 // The only .cf fields that actually move geometry in this tool -- see car.py's
 // assemble_car()/assemble_car_live(): wheelbase sets front/rear Z spacing, ftrack/
@@ -1555,7 +1581,64 @@ function exportTxt() {
   downloadText(lines.join("\n") + "\n", "edited.txt");
 }
 
+function presetValues(preset) {
+  const out = Object.assign({}, preset.values);
+  const newMass = preset.values.mass, oldMass = STATS.mass;
+  if (newMass !== undefined && oldMass) {
+    for (const k of PRESET_INERTIA) if (k in STATS) out[k] = STATS[k] * newMass / oldMass;
+  }
+  return out;
+}
+
+function buildPresetPicker() {
+  const sel = document.getElementById("preset-select");
+  const btn = document.getElementById("preset-apply");
+  const note = document.getElementById("preset-note");
+  if (!sel || !btn) return;
+  if (!PRESETS.length) {
+    const opt = document.createElement("option");
+    opt.textContent = "(no presets installed)";
+    sel.appendChild(opt);
+    sel.disabled = btn.disabled = true;
+    return;
+  }
+  for (const p of PRESETS) {
+    const opt = document.createElement("option");
+    opt.value = p.key;
+    opt.textContent = p.name;
+    opt.title = p.description;
+    sel.appendChild(opt);
+  }
+  const describe = () => {
+    const p = PRESETS.find(x => x.key === sel.value);
+    note.textContent = p ? p.description : "";
+    note.title = p ? p.credit : "";
+  };
+  sel.addEventListener("change", describe);
+  describe();
+  btn.addEventListener("click", () => {
+    const p = PRESETS.find(x => x.key === sel.value);
+    if (!p) return;
+    const vals = presetValues(p);
+    const shown = new Set();
+    document.querySelectorAll("#sections input").forEach(inp => {
+      const f = inp.dataset.field;
+      if (!(f in vals)) return;
+      inp.value = String(vals[f]);
+      dirtyFields.add(f);
+      shown.add(f);
+    });
+    pendingPresetHidden = {};
+    for (const [f, v] of Object.entries(vals)) if (!shown.has(f)) pendingPresetHidden[f] = v;
+    document.getElementById("sections").dispatchEvent(new Event("input", {bubbles: true}));
+    const total = Object.keys(vals).length;
+    note.textContent = `${p.name}: ${total} fields staged (${shown.size} shown above) -- Save writes them into this ` +
+                       `car; Restore original undoes. The car's wheel placement and tyre sizes are kept.`;
+  });
+}
+
 function resetStats() {
+  pendingPresetHidden = {};
   // STATS itself is never mutated by input edits (only the <input> elements'
   // values are), so it's always the values this page was generated with --
   // i.e. whatever was actually in the .cf that was imported.
@@ -1752,6 +1835,7 @@ function carNameChanged() {
 
 function hasPendingEdits() {
   return dirtyFields.size > 0
+    || Object.keys(pendingPresetHidden).length > 0
     || cockpitDirtyRecords.size > 0
     || carNameChanged()
     || Object.keys(pendingPartEdits).length > 0
@@ -1795,7 +1879,7 @@ function getCockpitRecordValues(name) {
 // Shared by Save (writes back in place) and Save As (forks the edited state to a
 // brand-new, separately-named car).
 function buildEditPayload() {
-  const stats = {};
+  const stats = Object.assign({}, pendingPresetHidden);   // a preset's undisplayed fields; typed fields win
   dirtyFields.forEach(field => {
     const inp = document.querySelector(`#sections input[data-field="${field}"]`);
     if (inp) stats[field] = Number(inp.value);
@@ -1909,6 +1993,7 @@ async function commitChanges() {
     // read the baseline back into the inputs.)
     for (const field of Object.keys(payload.stats)) STATS[field] = payload.stats[field];
     dirtyFields.clear();
+    pendingPresetHidden = {};
     for (const name of Object.keys(payload.cockpit)) COCKPIT_RECORDS[name] = payload.cockpit[name].slice();
     cockpitDirtyRecords.clear();
     updateCommitStatus();
@@ -4436,6 +4521,7 @@ function main() {
   }
   document.getElementById("export").addEventListener("click", exportTxt);
   document.getElementById("reset-stats").addEventListener("click", resetStats);
+  buildPresetPicker();
   document.getElementById("commit-btn").addEventListener("click", commitChanges);
   const saveasBtn = document.getElementById("saveas-btn");
   if (saveasBtn) saveasBtn.addEventListener("click", saveAsNewCar);
@@ -4885,6 +4971,11 @@ def build_shell_html(
     html = html.replace("__CAR_NAME_JSON__", json.dumps(car.read_car_name(entries) or ""))
     html = html.replace("__SECTIONS_JSON__", json.dumps(_SECTIONS))
     html = html.replace("__STOCK_RANGES_JSON__", json.dumps(STOCK_STAT_RANGES))
+    try:
+        preset_list = [pr.to_json() for pr in presets.load_all()]
+    except Exception:                                   # a broken preset file must never break the car page
+        preset_list = []
+    html = html.replace("__PRESETS_JSON__", json.dumps(preset_list))
     html = html.replace("__MOD_PARTS_JSON__", json.dumps(mod_parts_obj))
     html = html.replace("__SHARED_PART_NAMES_JSON__", json.dumps(shared_part_names))
     html = html.replace("__SHARED_SCOPE_JSON__", json.dumps(car.SHARED_ASSET_SCOPE))

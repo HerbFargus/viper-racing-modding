@@ -14,7 +14,7 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from . import aifield, archive, aspectfix, backups, bpp as bppmod, bundle, car, carshot, casefold, catalog as catalog_mod, ccs, cf, cockpit_tab, dekey, doctor, envelope, hornball, mapfile, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon, drawdistance, surface, writepaths, modassert, carlist, modern_engine, modtool
+from . import aifield, archive, presets, aspectfix, backups, bpp as bppmod, bundle, car, carshot, casefold, catalog as catalog_mod, ccs, cf, cockpit_tab, dekey, doctor, envelope, hornball, mapfile, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon, drawdistance, surface, writepaths, modassert, carlist, modern_engine, modtool
 
 COMMIT_PATH = "/__vrmod_commit__"
 
@@ -1281,9 +1281,15 @@ def main(argv: list[str] | None = None) -> int:
     p_cfpatch.add_argument("car_file", type=Path)
     p_cfpatch.add_argument("out_file", type=Path)
     p_cfpatch.add_argument(
-        "set", nargs="+", metavar="field=value",
-        help="one or more field=value pairs, e.g. power_max=500 num_gears=5",
+        "set", nargs="*", metavar="field=value",
+        help="field=value pairs, e.g. power_max=500 num_gears=5 (applied after --preset)",
     )
+    p_cfpatch.add_argument(
+        "--preset", metavar="NAME",
+        help="a physics preset (see `presets`): its tune, keeping this car's geometry and scaling its inertias",
+    )
+
+    sub.add_parser("presets", help="List the physics presets cfpatch --preset and the car page can apply")
 
     p_modinfo = sub.add_parser("modinfo", help="List a .mod's vertex/face counts and materials")
     p_modinfo.add_argument("mod_file", type=Path)
@@ -2487,11 +2493,27 @@ def main(argv: list[str] | None = None) -> int:
         base_raw = car._entry_bytes(entries, cf_name)
         if base_raw is None:
             parser.error(f"{args.car_file} has no {cf_name} entry")
-        edits = _parse_field_edits(parser, args.set)
+        if not args.set and not args.preset:
+            parser.error("cfpatch needs field=value pairs, --preset, or both")
+        edits = {}
+        if args.preset:
+            try:
+                preset = presets.find(args.preset)
+            except KeyError as ex:
+                parser.error(str(ex.args[0]))
+            edits.update(presets.values_for(preset, cf.parse(base_raw)))
+            print(f"preset {preset.name}: {len(edits)} field(s); geometry kept, inertias scaled by the mass")
+        edits.update(_parse_field_edits(parser, args.set) if args.set else {})
         new_raw = cf.build(base_raw, edits)
         new_entries = archive.replace_entry(entries, cf_name, new_raw)
         archive.write(new_entries, args.out_file)
         print(f"wrote {args.out_file} ({len(edits)} {cf_name} field(s) changed)")
+    elif args.command == "presets":
+        found = presets.load_all()
+        if not found:
+            print(f"no presets in {presets.PRESET_DIR}")
+        for preset in found:
+            print(f"{preset.name}  ({preset.key})\n  {preset.description}\n  credit: {preset.credit}")
     elif args.command == "modlod":
         entries = archive.read(args.car_file)
         targets = None
