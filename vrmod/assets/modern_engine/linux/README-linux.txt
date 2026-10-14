@@ -5,7 +5,7 @@ viperport runs Viper Racing (MGI / Sierra, 1998) natively on Linux: no Wine. It 
 whole game, function by function, checked against the original, with an OpenGL renderer, SDL2 sound
 and input, and the original's limits lifted. It needs your own copy of the game.
 
-Version: 2026.10.09-7356e48
+Version: 2026.10.13-b72d263
 
 
 What you need
