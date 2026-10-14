@@ -4,11 +4,12 @@ Run anywhere; given a Data folder it also applies every preset to the real stock
 
     python scripts/check_presets.py [path/to/Data]
 
-WHAT THESE GUARD. A preset must never carry geometry -- the wheels would leave the car's arches (a tune search
-that could move the wheelbase once squashed it to half the body) -- and must only name real .cf fields, or cf.build
-raises at Save. Applying one sets every field it names, keeps every geometry field and every unnamed byte, and scales
-the three inertias by the change in mass. The loader refuses a file that breaks either rule, so a bad preset fails
-here rather than in someone's car.
+WHAT THESE GUARD. A preset is the COMPLETE .cf of the car it was tested as -- every field, geometry and inertia
+included -- because only then does any car it's applied to drive like the tested one (partial presets that kept each
+car's own tyres lost up to 21 s a lap set on a thin-tyred car). So it must name every .cf field and only real ones
+(cf.build raises at Save otherwise), and applying it must leave every field equal to the preset whatever the car had
+before, with every byte outside the named fields kept. The loader refuses a file that breaks this, so a bad preset
+fails here rather than in someone's car.
 """
 from __future__ import annotations
 
@@ -53,14 +54,10 @@ def check_preset_on(label: str, cf_raw: bytes, preset: presets.Preset) -> None:
     after = cf.parse(presets.apply_to_cf(cf_raw, preset))
     check(f"{label}: {preset.name}: every preset field set",
           all(close(after[k], v) for k, v in preset.values.items()))
-    check(f"{label}: {preset.name}: geometry kept",
-          all(close(after[k], before[k]) for k in presets.GEOMETRY))
-    if "mass" in preset.values and before["mass"]:
-        r = preset.values["mass"] / before["mass"]
-        check(f"{label}: {preset.name}: inertias scaled by the mass",
-              all(close(after[k], before[k] * r) for k in presets.INERTIA), f"x{r:.3f}")
-    untouched = [k for k in cf.FIELD_MAP if k not in preset.values and k not in presets.INERTIA]
-    check(f"{label}: {preset.name}: fields it doesn't name kept", all(close(after[k], before[k]) for k in untouched))
+    check(f"{label}: {preset.name}: geometry is the preset's too",
+          all(close(after[k], preset.values[k]) for k in presets.GEOMETRY))
+    check(f"{label}: {preset.name}: the result doesn't depend on the car",
+          after == cf.parse(presets.apply_to_cf(synth_cf({}), preset)))
 
 
 def main() -> None:
@@ -68,12 +65,14 @@ def main() -> None:
     check("presets ship with vrmod", len(shipped) > 0, ", ".join(p.name for p in shipped))
     for p in shipped:
         check(f"{p.name}: only real .cf fields", all(k in cf.FIELD_MAP for k in p.values))
-        check(f"{p.name}: no geometry or inertia", not any(k in presets.GEOMETRY or k in presets.INERTIA for k in p.values))
+        check(f"{p.name}: every .cf field", all(k in p.values for k in cf.FIELD_MAP), f"{len(p.values)} fields")
         check(f"{p.name}: has a description and a credit", bool(p.description and p.credit))
         check(f"{p.name}: found by key and by name", presets.find(p.key).key == p.key == presets.find(p.name).key)
 
     with tempfile.TemporaryDirectory() as td:
-        for bad, why in (({"wheelbase": 50.0}, "geometry"), ({"mx": 1.0}, "inertia"), ({"not_a_field": 1.0}, "unknown")):
+        full = dict(shipped[0].values)
+        partial = {k: v for k, v in full.items() if k not in presets.GEOMETRY}
+        for bad, why in ((partial, "missing fields"), ({**full, "not_a_field": 1.0}, "an unknown field")):
             path = Path(td) / f"bad_{why}.json"
             path.write_text(json.dumps({"name": why, "values": bad}))
             try:

@@ -1,20 +1,19 @@
-"""Physics presets: named sets of .cf values that give any car a known tune, keeping the car's own geometry.
+"""Physics presets: named, complete .cf values that make any car drive exactly like a tested car.
 
 A preset is a JSON file in vrmod/assets/presets/ (it ships with the app):
 
     {"name": "Best", "description": "...", "credit": "...", "values": {"mass": 1791.5, "power_max": 585.0, ...}}
 
-`values` holds every .cf field the tune sets. Applying a preset to a car writes those fields into its .cf, with two
-rules so the result still fits the car:
+`values` holds EVERY .cf field of the car it was tested as -- drivetrain, aero, suspension, brakes, diffs, and the
+geometry and inertia too: wheelbase, track, tyre sizes, body size, ride-height range, mx/my/mz. Applying a preset
+writes all of them, so the car gets that physics exactly, whatever its model: the Best preset raced on an Alleycat
+body scored 660.0 s over the 8 stock tracks against 659.8 s for the Viper it was tuned on, every track within 0.1 s.
 
-  * geometry is never carried (GEOMETRY): wheelbase, track, tyre sizes, body width and height and the ride-height
-    range stay the car's own, so the wheels stay in its arches -- a preset that moved them would leave them under
-    the body (a search that was allowed to move the wheelbase once squashed it to half the body's length);
-  * the three moments of inertia (mx, my, mz) aren't copied but scaled by the change in mass, so a car made lighter
-    is lighter to turn too, in its own proportions.
-
-Every other field is set outright, so a preset carries its whole drivetrain, aero, suspension, brakes and diffs and
-the same preset gives the same behaviour on any car body (the tyres' size aside).
+The trade-off is the look: the game draws each car's own wheel models at the .cf's tyre sizes and wheel positions,
+so on a car with a different shape the wheels change size and can sit outside its arches. Adapting a preset to each
+car's own geometry was tried and dropped: tyre width decides the pace (the same tune on the Alleycat's own thin
+tyres was 21 s slower; raising its grip scales instead of widening the tyres won back only 3 s), so a preset that
+kept the car's tyres couldn't promise the tested result.
 
 The presets shipped here were made by vrmod-experiments' tune tools: an AI search over the .cf, starting from MGI's
 stock Viper and scored by AI drivers' lap times on the 8 stock tracks, with handling limits (no spins in scripted
@@ -30,13 +29,12 @@ from . import cf
 
 PRESET_DIR = Path(__file__).resolve().parent / "assets" / "presets"
 
-# never carried: these place the wheels and size the body, so they belong to the car's model
+# the fields that move or resize the wheels (what the car page warns about); a preset sets them like any other
 GEOMETRY = frozenset({
     "wheelbase", "ftrack", "rtrack", "width", "height",
     "ftyre_width", "ftyre_aspect", "ftyre_rim", "rtyre_width", "rtyre_aspect", "rtyre_rim",
     "fground_clearance1", "fground_clearance2", "rground_clearance1", "rground_clearance2",
 })
-INERTIA = ("mx", "my", "mz")    # scaled with the mass, not copied
 
 
 @dataclass
@@ -53,15 +51,16 @@ class Preset:
 
 
 def load(path: Path) -> Preset:
-    """One preset file. Raises ValueError for a field .cf doesn't have, or for geometry (never carried)."""
+    """One preset file. Raises ValueError for a field .cf doesn't have, or for one it's missing (a preset is
+    complete, or it can't promise the tested car's behaviour)."""
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
     values = {str(k): float(v) for k, v in raw.get("values", {}).items()}
     unknown = sorted(k for k in values if k not in cf.FIELD_MAP)
     if unknown:
         raise ValueError(f"{Path(path).name}: not .cf fields: {', '.join(unknown)}")
-    carried = sorted(k for k in values if k in GEOMETRY or k in INERTIA)
-    if carried:
-        raise ValueError(f"{Path(path).name}: a preset never sets geometry or inertia: {', '.join(carried)}")
+    missing = sorted(k for k in cf.FIELD_MAP if k not in values)
+    if missing:
+        raise ValueError(f"{Path(path).name}: a preset sets every .cf field; missing {', '.join(missing)}")
     return Preset(Path(path).stem, str(raw.get("name") or Path(path).stem), str(raw.get("description", "")),
                   str(raw.get("credit", "")), values)
 
@@ -83,17 +82,13 @@ def find(name: str, folder: Path = PRESET_DIR) -> Preset:
     raise KeyError(f"no preset {name!r} (presets: {names})")
 
 
-def values_for(preset: Preset, current: dict[str, float]) -> dict[str, float]:
-    """The .cf fields to write into a car whose current .cf values are `current`."""
+def values_for(preset: Preset, current: dict[str, float] | None = None) -> dict[str, float]:
+    """The .cf fields to write: all of the preset's, as tested (`current` is accepted and ignored -- the car's own
+    values don't change the result)."""
     out = dict(preset.values)
-    new_mass, old_mass = preset.values.get("mass"), current.get("mass")
-    if new_mass is not None and old_mass:
-        ratio = new_mass / old_mass
-        for k in INERTIA:
-            if k in current:
-                out[k] = current[k] * ratio
-    if "num_gears" in out:
-        out["num_gears"] = int(round(out["num_gears"]))
+    for k, (_off, kind) in cf.FIELD_MAP.items():
+        if kind == "i" and k in out:
+            out[k] = int(round(out[k]))
     return out
 
 

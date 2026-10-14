@@ -93,10 +93,12 @@ It opens on a landing screen; choose your Viper Racing **Data** folder (the one 
 
 A car's page (edit mode → **Configs**) has a **Preset** picker: choose one and **Apply**
 stages its tune into the car's `.cf` fields, **Save** writes it (backing up the original
-the first time) and **Restore original** undoes it. A preset never moves the wheels —
-wheelbase, track, tyre sizes, body size and ride height stay the car's own — and the
-car's inertias scale with the new mass, so any car can take any preset. The same from
-the command line:
+the first time) and **Restore original** undoes it. A preset sets *every* physics field
+of the car it was tested as — wheelbase, track, tyre sizes and ride height included — so
+any car drives exactly like that car (Best on the Alleycat's body raced within 0.2 s of
+the Viper it was tuned on, over the eight stock tracks). The catch is the look: the
+car's wheels take the preset's size and position, so on a differently shaped car they
+may not fit the body. The same from the command line:
 
 ```bash
 python -m vrmod.cli presets

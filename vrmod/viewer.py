@@ -1240,10 +1240,9 @@ const SECTIONS = __SECTIONS_JSON__;
 const STOCK_RANGES = __STOCK_RANGES_JSON__;
 // Physics presets (vrmod/presets.py, vrmod/assets/presets/*.json): [{key, name, description, credit, values}].
 // Applying one stages its values into the stat fields as edits -- Save writes them (with the usual first-save
-// backup) and Restore original undoes them, as for any edit. Geometry is never in a preset; the inertias are
-// scaled by the change in mass, as vrmod.presets.values_for does.
+// backup) and Restore original undoes them, as for any edit. A preset is every .cf field of the car it was tested
+// as, geometry included, so the car drives exactly like that car -- its wheels take the preset's size and place.
 const PRESETS = __PRESETS_JSON__;
-const PRESET_INERTIA = ["mx", "my", "mz"];
 // A preset's fields the drawer has no input for (the panel shows a subset of the .cf: the drivetrain split, the
 // inertias, gear ratios...): staged here, sent with the next Save, cleared by Reset or a successful Save.
 let pendingPresetHidden = {};
@@ -1582,12 +1581,7 @@ function exportTxt() {
 }
 
 function presetValues(preset) {
-  const out = Object.assign({}, preset.values);
-  const newMass = preset.values.mass, oldMass = STATS.mass;
-  if (newMass !== undefined && oldMass) {
-    for (const k of PRESET_INERTIA) if (k in STATS) out[k] = STATS[k] * newMass / oldMass;
-  }
-  return out;
+  return Object.assign({}, preset.values);
 }
 
 function buildPresetPicker() {
@@ -1611,7 +1605,7 @@ function buildPresetPicker() {
   }
   const describe = () => {
     const p = PRESETS.find(x => x.key === sel.value);
-    note.textContent = p ? p.description : "";
+    note.textContent = p ? p.description + " Sets every physics field, wheel size and position included." : "";
     note.title = p ? p.credit : "";
   };
   sel.addEventListener("change", describe);
@@ -1632,8 +1626,9 @@ function buildPresetPicker() {
     for (const [f, v] of Object.entries(vals)) if (!shown.has(f)) pendingPresetHidden[f] = v;
     document.getElementById("sections").dispatchEvent(new Event("input", {bubbles: true}));
     const total = Object.keys(vals).length;
-    note.textContent = `${p.name}: ${total} fields staged (${shown.size} shown above) -- Save writes them into this ` +
-                       `car; Restore original undoes. The car's wheel placement and tyre sizes are kept.`;
+    note.textContent = `${p.name}: all ${total} fields staged (${shown.size} shown above) -- Save writes them into ` +
+                       `this car; Restore original undoes. The car now drives exactly like the tested car, ` +
+                       `including its wheelbase, track and tyre sizes, so the wheels may not fit this body.`;
   });
 }
 

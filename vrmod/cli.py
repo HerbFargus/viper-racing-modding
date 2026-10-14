@@ -1286,7 +1286,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_cfpatch.add_argument(
         "--preset", metavar="NAME",
-        help="a physics preset (see `presets`): its tune, keeping this car's geometry and scaling its inertias",
+        help="a physics preset (see `presets`): every .cf field of its tested car, wheel sizes and positions included",
     )
 
     sub.add_parser("presets", help="List the physics presets cfpatch --preset and the car page can apply")
@@ -2502,7 +2502,7 @@ def main(argv: list[str] | None = None) -> int:
             except KeyError as ex:
                 parser.error(str(ex.args[0]))
             edits.update(presets.values_for(preset, cf.parse(base_raw)))
-            print(f"preset {preset.name}: {len(edits)} field(s); geometry kept, inertias scaled by the mass")
+            print(f"preset {preset.name}: all {len(edits)} field(s), wheel sizes and positions included")
         edits.update(_parse_field_edits(parser, args.set) if args.set else {})
         new_raw = cf.build(base_raw, edits)
         new_entries = archive.replace_entry(entries, cf_name, new_raw)
