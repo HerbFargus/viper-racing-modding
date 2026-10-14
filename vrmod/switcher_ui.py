@@ -187,6 +187,11 @@ body.resizing #frame{pointer-events:none}   /* keep the drag out of the iframe *
 .e{color:var(--bad)}
 
 .empty{color:var(--dim);padding:10px;font-style:italic}
+body.busy{cursor:progress}
+body.busy button{opacity:.55;pointer-events:none}
+#working{position:fixed;left:20px;bottom:20px;display:none;background:var(--panel);border:1px solid var(--line, #343946);
+         border-radius:6px;padding:8px 14px;font-size:.85rem;color:var(--fg);z-index:50}
+.loading{padding:40px 20px;opacity:.7}
 #toast{position:fixed;right:20px;bottom:20px;background:var(--panel);
        border:1px solid var(--edge);border-left:3px solid var(--acc);
        border-radius:6px;padding:11px 15px;max-width:420px;display:none;
@@ -364,6 +369,7 @@ header .path{cursor:default}
 <!-- The Game tab: a configurator for the game as a whole (opponents, cars,
      tracks, fixes), as opposed to Library which is for editing one asset. -->
 <main id="view-game" hidden><div class="config" id="config"></div></main>
+<div id="working">Working&hellip;</div>
 
 <main id="view-library" hidden>
   <section id="lib">
@@ -394,9 +400,21 @@ header .path{cursor:default}
 <script>
 let STATE = null, SEL = null, FILTER = 'all', VIEW = 'library', AI_MOD = '';
 
-const api = (p, body) => fetch(p, body ? {
-    method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
-  } : undefined).then(r => r.json());
+// A change (POST) can take a few seconds -- an engine patch rewrites race.exe, then the page reloads its panels -- so
+// while one is in flight the page says so: buttons dimmed, "Working..." at the bottom, a progress cursor.
+let BUSY = 0;
+function setBusy(d){
+  BUSY = Math.max(0, BUSY + d);
+  document.body.classList.toggle('busy', BUSY > 0);
+  const w = el$('working');
+  if(w) w.style.display = BUSY > 0 ? 'block' : 'none';
+}
+const api = (p, body) => {
+  if(!body) return fetch(p).then(r => r.json());
+  setBusy(1);
+  return fetch(p, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
+    .then(r => r.json()).finally(() => setBusy(-1));
+};
 
 const el$ = (id) => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1029,7 +1047,16 @@ function aiCandidates(){
     c.name.toLowerCase() !== 'viper.car' && c.name.toLowerCase().endsWith('.car'));
 }
 
-async function renderGame(){
+// the doctor's last report, and the request for a fresh one (at most one at a time)
+let DOCTOR = null, DOCTOR_RUN = null;
+function refreshDoctor(){
+  if(DOCTOR_RUN) return DOCTOR_RUN;
+  DOCTOR_RUN = api('/api/doctor').then(r => { DOCTOR = r; })
+    .finally(() => { DOCTOR_RUN = null; if(!el$('view-game').hidden) renderGame({doctorDone: true}); });
+  return DOCTOR_RUN;
+}
+
+async function renderGame(opts = {}){
   if(!STATE) return;
   const af = STATE.ai_field || {count:null, max:15};
   const count = af.count == null ? 0 : af.count, total = count + 1;
@@ -1042,11 +1069,14 @@ async function renderGame(){
   const aside = (STATE.cars || []).length - active;
   const modded = (STATE.slots || []).filter(s => !s.is_stock).length;
   const kb = b => (b/1024 | 0).toLocaleString();
-  const dr = await api('/api/doctor');
-  const hb = await api('/api/hornball');
-  const ho = await api('/api/headon');
-  const dd = await api('/api/drawdistance');
-  const cr = await api('/api/career');
+  // The doctor reads every file it checks and takes several seconds; everything else answers at once. So the page
+  // draws with the last doctor report (or "Checking...") and the doctor runs behind it, redrawing when it lands.
+  if(!el$('config').innerHTML.trim())
+    el$('config').innerHTML = '<div class="loading">Loading the game settings&hellip;</div>';
+  if(!opts.doctorDone) refreshDoctor();
+  const [hb, ho, dd, cr] = await Promise.all(
+    ['/api/hornball', '/api/headon', '/api/drawdistance', '/api/career'].map(u => api(u)));
+  const dr = DOCTOR || {worst: 'pending', findings: []};
 
   // ONE panel for everything about the AI: how many, who, how they react, which line
   // they follow, and the crash guard. Sub-sections, not separate panels.
@@ -1382,6 +1412,15 @@ async function renderGame(){
        so it works on the original game and the port. Do it with the game <b>closed</b>: the game
        keeps the career in memory and saves it over the file. The first edit keeps a copy in
        <code>Backups</code>.</p>
+     ${cr.career_hornball === 'fixed' ? `
+       <div class="ai-row" style="margin-top:12px;gap:10px;flex-wrap:wrap">
+         <span style="width:240px;flex:0 0 240px"><b style="color:var(--fg)">Horn ball in career</b>
+           <span style="opacity:.55">&middot; ${cr.hornball_option === 'yes' ? 'on' : 'off'}</span></span>
+         <span class="lede" style="margin:0;flex:1 1 300px">Career mode turns the game's hacks off, the horn ball
+           with them; here it follows its own option instead, so it throws in career races whenever the horn ball is
+           on (the Hacks screen's <i>Horn ball</i>, <code>horn_ball ${esc(cr.hornball_option || '?')}</code> in
+           options.cfg). The other hacks stay off in career.</span>
+       </div>` : ''}
      ${['on', 'off'].includes(cr.all_upgrades) ? `
        <div class="ai-row" style="margin-top:12px;gap:10px;flex-wrap:wrap">
          <span style="width:240px;flex:0 0 240px"><b style="color:var(--fg)">All upgrades on sale</b>
@@ -1436,7 +1475,7 @@ async function renderGame(){
   const fixes = `
    <div class="panel">
      <div class="panel-head"><h2>Compatibility &amp; fixes</h2>
-       <span class="note">${dr.worst==='ok' ? 'All good'
+       <span class="note">${dr.worst==='pending' ? 'Checking&hellip;' : dr.worst==='ok' ? 'All good'
          : dr.worst==='warn' ? 'Things to check' : 'Needs attention'}</span></div>
      <div>
        ${dr.findings.filter(f => !isDrivers(f)).map(f => `
@@ -1796,9 +1835,17 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 state, at = headon.UNKNOWN, None
             return self._json({"state": state, "site": at})
         if self.path == "/api/career":
+            opt = None
+            try:
+                o = writepaths.options_file(d)
+                opt = drawdistance.get_line(o, "horn_ball") if o else None
+            except Exception:
+                pass
             return self._json({"careers": [c.to_json() for c in careersave.list_careers(d)],
                                "funds_max": careersave.FUNDS_MAX,
-                               "all_upgrades": upgradeunlock.status(d)})
+                               "all_upgrades": upgradeunlock.status(d),
+                               "career_hornball": enginefix.status(d).get("career_hornball"),
+                               "hornball_option": opt})
         if self.path == "/api/drawdistance":
             try:
                 value, f = drawdistance.read(d)
