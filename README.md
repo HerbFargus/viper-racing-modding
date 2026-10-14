@@ -110,6 +110,21 @@ The shipped presets (`vrmod/assets/presets/`) — **Best**, **Dragster** and
 drivers' lap times on the eight stock tracks with scripted handling limits.
 `scripts/check_presets.py` checks them.
 
+### Career money
+
+The **Game** page's **Career** panel lists your career saves (`Config/career/career<slot>.dat`)
+with each one's funds, and sets a career's money to any amount. A new career starts with
+none. It's a save edit, so it works on the original game and the port; do it with the game
+closed (the game saves the career over the file), and the first edit keeps a copy in
+`Backups`. The same from the command line:
+
+```bash
+python -m vrmod.cli career <Data>
+python -m vrmod.cli career <Data> --slot 0 --funds 10000000
+```
+
+`scripts/check_careersave.py` checks it.
+
 ### Building the standalone .exe
 
 With the venv set up, plus PyInstaller (`pip install pyinstaller`):

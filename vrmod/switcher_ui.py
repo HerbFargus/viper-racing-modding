@@ -47,7 +47,7 @@ import threading
 import webbrowser
 from pathlib import Path
 
-from . import aifield, ainames, archive, casefold, enginefix, backups, carshot, cf, dekey, doctor, envelope, grf, hornball, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch, headon, drawdistance, writepaths, modassert, carlist, modern_engine, modtool
+from . import aifield, ainames, archive, casefold, enginefix, backups, carshot, cf, dekey, doctor, envelope, grf, hornball, careersave, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch, headon, drawdistance, writepaths, modassert, carlist, modern_engine, modtool
 
 _PAGE = r"""<!doctype html>
 <meta charset="utf-8"><title>Viper Racing -- Mod Manager</title>
@@ -1046,6 +1046,7 @@ async function renderGame(){
   const hb = await api('/api/hornball');
   const ho = await api('/api/headon');
   const dd = await api('/api/drawdistance');
+  const cr = await api('/api/career');
 
   // ONE panel for everything about the AI: how many, who, how they react, which line
   // they follow, and the crash guard. Sub-sections, not separate panels.
@@ -1370,6 +1371,30 @@ async function renderGame(){
 
   // The stored value is a fraction (units = value*1700+300); the UI talks in
   // units throughout, because nobody thinks in fractions of 1700.
+  // Career saves: each slot's money (Config\career\career<slot>.dat, careersave.py). A save edit, so it
+  // works on the original game and the port alike.
+  const careers = (cr && cr.careers) || [];
+  const crPanel = `
+   <div class="panel">
+     <div class="panel-head"><h2>Career</h2>
+       <span class="note">${careers.length ? careers.length + ' saved' : 'no careers yet'}</span></div>
+     <p class="lede">Each career starts with no money. Set a career's funds here &mdash; a save edit,
+       so it works on the original game and the port. Do it with the game <b>closed</b>: the game
+       keeps the career in memory and saves it over the file. The first edit keeps a copy in
+       <code>Backups</code>.</p>
+     ${careers.length ? careers.map(c => `
+       <div class="ai-row" style="margin-top:10px;gap:10px;flex-wrap:wrap">
+         <span style="width:240px;flex:0 0 240px"><b style="color:var(--fg)">${esc(c.name)}</b>
+           <span style="opacity:.55">&middot; slot ${c.slot} &middot; class ${c.class + 1},
+             week ${c.week}</span></span>
+         <span class="field-label">Funds $</span>
+         <input id="cr-funds-${c.slot}" type="number" min="0" max="${cr.funds_max}" step="1000"
+           value="${c.funds}" style="width:140px">
+         <button class="mini" onclick="setCareerFunds(${c.slot})">Save</button>
+       </div>`).join('') : `<p class="lede" style="margin-top:10px">Start a career in the game first;
+       its slot shows up here.</p>`}
+   </div>`;
+
   const ddPanel = !(dd && dd.available) ? '' : (() => {
     const at = dd.units, slider = dd.slider_units;
     const note = at > slider ? `${(at/slider).toFixed(0)}\u00d7 the slider`
@@ -1417,8 +1442,16 @@ async function renderGame(){
    </div>`;
 
   el$('config').innerHTML = opponents + drivers + hoPanel + linesPanel + aiCar + cars + tracks
-                          + hbPanel + mePanel + resPanel + ddPanel + fixes;
+                          + hbPanel + crPanel + mePanel + resPanel + ddPanel + fixes;
   if(hbPanel) for(const k of ['model', 'spawn']) paintLink(k);
+}
+
+async function setCareerFunds(slot){
+  const funds = Math.round(+el$('cr-funds-' + slot).value);
+  const r = await api('/api/career', {slot, funds});
+  if(!r.ok) return toast(r.error, 'bad');
+  toast(r.message);
+  renderGame();
 }
 
 async function setDrawDistance(units){
@@ -1745,6 +1778,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             except headon.PatchError:
                 state, at = headon.UNKNOWN, None
             return self._json({"state": state, "site": at})
+        if self.path == "/api/career":
+            return self._json({"careers": [c.to_json() for c in careersave.list_careers(d)],
+                               "funds_max": careersave.FUNDS_MAX})
         if self.path == "/api/drawdistance":
             try:
                 value, f = drawdistance.read(d)
@@ -2014,6 +2050,14 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                     return self._json({"ok": False, "error": str(e)}, 400)
                 return self._json({"ok": True, "message": msg,
                                    "state": headon.status(d)})
+            if self.path == "/api/career":
+                try:
+                    c = careersave.set_funds(d, int(req.get("slot")), int(req.get("funds")))
+                except (careersave.CareerError, TypeError, ValueError) as e:
+                    return self._json({"ok": False, "error": str(e)}, 400)
+                return self._json({"ok": True, "career": c.to_json(),
+                                   "message": f"{c.name}: funds now ${c.funds:,}. Set this with the game "
+                                              "closed -- it saves the career over the file."})
             if self.path == "/api/drawdistance":
                 try:
                     if req.get("reset"):
