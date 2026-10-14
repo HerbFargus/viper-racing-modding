@@ -47,7 +47,7 @@ import threading
 import webbrowser
 from pathlib import Path
 
-from . import aifield, ainames, archive, casefold, enginefix, backups, carshot, cf, dekey, doctor, envelope, grf, hornball, careersave, upgradeunlock, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch, headon, drawdistance, writepaths, modassert, carlist, modern_engine, modtool
+from . import aifield, ainames, archive, casefold, enginefix, backups, carshot, cf, dekey, doctor, envelope, grf, hornball, careersave, upgradeunlock, careerhorn, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch, headon, drawdistance, writepaths, modassert, carlist, modern_engine, modtool
 
 _PAGE = r"""<!doctype html>
 <meta charset="utf-8"><title>Viper Racing -- Mod Manager</title>
@@ -1412,14 +1412,16 @@ async function renderGame(opts = {}){
        so it works on the original game and the port. Do it with the game <b>closed</b>: the game
        keeps the career in memory and saves it over the file. The first edit keeps a copy in
        <code>Backups</code>.</p>
-     ${cr.career_hornball === 'fixed' ? `
+     ${['on', 'off'].includes(cr.career_hornball) ? `
        <div class="ai-row" style="margin-top:12px;gap:10px;flex-wrap:wrap">
          <span style="width:240px;flex:0 0 240px"><b style="color:var(--fg)">Horn ball in career</b>
-           <span style="opacity:.55">&middot; ${cr.hornball_option === 'yes' ? 'on' : 'off'}</span></span>
-         <span class="lede" style="margin:0;flex:1 1 300px">Career mode turns the game's hacks off, the horn ball
-           with them; here it follows its own option instead, so it throws in career races whenever the horn ball is
-           on (the Hacks screen's <i>Horn ball</i>, <code>horn_ball ${esc(cr.hornball_option || '?')}</code> in
-           options.cfg). The other hacks stay off in career.</span>
+           <span style="opacity:.55">&middot; ${cr.career_hornball === 'on' ? 'on' : 'off (as shipped)'}</span></span>
+         <button class="mini ${cr.career_hornball === 'on' ? 'on' : ''}"
+           onclick="setCareerHornball(${cr.career_hornball !== 'on'})">${cr.career_hornball === 'on' ? 'Turn off' : 'Turn on'}</button>
+         <span class="lede" style="margin:0;flex:1 1 300px">Career mode turns the game's hacks off, the horn ball with
+           them. On, the ball throws in career races whenever the horn ball itself is on (the Hacks screen's
+           <i>Horn ball</i>: <code>horn_ball ${esc(cr.hornball_option || '?')}</code> now); the other hacks stay off.
+           Patches the engine; the game must be closed.</span>
        </div>` : ''}
      ${['on', 'off'].includes(cr.all_upgrades) ? `
        <div class="ai-row" style="margin-top:12px;gap:10px;flex-wrap:wrap">
@@ -1493,6 +1495,13 @@ async function renderGame(opts = {}){
   el$('config').innerHTML = opponents + drivers + hoPanel + linesPanel + aiCar + cars + tracks
                           + hbPanel + crPanel + mePanel + resPanel + ddPanel + fixes;
   if(hbPanel) for(const k of ['model', 'spawn']) paintLink(k);
+}
+
+async function setCareerHornball(on){
+  const r = await api('/api/career', {career_hornball: on});
+  if(!r.ok) return toast(r.error, 'bad');
+  toast(r.message);
+  renderGame();
 }
 
 async function setAllUpgrades(on){
@@ -1844,7 +1853,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             return self._json({"careers": [c.to_json() for c in careersave.list_careers(d)],
                                "funds_max": careersave.FUNDS_MAX,
                                "all_upgrades": upgradeunlock.status(d),
-                               "career_hornball": enginefix.status(d).get("career_hornball"),
+                               "career_hornball": careerhorn.status(d),
                                "hornball_option": opt})
         if self.path == "/api/drawdistance":
             try:
@@ -2115,6 +2124,17 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                     return self._json({"ok": False, "error": str(e)}, 400)
                 return self._json({"ok": True, "message": msg,
                                    "state": headon.status(d)})
+            if self.path == "/api/career" and "career_hornball" in req:
+                try:
+                    if req.get("career_hornball"):
+                        careerhorn.apply(d)
+                    else:
+                        careerhorn.revert(d)
+                except careerhorn.PatchError as e:
+                    return self._json({"ok": False, "error": str(e)}, 400)
+                on = careerhorn.status(d) == careerhorn.ON
+                return self._json({"ok": True, "message": "The horn ball is on in career races (it follows its "
+                                   "own option there)." if on else "Career races as shipped: no horn ball."})
             if self.path == "/api/career" and "all_upgrades" in req:
                 try:
                     if req.get("all_upgrades"):

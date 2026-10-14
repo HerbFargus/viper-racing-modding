@@ -14,7 +14,7 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from . import aifield, archive, presets, aspectfix, backups, bpp as bppmod, bundle, car, carshot, casefold, catalog as catalog_mod, ccs, cf, cockpit_tab, dekey, doctor, envelope, hornball, mapfile, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon, drawdistance, careersave, upgradeunlock, surface, writepaths, modassert, carlist, modern_engine, modtool
+from . import aifield, archive, presets, aspectfix, backups, bpp as bppmod, bundle, car, carshot, casefold, catalog as catalog_mod, ccs, cf, cockpit_tab, dekey, doctor, envelope, hornball, mapfile, mod, patchset, primarycar, racebin, resolution, sfx, sky, switcher_ui, tex, track, trackmap, viewer, vrampatch, ili, headon, drawdistance, careersave, upgradeunlock, careerhorn, surface, writepaths, modassert, carlist, modern_engine, modtool
 
 COMMIT_PATH = "/__vrmod_commit__"
 
@@ -1087,6 +1087,9 @@ def main(argv: list[str] | None = None) -> int:
     p_career.add_argument("data_dir", type=Path, help="the game's Data folder")
     p_career.add_argument("--slot", type=int, default=None, help="the career slot (0..3)")
     p_career.add_argument("--funds", type=int, default=None, metavar="DOLLARS", help="set the slot's funds")
+    p_career.add_argument("--hornball", choices=("on", "off"), default=None,
+                          help="the horn ball in career races (patches the engine: career turns the hacks off; "
+                               "on, the ball follows its own option there)")
     p_career.add_argument("--all-upgrades", choices=("on", "off"), default=None,
                           help="every upgrade on sale in the shop from the first week (patches the engine: "
                                "the class lock off; prices and prerequisites stay)")
@@ -2228,6 +2231,11 @@ def main(argv: list[str] | None = None) -> int:
         try:
             if (args.slot is None) != (args.funds is None):
                 raise careersave.CareerError("--slot and --funds go together")
+            if args.hornball == "on":
+                careerhorn.apply(args.data_dir)
+            elif args.hornball == "off":
+                careerhorn.revert(args.data_dir)
+            print(f"horn ball in career: {careerhorn.status(args.data_dir)}")
             if args.all_upgrades == "on":
                 upgradeunlock.apply(args.data_dir)
             elif args.all_upgrades == "off":
@@ -2242,7 +2250,7 @@ def main(argv: list[str] | None = None) -> int:
             for c in careers:
                 print(f"slot {c.slot}  {c.name:<16} class {c.career_class + 1}  season {c.season + 1}  "
                       f"week {c.week}  ${c.funds:,}  ({c.upgrades} upgrades)")
-        except (careersave.CareerError, upgradeunlock.PatchError) as e:
+        except (careersave.CareerError, upgradeunlock.PatchError, careerhorn.PatchError) as e:
             print(f"error: {e}")
             return 1
     elif args.command == "carfork":
