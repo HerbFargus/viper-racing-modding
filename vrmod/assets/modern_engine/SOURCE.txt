@@ -1,8 +1,8 @@
 The modern engine: viper-racing-port's dinput.dll, its standalone loader viperport.exe (v1.0 only),
 and SDL2 2.32.10 (zlib licence, SDL2-LICENSE.txt).
-viper-racing-port commit b72d2635eff4482ab1ac24d7a8ceae04c5e464fc (2026-10-13; v1.4. viperport.exe unchanged since 7356e48: the loader didn't change)
+viper-racing-port commit b72d2635eff4482ab1ac24d7a8ceae04c5e464fc (2026-10-13)
 sha256 466eaf041bfb4c82a8895a6be3af2b7071fa9b8f167c6056c151e4b5009c058f  dinput.dll
-sha256 9b0646d2ba3dc4e5b067fd6b24b1d64e1f45d427d86d2ed13587fb02e28dee2c  viperport.exe
+sha256 03b507b31429cd442ca7dcb9a505c6219d619165ec093fdc8afa134445f5518c  viperport.exe
 sha256 68c78590d1997122c30c992ec79857d32e5e976a0f17c0a69a2e29eab0101d70  SDL2.dll
 
 Linux: viper-racing-port's native Linux standalone (v1.0's race.exe only), in linux/:
