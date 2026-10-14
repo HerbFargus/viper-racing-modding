@@ -1,6 +1,6 @@
 """Check vrmod.enginefix against every engine build on hand.
 
-For each build: both fixes are found stock exactly once; applying them leaves the expected bytes
+For each build: both fixes and the career horn ball are found stock exactly once; applying them leaves the expected bytes
 (and, on race.bin, a jump into a stub in the .text slack that jumps back to the right place);
 a second apply changes nothing; race.bin reverts byte for byte, and race.exe refuses to revert
 without touching anything. Then the interplay with needlefix, the other user of the .text slack:
@@ -47,12 +47,20 @@ def one_build(path: Path) -> None:
     print(f"\n--- {path.name} ({path.stat().st_size:,} bytes)")
     stock = path.read_bytes()
     is_exe = E._one(E.EXE_STOCK, stock, "advance_bead") is not None
-    check("both fixes found stock", E.status_bytes(stock) == {"obstacle_wake": E.STOCK, "ai_bead_guard": E.STOCK},
-          str(E.status_bytes(stock)))
+    ALL_STOCK = {"obstacle_wake": E.STOCK, "ai_bead_guard": E.STOCK, "career_hornball": E.STOCK}
+    ALL_FIXED = {"obstacle_wake": E.FIXED, "ai_bead_guard": E.FIXED, "career_hornball": E.FIXED}
+    check("both fixes and the horn ball found stock", E.status_bytes(stock) == ALL_STOCK, str(E.status_bytes(stock)))
     blob = bytearray(stock)
     done = E.apply_bytes(blob)
     fixed = bytes(blob)
-    check("both fixed after apply", E.status_bytes(fixed) == {"obstacle_wake": E.FIXED, "ai_bead_guard": E.FIXED})
+    check("all three in after apply", E.status_bytes(fixed) == ALL_FIXED)
+
+    # the horn ball: HackHornBall's first je (2 bytes) now NOPs, the run's other two getters untouched
+    h = E._horn_site(fixed)[0]
+    hi = disasm(fixed, h, 24)
+    check("HackHornBall: cmp hacks-on, then two NOPs, then the horn-ball test",
+          [i.mnemonic for i in hi[:5]] == ["cmp", "nop", "nop", "cmp", "je"], " ".join(i.mnemonic for i in hi[:5]))
+    check("HackNoWalls and HackPaveTheWorld untouched", fixed[h + 0x20:h + 0x58] == stock[h + 0x20:h + 0x58])
     changed = [i for i in range(len(stock)) if stock[i] != fixed[i]]
     check("the file length is unchanged", len(fixed) == len(stock))
 
@@ -70,8 +78,9 @@ def one_build(path: Path) -> None:
             "mov dword ptr [esp + 0x2c], 0xffffffff", "xor ebx, ebx", "cmp dword ptr [edi + 4], 0",
             f"jne {pe.offset_to_va(fixed, at) + 25:#x}", "mov eax, dword ptr [edi + 0x2c]",
             "mov dword ptr [edi + 4], eax", "mov dword ptr [edi + 8], ebx"], "; ".join(text[:7]))
-        check("race.exe: 35 bytes changed, all inside the two sites",
-              len(changed) <= 35 and all(w <= c < w + 3 or at <= c < at + 32 for c in changed), f"{len(changed)}")
+        check("race.exe: 37 bytes changed, all inside the three sites",
+              len(changed) <= 37 and all(w <= c < w + 3 or at <= c < at + 32 or h + E.HORN_AT <= c < h + E.HORN_AT + 2
+                                         for c in changed), f"{len(changed)}")
         before = bytes(blob)
         try:
             E.revert_bytes(blob)
@@ -99,7 +108,7 @@ def one_build(path: Path) -> None:
 
     again = bytearray(fixed)
     d2 = E.apply_bytes(again)
-    check("a second apply changes nothing", bytes(again) == fixed and set(d2.values()) == {"already fixed"})
+    check("a second apply changes nothing", bytes(again) == fixed and set(d2.values()) == {"already fixed", "already on"})
 
     # needlefix shares the .text slack: both orders must leave two separate stubs
     for order in ("needle first", "enginefix first"):
@@ -114,7 +123,7 @@ def one_build(path: Path) -> None:
                 E.apply(tmp)
                 needlefix.apply(tmp)
             out = (tmp / name).read_bytes()
-            ok = E.status_bytes(out) == {"obstacle_wake": E.FIXED, "ai_bead_guard": E.FIXED} \
+            ok = E.status_bytes(out) == {"obstacle_wake": E.FIXED, "ai_bead_guard": E.FIXED, "career_hornball": E.FIXED} \
                 and needlefix.status(tmp) not in (needlefix.MISSING,)
             if not is_exe:
                 stub = E._bin_stub_at(out, E._one(E.BIN_FIXED, out, "advance_bead"))

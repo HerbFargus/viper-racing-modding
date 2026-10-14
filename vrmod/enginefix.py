@@ -1,5 +1,5 @@
-"""Two engine bug fixes every install gets: obstacles wake on a restart, and the AI survives
-losing its racing line.
+"""Two engine bug fixes every install gets -- obstacles wake on a restart, and the AI survives
+losing its racing line -- and one behaviour: the horn ball follows its own option in career mode.
 
 Both are documented in docs/reference/file-formats.md ("How an obstacle lives"). In short:
 
@@ -23,9 +23,19 @@ objects in the road), `get_nearest_pair` finds no segment, the car's place on it
     .text slack, which does the check, repeats the loads and jumps back. The slack is found with
     needlefix's allocator, which only ever takes all-zero space, so the two stubs cannot collide.
 
-Both sites are found by signature, and each must match exactly once or nothing is written -- the
+**Horn ball in career.** The horn ball is a hack: `HackHornBall` is `hacks on && horn_ball`, and career mode
+switches the hacks off for as long as it runs (`CareerDo` calls `HackDisable`), so the ball never throws in a
+career race whatever the Hacks screen says. The patch NOPs `HackHornBall`'s first test (`je`, 2 bytes), so the
+ball follows its own option everywhere: on in career too when it's on, and also on when the hacks as a whole
+are off. The other hacks stay off in career. `HackHornBall`, `HackNoWalls` and `HackPaveTheWorld` are three
+copies of the same 24-byte shape, 0x20 apart, in that order, in every build (v1.0 race.exe and race.bin,
+v1.1, the 1.2.x community builds); the patch takes the first of the run of three. The port does the same
+when it finds this patch (viper-racing-port, root_screens.cpp, port_vrmod_has).
+
+The two fixes' sites are found by signature, and each must match exactly once or nothing is written -- the
 same rule as headon. Neither fix changes anything when things go right, so the patch set applies
-them to every install with no option to turn them off.
+them to every install with no option to turn them off. The horn ball's site is optional: a build where the
+run of three isn't found keeps its stock horn ball, and the fixes still go in.
 """
 from __future__ import annotations
 
@@ -40,7 +50,7 @@ ENGINE_NAMES = ("race.exe", "race.bin")        # live one first: v1.0 runs race.
 BACKUP_SUFFIX = ".enginefix-backup"
 
 FIXED, STOCK, UNKNOWN, MISSING = "fixed", "stock", "unknown", "missing"
-FIXES = ("obstacle_wake", "ai_bead_guard")
+FIXES = ("obstacle_wake", "ai_bead_guard", "career_hornball")
 
 
 class EngineFixError(RuntimeError):
@@ -56,6 +66,30 @@ WAKE_STOCK_BYTES, WAKE_FIXED_BYTES = bytes.fromhex("c38bff"), b"\x90\x90\x90"
 WAKE_AT = 0x1d
 WAKE_STOCK = re.compile(_WAKE % re.escape(WAKE_STOCK_BYTES), re.S)
 WAKE_FIXED = re.compile(_WAKE % re.escape(WAKE_FIXED_BYTES), re.S)
+
+# ---- horn ball in career ---------------------------------------------------------------------------
+# cmp byte [hacks on], 0; je no; cmp byte [the hack's flag], 0; je no; mov al, 1; ret; no: xor al, al; ret
+_HACK = rb"\x80\x3d(....)\x00%s\x80\x3d....\x00\x74\x03\xb0\x01\xc3\x32\xc0\xc3"
+HORN_STOCK_BYTES, HORN_FIXED_BYTES = b"\x74\x0c", b"\x90\x90"
+HORN_AT = 7
+_HACK_STOCK = re.compile(_HACK % re.escape(HORN_STOCK_BYTES), re.S)
+_HACK_FIXED = re.compile(_HACK % re.escape(HORN_FIXED_BYTES), re.S)
+
+
+def _horn_site(blob: bytes) -> tuple[int, bool] | None:
+    """(HackHornBall's file offset, patched?): the first of the run of three hack getters 0x20 apart that share
+    one hacks-on flag, or None when the build doesn't have exactly one such run."""
+    starts = {}
+    for rx, fixed in ((_HACK_STOCK, False), (_HACK_FIXED, True)):
+        for m in rx.finditer(blob):
+            starts[m.start()] = (m.group(1), fixed)
+    runs = [o for o in starts if o + 0x20 in starts and o + 0x40 in starts and o - 0x20 not in starts
+            and starts[o][0] == starts[o + 0x20][0] == starts[o + 0x40][0]
+            and not starts[o + 0x20][1] and not starts[o + 0x40][1]]
+    if len(runs) != 1:
+        return None
+    return runs[0], starts[runs[0]][1]
+
 
 # ---- AI bead guard, race.exe form ------------------------------------------------------------------
 # advance_bead's prologue: the four profiler calls carry absolute addresses, so they are wildcards.
@@ -141,16 +175,24 @@ def _guard_state(blob: bytes) -> str:
     return UNKNOWN
 
 
+def _horn_state(blob: bytes) -> str:
+    site = _horn_site(blob)
+    return UNKNOWN if site is None else (FIXED if site[1] else STOCK)
+
+
 def status_bytes(blob: bytes) -> dict[str, str]:
-    return {"obstacle_wake": _wake_state(blob), "ai_bead_guard": _guard_state(blob)}
+    return {"obstacle_wake": _wake_state(blob), "ai_bead_guard": _guard_state(blob),
+            "career_hornball": _horn_state(blob)}
 
 
 def apply_bytes(blob: bytearray) -> dict[str, str]:
-    """Apply both fixes in place. Idempotent; refuses a build it does not recognise."""
+    """Apply both fixes and the career horn ball in place. Idempotent; refuses a build whose fixes it does not
+    recognise (the horn ball's site alone missing is skipped)."""
     done = {}
     state = status_bytes(bytes(blob))
-    if UNKNOWN in state.values():
-        bad = ", ".join(k for k, v in state.items() if v == UNKNOWN)
+    required = {k: v for k, v in state.items() if k != "career_hornball"}      # the horn ball's site is optional
+    if UNKNOWN in required.values():
+        bad = ", ".join(k for k, v in required.items() if v == UNKNOWN)
         raise EngineFixError(f"not a recognised engine build ({bad} not found); nothing written")
 
     if state["obstacle_wake"] == STOCK:
@@ -180,6 +222,15 @@ def apply_bytes(blob: bytearray) -> dict[str, str]:
             done["ai_bead_guard"] = f"advance_bead jumps to a guard stub (at {src:#x} -> {stub:#x})"
     else:
         done["ai_bead_guard"] = "already fixed"
+
+    if state["career_hornball"] == STOCK:
+        at = _horn_site(bytes(blob))[0] + HORN_AT
+        blob[at:at + 2] = HORN_FIXED_BYTES
+        done["career_hornball"] = f"HackHornBall follows the horn-ball option, career too (at {at:#x})"
+    elif state["career_hornball"] == FIXED:
+        done["career_hornball"] = "already on"
+    else:
+        done["career_hornball"] = "not found in this build: the horn ball stays a hack (off in career)"
     return done
 
 
@@ -198,6 +249,9 @@ def revert_bytes(blob: bytearray) -> None:
     if m:
         at = m.start() + WAKE_AT
         blob[at:at + 3] = WAKE_STOCK_BYTES
+    site = _horn_site(bytes(blob))
+    if site and site[1]:
+        blob[site[0] + HORN_AT:site[0] + HORN_AT + 2] = HORN_STOCK_BYTES
     m = _one(BIN_FIXED, bytes(blob), "advance_bead")
     if m:
         stub = _bin_stub_at(bytes(blob), m)
@@ -227,7 +281,7 @@ def status(data_dir: str | Path) -> dict[str, str]:
 
 
 def apply(data_dir: str | Path) -> dict[str, str]:
-    """Apply both fixes to the install's live engine, backing it up once first."""
+    """Apply the fixes and the career horn ball to the install's live engine, backing it up once first."""
     f = engine(data_dir)
     blob = bytearray(f.read_bytes())
     done = apply_bytes(blob)
