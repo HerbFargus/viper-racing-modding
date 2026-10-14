@@ -47,7 +47,7 @@ import threading
 import webbrowser
 from pathlib import Path
 
-from . import aifield, ainames, archive, casefold, enginefix, backups, carshot, cf, dekey, doctor, envelope, grf, hornball, careersave, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch, headon, drawdistance, writepaths, modassert, carlist, modern_engine, modtool
+from . import aifield, ainames, archive, casefold, enginefix, backups, carshot, cf, dekey, doctor, envelope, grf, hornball, careersave, upgradeunlock, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch, headon, drawdistance, writepaths, modassert, carlist, modern_engine, modtool
 
 _PAGE = r"""<!doctype html>
 <meta charset="utf-8"><title>Viper Racing -- Mod Manager</title>
@@ -1382,6 +1382,16 @@ async function renderGame(){
        so it works on the original game and the port. Do it with the game <b>closed</b>: the game
        keeps the career in memory and saves it over the file. The first edit keeps a copy in
        <code>Backups</code>.</p>
+     ${['on', 'off'].includes(cr.all_upgrades) ? `
+       <div class="ai-row" style="margin-top:12px;gap:10px;flex-wrap:wrap">
+         <span style="width:240px;flex:0 0 240px"><b style="color:var(--fg)">All upgrades on sale</b>
+           <span style="opacity:.55">&middot; ${cr.all_upgrades === 'on' ? 'on' : 'off (as shipped)'}</span></span>
+         <button class="mini ${cr.all_upgrades === 'on' ? 'on' : ''}"
+           onclick="setAllUpgrades(${cr.all_upgrades !== 'on'})">${cr.all_upgrades === 'on' ? 'Turn off' : 'Turn on'}</button>
+         <span class="lede" style="margin:0;flex:1 1 300px">The shop sells every upgrade from the first week,
+           whatever the career's class. You still pay for each, and one that needs another first still does.
+           Patches the engine; the game must be closed.</span>
+       </div>` : ''}
      ${careers.length ? careers.map(c => `
        <div class="ai-row" style="margin-top:10px;gap:10px;flex-wrap:wrap">
          <span style="width:240px;flex:0 0 240px"><b style="color:var(--fg)">${esc(c.name)}</b>
@@ -1444,6 +1454,13 @@ async function renderGame(){
   el$('config').innerHTML = opponents + drivers + hoPanel + linesPanel + aiCar + cars + tracks
                           + hbPanel + crPanel + mePanel + resPanel + ddPanel + fixes;
   if(hbPanel) for(const k of ['model', 'spawn']) paintLink(k);
+}
+
+async function setAllUpgrades(on){
+  const r = await api('/api/career', {all_upgrades: on});
+  if(!r.ok) return toast(r.error, 'bad');
+  toast(r.message);
+  renderGame();
 }
 
 async function setCareerFunds(slot){
@@ -1780,7 +1797,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             return self._json({"state": state, "site": at})
         if self.path == "/api/career":
             return self._json({"careers": [c.to_json() for c in careersave.list_careers(d)],
-                               "funds_max": careersave.FUNDS_MAX})
+                               "funds_max": careersave.FUNDS_MAX,
+                               "all_upgrades": upgradeunlock.status(d)})
         if self.path == "/api/drawdistance":
             try:
                 value, f = drawdistance.read(d)
@@ -2050,6 +2068,17 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                     return self._json({"ok": False, "error": str(e)}, 400)
                 return self._json({"ok": True, "message": msg,
                                    "state": headon.status(d)})
+            if self.path == "/api/career" and "all_upgrades" in req:
+                try:
+                    if req.get("all_upgrades"):
+                        upgradeunlock.apply(d)
+                    else:
+                        upgradeunlock.revert(d)
+                except upgradeunlock.PatchError as e:
+                    return self._json({"ok": False, "error": str(e)}, 400)
+                on = upgradeunlock.status(d) == upgradeunlock.ON
+                return self._json({"ok": True, "message": "Every upgrade is on sale from the first week."
+                                   if on else "Upgrades unlock by class again, as the game ships."})
             if self.path == "/api/career":
                 try:
                     c = careersave.set_funds(d, int(req.get("slot")), int(req.get("funds")))
