@@ -265,6 +265,8 @@ class CarryOver:
     writepath_kinds: list[str] = field(default_factory=list)
     modassert: bool = False
     headon_disabled: bool = False
+    upgrades_unlocked: bool = False
+    career_hornball: bool = False
     # speed, cooldown, size, spawn ahead, spawn up, mass (the last four None where unfound)
     hornball: tuple[float, float, float | None, float | None, float | None, float | None] | None = None
     carlist: object | None = None          # carlist.Geometry, when not stock
@@ -277,7 +279,8 @@ class CarryOver:
 
     def __bool__(self) -> bool:
         return bool(self.writepath_kinds or self.modassert
-                    or self.headon_disabled or self.hornball or self.resolution
+                    or self.headon_disabled or self.upgrades_unlocked or self.career_hornball or self.hornball
+                    or self.resolution
                     or self.carlist)
 
     def describe(self) -> list[str]:
@@ -288,6 +291,10 @@ class CarryOver:
             out.append("module assertion silenced")
         if self.headon_disabled:
             out.append("head-on panic disabled")
+        if self.upgrades_unlocked:
+            out.append("all upgrades on sale")
+        if self.career_hornball:
+            out.append("horn ball in career")
         if self.hornball:
             size, mass = self.hornball[2], self.hornball[5]
             out.append(f"horn ball {self.hornball[0]:.2f}x / {self.hornball[1]:.2f}s"
@@ -315,6 +322,16 @@ def _capture(d: Path) -> CarryOver:
         pass
     try:
         c.headon_disabled = headon.status(d) == headon.DISABLED_STATE
+    except Exception:
+        pass
+    try:
+        from . import upgradeunlock
+        c.upgrades_unlocked = upgradeunlock.status(d) == upgradeunlock.ON
+    except Exception:
+        pass
+    try:
+        from . import careerhorn
+        c.career_hornball = careerhorn.status(d) == careerhorn.ON
     except Exception:
         pass
     try:
@@ -360,6 +377,20 @@ def _reapply(d: Path, c: CarryOver, rep: "Report") -> None:
             rep.add("carried", "head-on panic disabled again")
         except Exception as e:
             rep.notes.append(f"could not re-disable the head-on panic: {e}")
+    if c.upgrades_unlocked:
+        try:
+            from . import upgradeunlock
+            upgradeunlock.apply(d)
+            rep.add("carried", "all upgrades on sale again")
+        except Exception as e:
+            rep.notes.append(f"could not put every upgrade back on sale: {e}")
+    if c.career_hornball:
+        try:
+            from . import careerhorn
+            careerhorn.apply(d)
+            rep.add("carried", "horn ball in career again")
+        except Exception as e:
+            rep.notes.append(f"could not put the horn ball back in career: {e}")
     if c.hornball:
         speed, cool, size, ahead, up, mass = c.hornball
         spawn = hornball.spawn_available(d)
@@ -402,6 +433,12 @@ def _patch_score(d: Path) -> int:
         if modassert.status(d) == modassert.PATCHED:
             score += 1
         if headon.status(d) == headon.DISABLED_STATE:
+            score += 1
+        from . import upgradeunlock
+        if upgradeunlock.status(d) == upgradeunlock.ON:
+            score += 1
+        from . import careerhorn
+        if careerhorn.status(d) == careerhorn.ON:
             score += 1
         for st in writepaths.status(d).values():
             score += sum(1 for v in st.values() if v == "patched")

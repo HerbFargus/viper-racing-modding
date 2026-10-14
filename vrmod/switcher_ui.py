@@ -47,7 +47,7 @@ import threading
 import webbrowser
 from pathlib import Path
 
-from . import aifield, ainames, archive, casefold, enginefix, backups, carshot, cf, dekey, doctor, envelope, grf, hornball, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch, headon, drawdistance, writepaths, modassert, carlist, modern_engine, modtool
+from . import aifield, ainames, archive, casefold, enginefix, backups, carshot, cf, dekey, doctor, envelope, grf, hornball, careersave, upgradeunlock, careerhorn, mod as mod_mod, patchset, primarycar, resolution, stp, switcher, track as track_mod, trackmap, vertexbuffer, viewer, vrampatch, headon, drawdistance, writepaths, modassert, carlist, modern_engine, modtool
 
 _PAGE = r"""<!doctype html>
 <meta charset="utf-8"><title>Viper Racing -- Mod Manager</title>
@@ -187,6 +187,11 @@ body.resizing #frame{pointer-events:none}   /* keep the drag out of the iframe *
 .e{color:var(--bad)}
 
 .empty{color:var(--dim);padding:10px;font-style:italic}
+body.busy{cursor:progress}
+body.busy button{opacity:.55;pointer-events:none}
+#working{position:fixed;left:20px;bottom:20px;display:none;background:var(--panel);border:1px solid var(--line, #343946);
+         border-radius:6px;padding:8px 14px;font-size:.85rem;color:var(--fg);z-index:50}
+.loading{padding:40px 20px;opacity:.7}
 #toast{position:fixed;right:20px;bottom:20px;background:var(--panel);
        border:1px solid var(--edge);border-left:3px solid var(--acc);
        border-radius:6px;padding:11px 15px;max-width:420px;display:none;
@@ -364,6 +369,7 @@ header .path{cursor:default}
 <!-- The Game tab: a configurator for the game as a whole (opponents, cars,
      tracks, fixes), as opposed to Library which is for editing one asset. -->
 <main id="view-game" hidden><div class="config" id="config"></div></main>
+<div id="working">Working&hellip;</div>
 
 <main id="view-library" hidden>
   <section id="lib">
@@ -394,9 +400,21 @@ header .path{cursor:default}
 <script>
 let STATE = null, SEL = null, FILTER = 'all', VIEW = 'library', AI_MOD = '';
 
-const api = (p, body) => fetch(p, body ? {
-    method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
-  } : undefined).then(r => r.json());
+// A change (POST) can take a few seconds -- an engine patch rewrites race.exe, then the page reloads its panels -- so
+// while one is in flight the page says so: buttons dimmed, "Working..." at the bottom, a progress cursor.
+let BUSY = 0;
+function setBusy(d){
+  BUSY = Math.max(0, BUSY + d);
+  document.body.classList.toggle('busy', BUSY > 0);
+  const w = el$('working');
+  if(w) w.style.display = BUSY > 0 ? 'block' : 'none';
+}
+const api = (p, body) => {
+  if(!body) return fetch(p).then(r => r.json());
+  setBusy(1);
+  return fetch(p, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
+    .then(r => r.json()).finally(() => setBusy(-1));
+};
 
 const el$ = (id) => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1029,7 +1047,16 @@ function aiCandidates(){
     c.name.toLowerCase() !== 'viper.car' && c.name.toLowerCase().endsWith('.car'));
 }
 
-async function renderGame(){
+// the doctor's last report, and the request for a fresh one (at most one at a time)
+let DOCTOR = null, DOCTOR_RUN = null;
+function refreshDoctor(){
+  if(DOCTOR_RUN) return DOCTOR_RUN;
+  DOCTOR_RUN = api('/api/doctor').then(r => { DOCTOR = r; })
+    .finally(() => { DOCTOR_RUN = null; if(!el$('view-game').hidden) renderGame({doctorDone: true}); });
+  return DOCTOR_RUN;
+}
+
+async function renderGame(opts = {}){
   if(!STATE) return;
   const af = STATE.ai_field || {count:null, max:15};
   const count = af.count == null ? 0 : af.count, total = count + 1;
@@ -1042,10 +1069,14 @@ async function renderGame(){
   const aside = (STATE.cars || []).length - active;
   const modded = (STATE.slots || []).filter(s => !s.is_stock).length;
   const kb = b => (b/1024 | 0).toLocaleString();
-  const dr = await api('/api/doctor');
-  const hb = await api('/api/hornball');
-  const ho = await api('/api/headon');
-  const dd = await api('/api/drawdistance');
+  // The doctor reads every file it checks and takes several seconds; everything else answers at once. So the page
+  // draws with the last doctor report (or "Checking...") and the doctor runs behind it, redrawing when it lands.
+  if(!el$('config').innerHTML.trim())
+    el$('config').innerHTML = '<div class="loading">Loading the game settings&hellip;</div>';
+  if(!opts.doctorDone) refreshDoctor();
+  const [hb, ho, dd, cr] = await Promise.all(
+    ['/api/hornball', '/api/headon', '/api/drawdistance', '/api/career'].map(u => api(u)));
+  const dr = DOCTOR || {worst: 'pending', findings: []};
 
   // ONE panel for everything about the AI: how many, who, how they react, which line
   // they follow, and the crash guard. Sub-sections, not separate panels.
@@ -1370,6 +1401,51 @@ async function renderGame(){
 
   // The stored value is a fraction (units = value*1700+300); the UI talks in
   // units throughout, because nobody thinks in fractions of 1700.
+  // Career saves: each slot's money (Config\career\career<slot>.dat, careersave.py). A save edit, so it
+  // works on the original game and the port alike.
+  const careers = (cr && cr.careers) || [];
+  const crPanel = `
+   <div class="panel">
+     <div class="panel-head"><h2>Career</h2>
+       <span class="note">${careers.length ? careers.length + ' saved' : 'no careers yet'}</span></div>
+     <p class="lede">Each career starts with no money. Set a career's funds here &mdash; a save edit,
+       so it works on the original game and the port. Do it with the game <b>closed</b>: the game
+       keeps the career in memory and saves it over the file. The first edit keeps a copy in
+       <code>Backups</code>.</p>
+     ${['on', 'off'].includes(cr.career_hornball) ? `
+       <div class="ai-row" style="margin-top:12px;gap:10px;flex-wrap:wrap">
+         <span style="width:240px;flex:0 0 240px"><b style="color:var(--fg)">Horn ball in career</b>
+           <span style="opacity:.55">&middot; ${cr.career_hornball === 'on' ? 'on' : 'off (as shipped)'}</span></span>
+         <button class="mini ${cr.career_hornball === 'on' ? 'on' : ''}"
+           onclick="setCareerHornball(${cr.career_hornball !== 'on'})">${cr.career_hornball === 'on' ? 'Turn off' : 'Turn on'}</button>
+         <span class="lede" style="margin:0;flex:1 1 300px">Career mode turns the game's hacks off, the horn ball with
+           them. On, the ball throws in career races whenever the horn ball itself is on (the Hacks screen's
+           <i>Horn ball</i>: <code>horn_ball ${esc(cr.hornball_option || '?')}</code> now); the other hacks stay off.
+           Patches the engine; the game must be closed.</span>
+       </div>` : ''}
+     ${['on', 'off'].includes(cr.all_upgrades) ? `
+       <div class="ai-row" style="margin-top:12px;gap:10px;flex-wrap:wrap">
+         <span style="width:240px;flex:0 0 240px"><b style="color:var(--fg)">All upgrades on sale</b>
+           <span style="opacity:.55">&middot; ${cr.all_upgrades === 'on' ? 'on' : 'off (as shipped)'}</span></span>
+         <button class="mini ${cr.all_upgrades === 'on' ? 'on' : ''}"
+           onclick="setAllUpgrades(${cr.all_upgrades !== 'on'})">${cr.all_upgrades === 'on' ? 'Turn off' : 'Turn on'}</button>
+         <span class="lede" style="margin:0;flex:1 1 300px">The shop sells every upgrade from the first week,
+           whatever the career's class. You still pay for each, and one that needs another first still does.
+           Patches the engine; the game must be closed.</span>
+       </div>` : ''}
+     ${careers.length ? careers.map(c => `
+       <div class="ai-row" style="margin-top:10px;gap:10px;flex-wrap:wrap">
+         <span style="width:240px;flex:0 0 240px"><b style="color:var(--fg)">${esc(c.name)}</b>
+           <span style="opacity:.55">&middot; slot ${c.slot} &middot; class ${c.class + 1},
+             week ${c.week}</span></span>
+         <span class="field-label">Funds $</span>
+         <input id="cr-funds-${c.slot}" type="number" min="0" max="${cr.funds_max}" step="1000"
+           value="${c.funds}" style="width:140px">
+         <button class="mini" onclick="setCareerFunds(${c.slot})">Save</button>
+       </div>`).join('') : `<p class="lede" style="margin-top:10px">Start a career in the game first;
+       its slot shows up here.</p>`}
+   </div>`;
+
   const ddPanel = !(dd && dd.available) ? '' : (() => {
     const at = dd.units, slider = dd.slider_units;
     const note = at > slider ? `${(at/slider).toFixed(0)}\u00d7 the slider`
@@ -1401,7 +1477,7 @@ async function renderGame(){
   const fixes = `
    <div class="panel">
      <div class="panel-head"><h2>Compatibility &amp; fixes</h2>
-       <span class="note">${dr.worst==='ok' ? 'All good'
+       <span class="note">${dr.worst==='pending' ? 'Checking&hellip;' : dr.worst==='ok' ? 'All good'
          : dr.worst==='warn' ? 'Things to check' : 'Needs attention'}</span></div>
      <div>
        ${dr.findings.filter(f => !isDrivers(f)).map(f => `
@@ -1417,8 +1493,30 @@ async function renderGame(){
    </div>`;
 
   el$('config').innerHTML = opponents + drivers + hoPanel + linesPanel + aiCar + cars + tracks
-                          + hbPanel + mePanel + resPanel + ddPanel + fixes;
+                          + hbPanel + crPanel + mePanel + resPanel + ddPanel + fixes;
   if(hbPanel) for(const k of ['model', 'spawn']) paintLink(k);
+}
+
+async function setCareerHornball(on){
+  const r = await api('/api/career', {career_hornball: on});
+  if(!r.ok) return toast(r.error, 'bad');
+  toast(r.message);
+  renderGame();
+}
+
+async function setAllUpgrades(on){
+  const r = await api('/api/career', {all_upgrades: on});
+  if(!r.ok) return toast(r.error, 'bad');
+  toast(r.message);
+  renderGame();
+}
+
+async function setCareerFunds(slot){
+  const funds = Math.round(+el$('cr-funds-' + slot).value);
+  const r = await api('/api/career', {slot, funds});
+  if(!r.ok) return toast(r.error, 'bad');
+  toast(r.message);
+  renderGame();
 }
 
 async function setDrawDistance(units){
@@ -1745,6 +1843,18 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             except headon.PatchError:
                 state, at = headon.UNKNOWN, None
             return self._json({"state": state, "site": at})
+        if self.path == "/api/career":
+            opt = None
+            try:
+                o = writepaths.options_file(d)
+                opt = drawdistance.get_line(o, "horn_ball") if o else None
+            except Exception:
+                pass
+            return self._json({"careers": [c.to_json() for c in careersave.list_careers(d)],
+                               "funds_max": careersave.FUNDS_MAX,
+                               "all_upgrades": upgradeunlock.status(d),
+                               "career_hornball": careerhorn.status(d),
+                               "hornball_option": opt})
         if self.path == "/api/drawdistance":
             try:
                 value, f = drawdistance.read(d)
@@ -2014,6 +2124,36 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                     return self._json({"ok": False, "error": str(e)}, 400)
                 return self._json({"ok": True, "message": msg,
                                    "state": headon.status(d)})
+            if self.path == "/api/career" and "career_hornball" in req:
+                try:
+                    if req.get("career_hornball"):
+                        careerhorn.apply(d)
+                    else:
+                        careerhorn.revert(d)
+                except careerhorn.PatchError as e:
+                    return self._json({"ok": False, "error": str(e)}, 400)
+                on = careerhorn.status(d) == careerhorn.ON
+                return self._json({"ok": True, "message": "The horn ball is on in career races (it follows its "
+                                   "own option there)." if on else "Career races as shipped: no horn ball."})
+            if self.path == "/api/career" and "all_upgrades" in req:
+                try:
+                    if req.get("all_upgrades"):
+                        upgradeunlock.apply(d)
+                    else:
+                        upgradeunlock.revert(d)
+                except upgradeunlock.PatchError as e:
+                    return self._json({"ok": False, "error": str(e)}, 400)
+                on = upgradeunlock.status(d) == upgradeunlock.ON
+                return self._json({"ok": True, "message": "Every upgrade is on sale from the first week."
+                                   if on else "Upgrades unlock by class again, as the game ships."})
+            if self.path == "/api/career":
+                try:
+                    c = careersave.set_funds(d, int(req.get("slot")), int(req.get("funds")))
+                except (careersave.CareerError, TypeError, ValueError) as e:
+                    return self._json({"ok": False, "error": str(e)}, 400)
+                return self._json({"ok": True, "career": c.to_json(),
+                                   "message": f"{c.name}: funds now ${c.funds:,}. Set this with the game "
+                                              "closed -- it saves the career over the file."})
             if self.path == "/api/drawdistance":
                 try:
                     if req.get("reset"):
